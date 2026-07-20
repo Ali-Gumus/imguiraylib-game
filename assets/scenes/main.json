@@ -1,0 +1,79 @@
+{
+  "entities": [
+    {
+      "components": [
+        {
+          "tint": [
+            190,
+            33,
+            55,
+            255
+          ],
+          "type": "Shape",
+          "wireframe": true
+        },
+        {
+          "fovy": 60.0,
+          "type": "Camera"
+        },
+        {
+          "path": "assets/scripts/generated.lua",
+          "type": "Script"
+        }
+      ],
+      "id": 1,
+      "name": "Player",
+      "transform": {
+        "position": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "components": [
+        {
+          "tint": [
+            0,
+            117,
+            44,
+            255
+          ],
+          "type": "Shape",
+          "wireframe": true
+        }
+      ],
+      "id": 2,
+      "name": "Enemy",
+      "transform": {
+        "position": [
+          3.0,
+          0.5,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "nextID": 3
+}
