@@ -22,5 +22,15 @@ function on_update(entity, dt)
     entity.transform.position.y = entity.transform.position.y + 0.000 * dt
     entity.transform.position.z = entity.transform.position.z + 0.000 * dt
     end
+    if input.key_down("SHIFT") then
+    entity.transform.position.x = entity.transform.position.x + 0.000 * dt
+    entity.transform.position.y = entity.transform.position.y + -5.000 * dt
+    entity.transform.position.z = entity.transform.position.z + 0.000 * dt
+    end
+    if input.key_down("SPACE") then
+    entity.transform.position.x = entity.transform.position.x + 0.000 * dt
+    entity.transform.position.y = entity.transform.position.y + 5.000 * dt
+    entity.transform.position.z = entity.transform.position.z + 0.000 * dt
+    end
 end
 

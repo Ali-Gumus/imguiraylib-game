@@ -135,23 +135,26 @@ void Scene::Update(float dt) {
 
 // Local TRS matrix, matching the old rl-stack order: scale first, then
 // rotation Z,X,Y (roll, pitch, yaw), then translation.
-static Matrix LocalMatrix(const Transform3D& t) {
+// ignoreScale = pretend scale is 1,1,1 (see WorldMatrix).
+static Matrix LocalMatrix(const Transform3D& t, bool ignoreScale) {
     Matrix rot = MatrixMultiply(
         MatrixMultiply(MatrixRotateZ(t.rotation.z * DEG2RAD),
                        MatrixRotateX(t.rotation.x * DEG2RAD)),
         MatrixRotateY(t.rotation.y * DEG2RAD));
+    Matrix scale = ignoreScale ? MatrixIdentity()
+                               : MatrixScale(t.scale.x, t.scale.y, t.scale.z);
     return MatrixMultiply(
-        MatrixMultiply(MatrixScale(t.scale.x, t.scale.y, t.scale.z), rot),
+        MatrixMultiply(scale, rot),
         MatrixTranslate(t.position.x, t.position.y, t.position.z));
 }
 
-Matrix Scene::WorldMatrix(const Entity& e) const {
-    Matrix world = LocalMatrix(e.transform);
+Matrix Scene::WorldMatrix(const Entity& e, bool ignoreScale) const {
+    Matrix world = LocalMatrix(e.transform, ignoreScale);
     // Walk up the ancestor chain, multiplying local into each parent.
     // Depth guard: a corrupt file with a parent loop must not hang us.
     const Entity* p = FindConst(e.parent);
     for (int guard = 0; p && guard < 64; ++guard) {
-        world = MatrixMultiply(world, LocalMatrix(p->transform));
+        world = MatrixMultiply(world, LocalMatrix(p->transform, ignoreScale));
         p = FindConst(p->parent);
     }
     return world;

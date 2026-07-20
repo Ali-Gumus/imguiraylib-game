@@ -122,8 +122,10 @@ public:
         // Game view render pass: through the scene's camera entity, if
         // any. (Render textures can be drawn to outside BeginDrawing.)
         if (eng::Entity* camEnt = FindCameraEntity()) {
+            // ignoreScale: a scaled parent must not push the camera away
+            // or skew its aim — position/rotation inherit, scale doesn't.
             Camera3D cam = camEnt->GetComponent<eng::CameraComponent>()
-                                 ->ToCamera3D(m_scene.WorldMatrix(*camEnt));
+                                 ->ToCamera3D(m_scene.WorldMatrix(*camEnt, true));
             BeginTextureMode(m_gameRT);
             ClearBackground(Color{15, 15, 20, 255});
             BeginMode3D(cam);

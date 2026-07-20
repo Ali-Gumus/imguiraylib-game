@@ -102,7 +102,10 @@ public:
 
     // The entity's world-space matrix: its local TRS multiplied up
     // through every ancestor. This is THE scene-graph operation.
-    Matrix WorldMatrix(const Entity& e) const;
+    // ignoreScale: build every step with scale 1,1,1 — position and
+    // rotation still inherit. Used for cameras, so a scaled parent
+    // doesn't push the view around or skew its aim.
+    Matrix WorldMatrix(const Entity& e, bool ignoreScale = false) const;
 
     // Would making `child` a child of `newParent` create a loop?
     // (You can't parent something to its own descendant.)
