@@ -127,10 +127,32 @@ void Scene::Start() {
             c->OnStart(e);
 }
 
+static Scene* s_current = nullptr;
+Scene* Scene::Current() { return s_current; }
+
+void Scene::QueueDestroy(EntityID id) { m_destroyQueue.push_back(id); }
+void Scene::QueueSpawnCube(const std::string& name, Vector3 position) {
+    m_spawnQueue.push_back({name, position});
+}
+
 void Scene::Update(float dt) {
+    s_current = this;                 // scripts' scene.* calls land here
     for (Entity& e : m_entities)
         for (auto& c : e.components)
             c->OnUpdate(dt, e);
+    s_current = nullptr;
+
+    // Process deferred edits now that no one is iterating the vector.
+    for (EntityID id : m_destroyQueue)
+        DestroyEntity(id);            // fires on_destroy hooks as usual
+    m_destroyQueue.clear();
+
+    for (const SpawnRequest& req : m_spawnQueue) {
+        Entity* e = Find(CreateEntity(req.name));
+        e->transform.position = req.position;
+        e->AddComponent<ShapeComponent>();
+    }
+    m_spawnQueue.clear();
 }
 
 // Local TRS matrix, matching the old rl-stack order: scale first, then

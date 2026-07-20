@@ -22,6 +22,9 @@ static const char* TypeTitle(NodeType t) {
         case NodeType::ActionMove:   return "Move";
         case NodeType::ActionPrint:  return "Print";
         case NodeType::CondKey:      return "If Key";
+        case NodeType::CondEvery:    return "Every X s";
+        case NodeType::ActionDestroySelf: return "Destroy Self";
+        case NodeType::ActionSpawnCube:   return "Spawn Cube";
     }
     return "?";
 }
@@ -97,7 +100,14 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         case NodeType::CondKey:
             ImGui::InputText("key", n.key, sizeof(n.key));
             break;
-        default: break;
+        case NodeType::CondEvery:
+            ImGui::DragFloat("seconds", &n.interval, 0.1f, 0.05f, 3600.0f);
+            break;
+        case NodeType::ActionSpawnCube:
+            ImGui::InputText("name", n.text, sizeof(n.text));
+            ImGui::DragFloat3("offset", n.offset, 0.1f);
+            break;
+        default: break;   // Destroy Self has no parameters
     }
     ImGui::PopItemWidth();
     ImGui::PopID();
@@ -183,8 +193,11 @@ void ScriptGraph::HandleContextMenu() {
         if (ImGui::MenuItem("Spin"))  { picked = NodeType::ActionSpin;  add = true; }
         if (ImGui::MenuItem("Move"))  { picked = NodeType::ActionMove;  add = true; }
         if (ImGui::MenuItem("Print")) { picked = NodeType::ActionPrint; add = true; }
+        if (ImGui::MenuItem("Destroy Self")) { picked = NodeType::ActionDestroySelf; add = true; }
+        if (ImGui::MenuItem("Spawn Cube"))   { picked = NodeType::ActionSpawnCube;   add = true; }
         ImGui::Separator();
-        if (ImGui::MenuItem("If Key")) { picked = NodeType::CondKey; add = true; }
+        if (ImGui::MenuItem("If Key"))    { picked = NodeType::CondKey;   add = true; }
+        if (ImGui::MenuItem("Every X s")) { picked = NodeType::CondEvery; add = true; }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
@@ -228,7 +241,8 @@ bool ScriptGraph::Save(const std::string& path) const {
                                 {"x", n.x}, {"y", n.y},
                                 {"speed", n.speed},
                                 {"offset", {n.offset[0], n.offset[1], n.offset[2]}},
-                                {"text", n.text}, {"key", n.key}});
+                                {"text", n.text}, {"key", n.key},
+                                {"interval", n.interval}});
     for (const auto& l : m_links)
         doc["links"].push_back({{"id", l.id}, {"from", l.fromPin}, {"to", l.toPin}});
 
@@ -258,6 +272,7 @@ bool ScriptGraph::Load(const std::string& path) {
             for (int i = 0; i < 3; ++i) n.offset[i] = jn["offset"][i];
         std::strncpy(n.text, jn.value("text", "").c_str(), sizeof(n.text) - 1);
         std::strncpy(n.key,  jn.value("key", "W").c_str(), sizeof(n.key) - 1);
+        n.interval = jn.value("interval", 1.0f);
         m_nodes.push_back(n);
     }
     for (const json& jl : doc.value("links", json::array()))
@@ -300,6 +315,20 @@ static void EmitAction(std::string& lua, const GraphNode& n) {
         case NodeType::ActionPrint:
             lua += "    print(\"" + EscapeLua(n.text) + "\")\n";
             break;
+        case NodeType::ActionDestroySelf:
+            // Only enqueues — the engine applies it after the update
+            // loop, so a script destroying its own entity is safe.
+            lua += "    scene.destroy(entity)\n";
+            break;
+        case NodeType::ActionSpawnCube:
+            snprintf(buf, sizeof(buf),
+                "    scene.spawn_cube(\"%s\",\n"
+                "        entity.transform.position.x + %.3f,\n"
+                "        entity.transform.position.y + %.3f,\n"
+                "        entity.transform.position.z + %.3f)\n",
+                EscapeLua(n.text).c_str(), n.offset[0], n.offset[1], n.offset[2]);
+            lua += buf;
+            break;
         default: break;
     }
 }
@@ -308,6 +337,16 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
     std::string lua =
         "-- GENERATED from a node graph. Edit the GRAPH, not this file --\n"
         "-- your changes here are overwritten on the next generate.\n\n";
+
+    // Timer blocks need state that SURVIVES between frames: one
+    // file-scope accumulator per "Every X s" node, named by node id.
+    for (const auto& n : m_nodes)
+        if (n.type == NodeType::CondEvery) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "local acc_%d = 0\n", n.id);
+            lua += buf;
+        }
+    lua += "\n";
 
     struct Event { int nodeId; const char* header; const char* dt; };
     // on_start/on_destroy run once: dt has no meaning, so actions use 1
@@ -327,6 +366,20 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
             if (depth > 32) return;
             if (n.type == NodeType::CondKey) {
                 lua += "    if input.key_down(\"" + EscapeLua(n.key) + "\") then\n";
+                for (const GraphNode* next : NextInChain(n.id))
+                    emit(lua, *next, depth + 1);
+                lua += "    end\n";
+            } else if (n.type == NodeType::CondEvery) {
+                // Accumulate dt; on crossing the interval, subtract it
+                // (not reset to 0 — leftover time carries over, keeping
+                // the average rate exact) and run the branch.
+                char buf[160];
+                snprintf(buf, sizeof(buf),
+                    "    acc_%d = acc_%d + dt\n"
+                    "    if acc_%d >= %.3f then\n"
+                    "    acc_%d = acc_%d - %.3f\n",
+                    n.id, n.id, n.id, n.interval, n.id, n.id, n.interval);
+                lua += buf;
                 for (const GraphNode* next : NextInChain(n.id))
                     emit(lua, *next, depth + 1);
                 lua += "    end\n";

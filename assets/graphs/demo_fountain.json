@@ -1,0 +1,22 @@
+{
+  "nextID": 300,
+  "nodes": [
+    { "id": 1, "type": 0, "x": 40.0,  "y": 40.0,  "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "", "interval": 1.0, "key": "W" },
+    { "id": 2, "type": 1, "x": 40.0,  "y": 160.0, "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "", "interval": 1.0, "key": "W" },
+    { "id": 3, "type": 2, "x": 40.0,  "y": 280.0, "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "", "interval": 1.0, "key": "W" },
+
+    { "id": 100, "type": 7, "x": 320.0, "y": 60.0,  "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "", "interval": 0.5, "key": "W" },
+    { "id": 101, "type": 9, "x": 600.0, "y": 60.0,  "speed": 90.0, "offset": [0.0, 3.0, 0.0], "text": "drop", "interval": 1.0, "key": "W" },
+
+    { "id": 102, "type": 6, "x": 320.0, "y": 260.0, "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "", "interval": 1.0, "key": "SPACE" },
+    { "id": 103, "type": 5, "x": 600.0, "y": 260.0, "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "goodbye", "interval": 1.0, "key": "W" },
+    { "id": 104, "type": 8, "x": 860.0, "y": 260.0, "speed": 90.0, "offset": [1.0, 0.0, 0.0], "text": "", "interval": 1.0, "key": "W" }
+  ],
+  "links": [
+    { "id": 200, "from": 10,  "to": 401 },
+    { "id": 201, "from": 402, "to": 405 },
+    { "id": 202, "from": 10,  "to": 409 },
+    { "id": 203, "from": 410, "to": 413 },
+    { "id": 204, "from": 414, "to": 417 }
+  ]
+}

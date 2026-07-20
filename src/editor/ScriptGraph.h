@@ -17,6 +17,9 @@ enum class NodeType {
     ActionMove,     // translate by offset
     ActionPrint,    // print a message (great for testing on_destroy)
     CondKey,        // gate: the rest of the chain runs only while a key is held
+    CondEvery,      // gate: fires its branch once every N seconds
+    ActionDestroySelf,  // queue this entity's destruction (safe mid-update)
+    ActionSpawnCube,    // queue spawning a cube at entity position + offset
 };
 
 // Our OWN data model of the graph. The node-editor library only handles
@@ -31,6 +34,7 @@ struct GraphNode {
     float offset[3] = {1.0f, 0.0f, 0.0f};    // Move: units/second
     char  text[128] = "entity destroyed!";   // Print: message
     char  key[8]    = "W";                   // CondKey: key name (W, SPACE, UP...)
+    float interval  = 1.0f;                  // CondEvery: seconds between firings
 
     float x = 0.0f, y = 0.0f;                // canvas position (saved)
 };

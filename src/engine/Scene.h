@@ -90,6 +90,18 @@ public:
     bool Save(const std::string& path) const;
     bool Load(const std::string& path);
 
+    // --- Deferred world edits (the script-facing API) -----------------
+    // Scripts run INSIDE Update's loop over the entity vector; erasing
+    // or growing it right then would invalidate the iteration. So
+    // destroy/spawn only enqueue, and Update processes the queues after
+    // the loop (Unity's Destroy() works the same way).
+    void QueueDestroy(EntityID id);
+    void QueueSpawnCube(const std::string& name, Vector3 position);
+
+    // The scene currently inside Update (nullptr otherwise) — how Lua
+    // bindings reach "their" scene without every script storing a pointer.
+    static Scene* Current();
+
     // Fire every component's OnStart — call once when play mode begins.
     void Start();
 
@@ -121,6 +133,10 @@ public:
 private:
     std::vector<Entity> m_entities;
     EntityID m_nextID = 1;            // ids start at 1; 0 means invalid
+
+    struct SpawnRequest { std::string name; Vector3 position; };
+    std::vector<EntityID>     m_destroyQueue;
+    std::vector<SpawnRequest> m_spawnQueue;
 };
 
 } // namespace eng

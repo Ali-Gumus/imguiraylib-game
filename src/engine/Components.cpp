@@ -105,6 +105,16 @@ void ScriptComponent::Load() {
     input["key_down"]    = [](const std::string& k) { return ScriptInputEnabled() && IsKeyDown(KeyFromName(k)); };
     input["key_pressed"] = [](const std::string& k) { return ScriptInputEnabled() && IsKeyPressed(KeyFromName(k)); };
 
+    // World edits. These only ENQUEUE — the scene applies them after the
+    // update loop, so destroying yourself mid-update is perfectly safe.
+    sol::table scn = m_lua.create_named_table("scene");
+    scn["destroy"] = [](Entity& e) {
+        if (Scene::Current()) Scene::Current()->QueueDestroy(e.id);
+    };
+    scn["spawn_cube"] = [](const std::string& name, float x, float y, float z) {
+        if (Scene::Current()) Scene::Current()->QueueSpawnCube(name, {x, y, z});
+    };
+
     // Run the file. protected = collect the error, don't throw/crash.
     sol::protected_function_result r = m_lua.safe_script_file(path, sol::script_pass_on_error);
     if (!r.valid()) {
