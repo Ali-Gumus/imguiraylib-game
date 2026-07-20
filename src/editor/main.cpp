@@ -5,6 +5,7 @@
 
 #include "imgui.h"
 #include "raylib.h"
+#include "raymath.h"    // Vector3Transform / MatrixInvert for Reparent
 #include "rlImGui.h"
 
 #include "ScriptGraph.h"
@@ -269,18 +270,29 @@ private:
         ImGui::End();
     }
 
-    // Change parent while keeping the entity's VISIBLE size: divide its
-    // world scale by the new parent chain's scale to get the local value.
-    // (Position/rotation aren't compensated yet — the entity may move on
-    // reparent; scale was the painful one.)
+    // Change parent while keeping the entity WHERE IT IS and AT THE SIZE
+    // it was (Unity-style world-transform preservation):
+    //  - position: world position pushed through the INVERSE of the new
+    //    parent's world matrix = that same spot, expressed parent-locally
+    //  - scale: world scale divided by the new parent chain's scale
+    // (Rotation is not compensated yet: under a rotated parent the entity
+    // keeps its local angles, so its world orientation can change.)
     void Reparent(eng::Entity& e, eng::EntityID newParent) {
-        Vector3 world = m_scene.WorldScale(e);       // size before, chain included
+        Vector3 worldPos   = Vector3Transform({0, 0, 0}, m_scene.WorldMatrix(e));
+        Vector3 worldScale = m_scene.WorldScale(e);
+
         e.parent = newParent;
-        Vector3 chain = {1, 1, 1};
+
+        Vector3 chain       = {1, 1, 1};
+        Matrix  parentWorld = MatrixIdentity();
         if (const eng::Entity* p = m_scene.FindConst(newParent)) {
-            chain = m_scene.WorldScale(*p);
+            chain       = m_scene.WorldScale(*p);
+            parentWorld = m_scene.WorldMatrix(*p);
         }
-        e.transform.scale = {world.x / chain.x, world.y / chain.y, world.z / chain.z};
+        e.transform.position = Vector3Transform(worldPos, MatrixInvert(parentWorld));
+        e.transform.scale    = {worldScale.x / chain.x,
+                                worldScale.y / chain.y,
+                                worldScale.z / chain.z};
     }
 
     void DrawHierarchyRow(eng::Entity& e, int depth) {
