@@ -269,6 +269,20 @@ private:
         ImGui::End();
     }
 
+    // Change parent while keeping the entity's VISIBLE size: divide its
+    // world scale by the new parent chain's scale to get the local value.
+    // (Position/rotation aren't compensated yet — the entity may move on
+    // reparent; scale was the painful one.)
+    void Reparent(eng::Entity& e, eng::EntityID newParent) {
+        Vector3 world = m_scene.WorldScale(e);       // size before, chain included
+        e.parent = newParent;
+        Vector3 chain = {1, 1, 1};
+        if (const eng::Entity* p = m_scene.FindConst(newParent)) {
+            chain = m_scene.WorldScale(*p);
+        }
+        e.transform.scale = {world.x / chain.x, world.y / chain.y, world.z / chain.z};
+    }
+
     void DrawHierarchyRow(eng::Entity& e, int depth) {
         ImGui::PushID((int)e.id);   // entities may share a name
         if (depth > 0) ImGui::Indent(depth * 16.0f);
@@ -304,16 +318,18 @@ private:
 
         // --- Parent (the scene-graph link) ----------------------------
         // Cycle-creating choices (own descendants) are filtered out.
+        // On change, local scale is recomputed so the entity keeps its
+        // VISIBLE size (Unity does the same when you reparent).
         const eng::Entity* curParent = m_scene.FindConst(e->parent);
         if (ImGui::BeginCombo("Parent", curParent ? curParent->name.c_str() : "(none)")) {
             if (ImGui::Selectable("(none)", e->parent == eng::kInvalidEntity))
-                e->parent = eng::kInvalidEntity;
+                Reparent(*e, eng::kInvalidEntity);
             for (auto& other : m_scene.Entities()) {
                 if (other.id == e->id) continue;                  // not yourself
                 if (m_scene.WouldCycle(e->id, other.id)) continue; // no loops
                 ImGui::PushID((int)other.id);
                 if (ImGui::Selectable(other.name.c_str(), e->parent == other.id))
-                    e->parent = other.id;
+                    Reparent(*e, other.id);
                 ImGui::PopID();
             }
             ImGui::EndCombo();

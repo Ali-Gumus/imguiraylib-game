@@ -151,6 +151,9 @@ static Matrix LocalMatrix(const Transform3D& t, bool ignoreScale) {
 Matrix Scene::WorldMatrix(const Entity& e, bool ignoreScale) const {
     Matrix world = LocalMatrix(e.transform, ignoreScale);
     // Walk up the ancestor chain, multiplying local into each parent.
+    // Scale PROPAGATES (Unity's model) — the editor compensates local
+    // scale on reparenting so things don't visibly resize; the camera
+    // opts out entirely via ignoreScale.
     // Depth guard: a corrupt file with a parent loop must not hang us.
     const Entity* p = FindConst(e.parent);
     for (int guard = 0; p && guard < 64; ++guard) {
@@ -158,6 +161,21 @@ Matrix Scene::WorldMatrix(const Entity& e, bool ignoreScale) const {
         p = FindConst(p->parent);
     }
     return world;
+}
+
+Vector3 Scene::WorldScale(const Entity& e) const {
+    // Component-wise product up the chain. (Approximation: treats scale
+    // axes as aligned — exact when ancestors aren't rotated relative to
+    // each other, close enough for editor compensation otherwise.)
+    Vector3 s = e.transform.scale;
+    const Entity* p = FindConst(e.parent);
+    for (int guard = 0; p && guard < 64; ++guard) {
+        s.x *= p->transform.scale.x;
+        s.y *= p->transform.scale.y;
+        s.z *= p->transform.scale.z;
+        p = FindConst(p->parent);
+    }
+    return s;
 }
 
 bool Scene::WouldCycle(EntityID child, EntityID newParent) const {

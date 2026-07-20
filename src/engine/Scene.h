@@ -107,6 +107,10 @@ public:
     // doesn't push the view around or skew its aim.
     Matrix WorldMatrix(const Entity& e, bool ignoreScale = false) const;
 
+    // Accumulated scale down the ancestor chain (component-wise product).
+    // The editor uses it to keep visible size constant when reparenting.
+    Vector3 WorldScale(const Entity& e) const;
+
     // Would making `child` a child of `newParent` create a loop?
     // (You can't parent something to its own descendant.)
     bool WouldCycle(EntityID child, EntityID newParent) const;
