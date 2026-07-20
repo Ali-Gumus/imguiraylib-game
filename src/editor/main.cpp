@@ -123,7 +123,7 @@ public:
         // any. (Render textures can be drawn to outside BeginDrawing.)
         if (eng::Entity* camEnt = FindCameraEntity()) {
             Camera3D cam = camEnt->GetComponent<eng::CameraComponent>()
-                                 ->ToCamera3D(*camEnt);
+                                 ->ToCamera3D(m_scene.WorldMatrix(*camEnt));
             BeginTextureMode(m_gameRT);
             ClearBackground(Color{15, 15, 20, 255});
             BeginMode3D(cam);
@@ -259,14 +259,25 @@ private:
 
         ImGui::Separator();
 
-        for (auto& e : m_scene.Entities()) {
-            ImGui::PushID((int)e.id);   // entities may share a name
-            if (ImGui::Selectable(e.name.c_str(), e.id == m_selected))
-                m_selected = e.id;
-            ImGui::PopID();
-        }
+        // Roots first; each recurses into its children, indented.
+        for (auto& e : m_scene.Entities())
+            if (e.parent == eng::kInvalidEntity)
+                DrawHierarchyRow(e, 0);
 
         ImGui::End();
+    }
+
+    void DrawHierarchyRow(eng::Entity& e, int depth) {
+        ImGui::PushID((int)e.id);   // entities may share a name
+        if (depth > 0) ImGui::Indent(depth * 16.0f);
+        if (ImGui::Selectable(e.name.c_str(), e.id == m_selected))
+            m_selected = e.id;
+        if (depth > 0) ImGui::Unindent(depth * 16.0f);
+        ImGui::PopID();
+
+        for (auto& child : m_scene.Entities())
+            if (child.parent == e.id)
+                DrawHierarchyRow(child, depth + 1);
     }
 
     // Edits the selected entity. Generic on purpose: it knows about name
@@ -288,6 +299,23 @@ private:
         buf[sizeof(buf) - 1] = '\0';
         if (ImGui::InputText("Name", buf, sizeof(buf)))
             e->name = buf;
+
+        // --- Parent (the scene-graph link) ----------------------------
+        // Cycle-creating choices (own descendants) are filtered out.
+        const eng::Entity* curParent = m_scene.FindConst(e->parent);
+        if (ImGui::BeginCombo("Parent", curParent ? curParent->name.c_str() : "(none)")) {
+            if (ImGui::Selectable("(none)", e->parent == eng::kInvalidEntity))
+                e->parent = eng::kInvalidEntity;
+            for (auto& other : m_scene.Entities()) {
+                if (other.id == e->id) continue;                  // not yourself
+                if (m_scene.WouldCycle(e->id, other.id)) continue; // no loops
+                ImGui::PushID((int)other.id);
+                if (ImGui::Selectable(other.name.c_str(), e->parent == other.id))
+                    e->parent = other.id;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
 
         // --- Transform (built-in, always present) ---------------------
         ImGui::SeparatorText("Transform");

@@ -1,6 +1,9 @@
 #include "engine/Scene.h"
 #include "engine/Components.h"   // MakeComponent — the registry, for loading
 
+#include "raymath.h"             // Matrix math (raylib's bundled glm-equivalent)
+#include "rlgl.h"                // matrix stack for Draw
+
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -24,6 +27,7 @@ bool Scene::Save(const std::string& path) const {
         json je;
         je["id"]        = e.id;
         je["name"]      = e.name;
+        je["parent"]    = e.parent;
         je["transform"] = {{"position", ToJson(e.transform.position)},
                            {"rotation", ToJson(e.transform.rotation)},
                            {"scale",    ToJson(e.transform.scale)}};
@@ -55,8 +59,9 @@ bool Scene::Load(const std::string& path) {
     std::vector<Entity> loaded;
     for (const json& je : doc.value("entities", json::array())) {
         Entity e;
-        e.id   = je.value("id", 0u);
-        e.name = je.value("name", "unnamed");
+        e.id     = je.value("id", 0u);
+        e.name   = je.value("name", "unnamed");
+        e.parent = je.value("parent", kInvalidEntity);
         if (je.contains("transform")) {
             const json& jt = je["transform"];
             e.transform.position = Vec3FromJson(jt.value("position", json()), {0, 0, 0});
@@ -91,6 +96,11 @@ void Scene::DestroyEntity(EntityID id) {
         for (auto& c : e->components)
             c->OnDestroy(*e);
 
+    // Children lose their parent, not their life. (Unity destroys the
+    // whole subtree instead — a policy we can adopt later if we want.)
+    for (Entity& e : m_entities)
+        if (e.parent == id) e.parent = kInvalidEntity;
+
     // erase + remove_if: the standard C++ idiom for "delete matching
     // elements from a vector" (remove_if compacts, erase truncates).
     m_entities.erase(
@@ -101,6 +111,12 @@ void Scene::DestroyEntity(EntityID id) {
 
 Entity* Scene::Find(EntityID id) {
     for (Entity& e : m_entities)
+        if (e.id == id) return &e;
+    return nullptr;
+}
+
+const Entity* Scene::FindConst(EntityID id) const {
+    for (const Entity& e : m_entities)
         if (e.id == id) return &e;
     return nullptr;
 }
@@ -117,12 +133,49 @@ void Scene::Update(float dt) {
             c->OnUpdate(dt, e);
 }
 
+// Local TRS matrix, matching the old rl-stack order: scale first, then
+// rotation Z,X,Y (roll, pitch, yaw), then translation.
+static Matrix LocalMatrix(const Transform3D& t) {
+    Matrix rot = MatrixMultiply(
+        MatrixMultiply(MatrixRotateZ(t.rotation.z * DEG2RAD),
+                       MatrixRotateX(t.rotation.x * DEG2RAD)),
+        MatrixRotateY(t.rotation.y * DEG2RAD));
+    return MatrixMultiply(
+        MatrixMultiply(MatrixScale(t.scale.x, t.scale.y, t.scale.z), rot),
+        MatrixTranslate(t.position.x, t.position.y, t.position.z));
+}
+
+Matrix Scene::WorldMatrix(const Entity& e) const {
+    Matrix world = LocalMatrix(e.transform);
+    // Walk up the ancestor chain, multiplying local into each parent.
+    // Depth guard: a corrupt file with a parent loop must not hang us.
+    const Entity* p = FindConst(e.parent);
+    for (int guard = 0; p && guard < 64; ++guard) {
+        world = MatrixMultiply(world, LocalMatrix(p->transform));
+        p = FindConst(p->parent);
+    }
+    return world;
+}
+
+bool Scene::WouldCycle(EntityID child, EntityID newParent) const {
+    // Walk up from the proposed parent; meeting `child` means a loop.
+    for (const Entity* p = FindConst(newParent); p; p = FindConst(p->parent))
+        if (p->id == child) return true;
+    return false;
+}
+
 void Scene::Draw() const {
-    // The scene knows nothing about cubes or models anymore — it just
-    // gives every component the chance to draw itself.
-    for (const Entity& e : m_entities)
+    // The scene owns the hierarchy math: push each entity's WORLD matrix,
+    // components draw in local space (unit-sized at the origin) and don't
+    // even know parents exist.
+    for (const Entity& e : m_entities) {
+        Matrix world = WorldMatrix(e);
+        rlPushMatrix();
+        rlMultMatrixf(MatrixToFloat(world));
         for (const auto& c : e.components)
             c->OnDraw(e);
+        rlPopMatrix();
+    }
 }
 
 } // namespace eng

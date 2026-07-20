@@ -28,6 +28,10 @@ inline constexpr EntityID kInvalidEntity = 0;   // id 0 = "no entity"
 struct Entity {
     EntityID    id = kInvalidEntity;
     std::string name;
+    // Scene graph: transform is LOCAL — relative to the parent entity
+    // (world-relative when there's no parent). World transforms are
+    // computed by Scene::WorldMatrix by multiplying up the chain.
+    EntityID    parent = kInvalidEntity;
     Transform3D transform;
 
     // unique_ptr: components are polymorphic (storing them by value in a
@@ -49,6 +53,7 @@ struct Entity {
         Entity c;
         c.id        = id;
         c.name      = name;
+        c.parent    = parent;
         c.transform = transform;
         for (const auto& comp : components)
             c.components.push_back(comp->Clone());
@@ -76,7 +81,8 @@ public:
 
     // nullptr if the id doesn't exist (e.g. entity was destroyed).
     // The pointer is only valid until the entity list next changes!
-    Entity* Find(EntityID id);
+    Entity*       Find(EntityID id);
+    const Entity* FindConst(EntityID id) const;
 
     // Write/read the whole scene to a JSON file. Save returns false on
     // I/O failure; Load returns false on I/O or parse failure (and
@@ -93,6 +99,14 @@ public:
     // Render every entity. Caller must be inside BeginMode3D/EndMode3D —
     // the scene draws the world; who looks at it (the camera) is not its job.
     void Draw() const;
+
+    // The entity's world-space matrix: its local TRS multiplied up
+    // through every ancestor. This is THE scene-graph operation.
+    Matrix WorldMatrix(const Entity& e) const;
+
+    // Would making `child` a child of `newParent` create a loop?
+    // (You can't parent something to its own descendant.)
+    bool WouldCycle(EntityID child, EntityID newParent) const;
 
     std::vector<Entity>&       Entities()       { return m_entities; }
     const std::vector<Entity>& Entities() const { return m_entities; }

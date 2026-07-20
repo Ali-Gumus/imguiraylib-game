@@ -3,7 +3,7 @@
 #include "engine/Scene.h"     // full Entity definition (Component.h only forward-declares)
 
 #include "imgui.h"
-#include "rlgl.h"             // raylib's low-level matrix stack
+#include "raymath.h"          // Vector3Transform for the camera
 
 #include <cmath>
 #include <cstring>
@@ -46,24 +46,16 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
 
 // ---- CameraComponent -------------------------------------------------
 
-Camera3D CameraComponent::ToCamera3D(const Entity& owner) const {
-    const Transform3D& t = owner.transform;
-    float yaw   = t.rotation.y * DEG2RAD;
-    float pitch = t.rotation.x * DEG2RAD;
-
-    // Rotation (0,0,0) looks down -Z (matches "W drives into the screen").
-    // Yaw spins that around Y; positive pitch tilts up.
-    Vector3 forward = {
-        -sinf(yaw) * cosf(pitch),
-         sinf(pitch),
-        -cosf(yaw) * cosf(pitch),
-    };
+Camera3D CameraComponent::ToCamera3D(const Matrix& world) const {
+    // The world matrix (parents included) places the camera: transform
+    // the local origin -> eye position, and a point one unit down the
+    // local -Z -> what it looks at. Parenting the camera "just works".
+    Vector3 pos = Vector3Transform({0.0f, 0.0f, 0.0f}, world);
+    Vector3 tgt = Vector3Transform({0.0f, 0.0f, -1.0f}, world);
 
     Camera3D cam{};
-    cam.position   = t.position;
-    cam.target     = {t.position.x + forward.x,
-                      t.position.y + forward.y,
-                      t.position.z + forward.z};
+    cam.position   = pos;
+    cam.target     = tgt;
     cam.up         = {0.0f, 1.0f, 0.0f};
     cam.fovy       = fovy;
     cam.projection = CAMERA_PERSPECTIVE;
@@ -186,24 +178,41 @@ void ScriptComponent::OnInspector() {
 // ---- ShapeComponent --------------------------------------------------
 
 void ShapeComponent::OnDraw(const Entity& owner) {
-    const Transform3D& t = owner.transform;
-
-    // DrawCubeV can't rotate, so we rotate the WORLD instead: push a
-    // matrix, move/rotate/scale it, draw a unit cube at the origin, pop.
-    rlPushMatrix();
-    rlTranslatef(t.position.x, t.position.y, t.position.z);
-    // Yaw (Y), then pitch (X), then roll (Z) — a common, sane order.
-    rlRotatef(t.rotation.y, 0.0f, 1.0f, 0.0f);
-    rlRotatef(t.rotation.x, 1.0f, 0.0f, 0.0f);
-    rlRotatef(t.rotation.z, 0.0f, 0.0f, 1.0f);
-    rlScalef(t.scale.x, t.scale.y, t.scale.z);
-
-    DrawCube({0, 0, 0}, 1.0f, 1.0f, 1.0f, tint);
-    if (wireframe) DrawCubeWires({0, 0, 0}, 1.0f, 1.0f, 1.0f, BLACK);
-    rlPopMatrix();
+    // Scene::Draw has already pushed this entity's WORLD matrix (with
+    // all parent transforms multiplied in) — so we just draw unit-sized
+    // primitives at the origin. Components stay hierarchy-oblivious.
+    switch (kind) {
+        case Kind::Cube:
+            DrawCube({0, 0, 0}, 1.0f, 1.0f, 1.0f, tint);
+            if (wireframe) DrawCubeWires({0, 0, 0}, 1.0f, 1.0f, 1.0f, BLACK);
+            break;
+        case Kind::Sphere:
+            DrawSphere({0, 0, 0}, 0.5f, tint);
+            if (wireframe) DrawSphereWires({0, 0, 0}, 0.5f, 12, 12, BLACK);
+            break;
+        case Kind::Cylinder:   // raylib grows cylinders upward from base
+            DrawCylinder({0, -0.5f, 0}, 0.5f, 0.5f, 1.0f, 16, tint);
+            if (wireframe) DrawCylinderWires({0, -0.5f, 0}, 0.5f, 0.5f, 1.0f, 16, BLACK);
+            break;
+        case Kind::Cone:       // a cylinder whose top radius is zero
+            DrawCylinder({0, -0.5f, 0}, 0.0f, 0.5f, 1.0f, 16, tint);
+            if (wireframe) DrawCylinderWires({0, -0.5f, 0}, 0.0f, 0.5f, 1.0f, 16, BLACK);
+            break;
+        case Kind::Plane:      // flat ground piece; no wire version exists
+            DrawPlane({0, 0, 0}, {1.0f, 1.0f}, tint);
+            break;
+    }
 }
 
 void ShapeComponent::OnInspector() {
+    // Combo indices must match the Kind enum order exactly.
+    static const char* kKindNames[] = {"Cube", "Sphere", "Cylinder", "Cone", "Plane"};
+    int k = (int)kind;
+    // Not labeled "Shape": the CollapsingHeader above already owns that
+    // ID, and headers don't scope their contents — same-window siblings.
+    if (ImGui::Combo("Type", &k, kKindNames, 5))
+        kind = (Kind)k;
+
     // ImGui wants colors as float[4] 0..1; raylib Color is byte 0..255.
     float col[4] = {tint.r / 255.0f, tint.g / 255.0f,
                     tint.b / 255.0f, tint.a / 255.0f};

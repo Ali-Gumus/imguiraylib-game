@@ -55,10 +55,13 @@ private:
     std::string m_error;
 };
 
-// Renders the entity as a colored cube (placeholder until 3D models).
+// Renders the entity as a colored primitive (placeholder until 3D models).
 // The proof that looks are optional: no ShapeComponent = invisible entity.
 class ShapeComponent : public Component {
 public:
+    // Keep the order stable: the enum's int value goes into scene files.
+    enum class Kind { Cube = 0, Sphere, Cylinder, Cone, Plane };
+
     const char* Name() const override { return "Shape"; }
     // Plain data (color + bool) — the compiler-written copy is correct.
     std::unique_ptr<Component> Clone() const override {
@@ -68,15 +71,18 @@ public:
     void OnInspector() override;
 
     void Serialize(nlohmann::json& out) const override {
+        out["kind"]      = (int)kind;
         out["tint"]      = {tint.r, tint.g, tint.b, tint.a};
         out["wireframe"] = wireframe;
     }
     void Deserialize(const nlohmann::json& in) override {
+        kind = (Kind)in.value("kind", 0);   // old files: no key -> Cube
         if (in.contains("tint"))
             tint = {in["tint"][0], in["tint"][1], in["tint"][2], in["tint"][3]};
         wireframe = in.value("wireframe", wireframe);
     }
 
+    Kind  kind = Kind::Cube;
     Color tint = MAROON;
     bool  wireframe = true;           // draw the black edge lines?
 };
@@ -95,9 +101,9 @@ public:
     void Serialize(nlohmann::json& out) const override { out["fovy"] = fovy; }
     void Deserialize(const nlohmann::json& in) override { fovy = in.value("fovy", fovy); }
 
-    // Build the raylib camera from the owner's transform.
-    // rotation.y = yaw, rotation.x = pitch (degrees, matching the Inspector).
-    Camera3D ToCamera3D(const Entity& owner) const;
+    // Build the raylib camera from the entity's WORLD matrix (ask
+    // Scene::WorldMatrix) — so a camera parented to the player follows it.
+    Camera3D ToCamera3D(const Matrix& world) const;
 
     float fovy = 60.0f;               // vertical field of view, degrees
 };
