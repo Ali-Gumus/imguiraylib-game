@@ -145,6 +145,12 @@ const Entity* Scene::FindConst(EntityID id) const {
     return nullptr;
 }
 
+Entity* Scene::FindByName(const std::string& name) {
+    for (Entity& e : m_entities)
+        if (e.name == name) return &e;
+    return nullptr;
+}
+
 void Scene::Start() {
     for (Entity& e : m_entities)
         for (auto& c : e.components)

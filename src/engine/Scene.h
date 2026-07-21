@@ -93,6 +93,11 @@ public:
     Entity*       Find(EntityID id);
     const Entity* FindConst(EntityID id) const;
 
+    // First entity with this exact name (nullptr if none). Names aren't
+    // unique — like Unity's GameObject.Find, use distinct names for things
+    // you look up (one "Jet", one "Player").
+    Entity* FindByName(const std::string& name);
+
     // Write/read the whole scene to a JSON file. Save returns false on
     // I/O failure; Load returns false on I/O or parse failure (and
     // leaves the current scene untouched in that case).

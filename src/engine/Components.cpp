@@ -127,6 +127,16 @@ void ScriptComponent::Load() {
         "translate_local", [](Transform3D& t, float dx, float dy, float dz) {
             Vector3 o = Vector3RotateByQuaternion({dx, dy, dz}, t.rotation);
             t.position.x += o.x;  t.position.y += o.y;  t.position.z += o.z;
+        },
+        // Orient so the entity's forward (-Z) points at a world point,
+        // with world up. Great for cameras, turrets, homing missiles.
+        "look_at", [](Transform3D& t, float x, float y, float z) {
+            float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
+            if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // target == us: skip
+            // A look-AT view matrix's inverse is a look-DOWN-(-Z) world
+            // matrix; its rotation part is exactly the orientation we want.
+            Matrix view = MatrixLookAt(t.position, {x, y, z}, {0.0f, 1.0f, 0.0f});
+            t.rotation = QuaternionFromMatrix(MatrixInvert(view));
         });
     m_lua.new_usertype<Entity>("Entity",
         "name",      &Entity::name,
@@ -148,6 +158,11 @@ void ScriptComponent::Load() {
     };
     scn["spawn_cube"] = [](const std::string& name, float x, float y, float z) {
         if (Scene::Current()) Scene::Current()->QueueSpawnCube(name, {x, y, z});
+    };
+    // Look up another entity by name (nil if absent). Use it fresh each
+    // frame — don't cache the result; a destroyed entity's memory is gone.
+    scn["find"] = [](const std::string& name) -> Entity* {
+        return Scene::Current() ? Scene::Current()->FindByName(name) : nullptr;
     };
 
     // Run the file. protected = collect the error, don't throw/crash.
