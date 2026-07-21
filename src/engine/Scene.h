@@ -3,6 +3,7 @@
 #include "engine/Component.h"
 
 #include "raylib.h"
+#include "raymath.h"   // Quaternion type + math (header-only, static inline)
 
 #include <memory>
 #include <string>
@@ -15,7 +16,10 @@ namespace eng {
 // (raylib already has a "Transform" type; the suffix avoids the clash.)
 struct Transform3D {
     Vector3 position{0.0f, 0.0f, 0.0f};
-    Vector3 rotation{0.0f, 0.0f, 0.0f};   // euler angles, degrees
+    // Orientation as a QUATERNION (identity = no rotation). Quaternions
+    // compose without gimbal lock — essential once a jet pitches/yaws/rolls
+    // continuously. The Inspector still edits it as euler X/Y/Z degrees.
+    Quaternion rotation{0.0f, 0.0f, 0.0f, 1.0f};
     Vector3 scale{1.0f, 1.0f, 1.0f};
 };
 

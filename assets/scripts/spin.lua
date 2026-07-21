@@ -15,7 +15,8 @@ end
 
 function on_update(entity, dt)
     t = t + dt
-    entity.transform.rotation.y = entity.transform.rotation.y + speed * dt
+    -- rotate around the local Y axis; quaternion-safe (no gimbal lock)
+    entity.transform:rotate(0, 1, 0, speed * dt)
 
     -- try uncommenting: bob up and down
     -- entity.transform.position.y = 0.5 + 0.5 * math.sin(t * 2)

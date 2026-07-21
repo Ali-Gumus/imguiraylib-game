@@ -397,7 +397,20 @@ private:
         // --- Transform (built-in, always present) ---------------------
         ImGui::SeparatorText("Transform");
         ImGui::DragFloat3("Position", &e->transform.position.x, 0.1f);
-        ImGui::DragFloat3("Rotation", &e->transform.rotation.x, 1.0f);
+        // Rotation is stored as a quaternion but EDITED as euler degrees.
+        // We keep a separate euler edit-buffer and only re-seed it from the
+        // quaternion when the SELECTION changes. Deriving euler from the
+        // quaternion every frame would "flip" past 90 deg (two eulers map to
+        // one orientation), making values jump — this buffer avoids that.
+        if (m_rotEulerFor != m_selected) {
+            Vector3 e0 = QuaternionToEuler(e->transform.rotation);   // radians
+            m_rotEuler = {e0.x * RAD2DEG, e0.y * RAD2DEG, e0.z * RAD2DEG};
+            m_rotEulerFor = m_selected;
+        }
+        if (ImGui::DragFloat3("Rotation", &m_rotEuler.x, 1.0f))
+            e->transform.rotation = QuaternionFromEuler(m_rotEuler.x * DEG2RAD,
+                                                        m_rotEuler.y * DEG2RAD,
+                                                        m_rotEuler.z * DEG2RAD);
         ImGui::DragFloat3("Scale", &e->transform.scale.x, 0.05f);
 
         // --- Components (each draws its own UI) -----------------------
@@ -469,6 +482,11 @@ private:
     bool          m_viewportHovered = false;
     bool          m_flyLock   = false;   // RMB flight in progress (cursor captured)
     bool          m_gameActive = false;  // Game panel hovered/focused last frame
+
+    // Inspector rotation edit-buffer (euler degrees), and which entity it
+    // currently mirrors — re-seeded from the quaternion on selection change.
+    Vector3       m_rotEuler{0, 0, 0};
+    eng::EntityID m_rotEulerFor = eng::kInvalidEntity;
     ed::EditorContext* m_nodeCtx = nullptr;
     edtr::ScriptGraph  m_graph;
     std::string        m_graphPath;  // file the canvas is editing ("" = unsaved)

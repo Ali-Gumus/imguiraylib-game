@@ -19,6 +19,18 @@ static Vector3 Vec3FromJson(const json& j, Vector3 fallback) {
     return {j[0], j[1], j[2]};
 }
 
+// Rotation is a quaternion [x, y, z, w]. Older scene files stored euler
+// degrees [x, y, z] (3 elements) — convert those so old scenes still load.
+static json ToJson(const Quaternion& q) { return {q.x, q.y, q.z, q.w}; }
+static Quaternion QuatFromJson(const json& j) {
+    if (j.is_array() && j.size() == 4) return {j[0], j[1], j[2], j[3]};
+    if (j.is_array() && j.size() == 3)  // legacy euler degrees (pitch, yaw, roll)
+        return QuaternionFromEuler((float)j[0] * DEG2RAD,
+                                   (float)j[1] * DEG2RAD,
+                                   (float)j[2] * DEG2RAD);
+    return QuaternionIdentity();
+}
+
 bool Scene::Save(const std::string& path) const {
     json doc;
     doc["nextID"] = m_nextID;         // so loaded scenes keep ids unique
@@ -65,7 +77,7 @@ bool Scene::Load(const std::string& path) {
         if (je.contains("transform")) {
             const json& jt = je["transform"];
             e.transform.position = Vec3FromJson(jt.value("position", json()), {0, 0, 0});
-            e.transform.rotation = Vec3FromJson(jt.value("rotation", json()), {0, 0, 0});
+            e.transform.rotation = QuatFromJson(jt.value("rotation", json()));
             e.transform.scale    = Vec3FromJson(jt.value("scale",    json()), {1, 1, 1});
         }
         for (const json& jc : je.value("components", json::array())) {
@@ -167,14 +179,10 @@ void Scene::Update(float dt) {
     m_spawnQueue.clear();
 }
 
-// Local TRS matrix, matching the old rl-stack order: scale first, then
-// rotation Z,X,Y (roll, pitch, yaw), then translation.
-// ignoreScale = pretend scale is 1,1,1 (see WorldMatrix).
+// Local TRS matrix: scale, then rotation (from the quaternion), then
+// translation. ignoreScale = pretend scale is 1,1,1 (see WorldMatrix).
 static Matrix LocalMatrix(const Transform3D& t, bool ignoreScale) {
-    Matrix rot = MatrixMultiply(
-        MatrixMultiply(MatrixRotateZ(t.rotation.z * DEG2RAD),
-                       MatrixRotateX(t.rotation.x * DEG2RAD)),
-        MatrixRotateY(t.rotation.y * DEG2RAD));
+    Matrix rot = QuaternionToMatrix(t.rotation);
     Matrix scale = ignoreScale ? MatrixIdentity()
                                : MatrixScale(t.scale.x, t.scale.y, t.scale.z);
     return MatrixMultiply(

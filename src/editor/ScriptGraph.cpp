@@ -304,9 +304,9 @@ static void EmitAction(std::string& lua, const GraphNode& n) {
     char buf[256];
     switch (n.type) {
         case NodeType::ActionSpin:
+            // Quaternion-safe spin around the local Y axis.
             snprintf(buf, sizeof(buf),
-                "    entity.transform.rotation.y = entity.transform.rotation.y + %.3f * dt\n",
-                n.speed);
+                "    entity.transform:rotate(0, 1, 0, %.3f * dt)\n", n.speed);
             lua += buf;
             break;
         case NodeType::ActionMove:

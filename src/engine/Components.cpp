@@ -89,10 +89,26 @@ void ScriptComponent::Load() {
     // After this, Lua can do: entity.transform.position.x = 5
     m_lua.new_usertype<Vector3>("Vector3",
         "x", &Vector3::x, "y", &Vector3::y, "z", &Vector3::z);
+    // Orientation is a quaternion — exposed so scripts can read it, but
+    // rotating is done through transform:rotate (below), never by poking
+    // x/y/z/w by hand (which would denormalize it).
+    m_lua.new_usertype<Quaternion>("Quaternion",
+        "x", &Quaternion::x, "y", &Quaternion::y,
+        "z", &Quaternion::z, "w", &Quaternion::w);
     m_lua.new_usertype<Transform3D>("Transform",
         "position", &Transform3D::position,
         "rotation", &Transform3D::rotation,
-        "scale",    &Transform3D::scale);
+        "scale",    &Transform3D::scale,
+        // transform:rotate(ax, ay, az, degrees) — turn by `degrees` around
+        // the (local) axis (ax,ay,az). Composes as a quaternion multiply,
+        // so repeated calls never gimbal-lock. This is how flight steers.
+        "rotate", [](Transform3D& t, float ax, float ay, float az, float deg) {
+            float len = std::sqrt(ax * ax + ay * ay + az * az);
+            if (len < 1e-6f) return;                 // zero axis: nothing to do
+            Quaternion dq = QuaternionFromAxisAngle(Vector3Normalize({ax, ay, az}),
+                                                    deg * DEG2RAD);
+            t.rotation = QuaternionMultiply(t.rotation, dq);
+        });
     m_lua.new_usertype<Entity>("Entity",
         "name",      &Entity::name,
         "transform", &Entity::transform);
