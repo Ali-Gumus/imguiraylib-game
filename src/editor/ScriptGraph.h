@@ -50,6 +50,9 @@ class ScriptGraph {
 public:
     ScriptGraph();     // seeds the three event nodes
 
+    // Blank the graph back to just the three event nodes ("New").
+    void Reset();
+
     // Draw the canvas + handle linking/menus. Call between ImGui::Begin/End.
     void Draw(ax::NodeEditor::EditorContext* ctx);
 

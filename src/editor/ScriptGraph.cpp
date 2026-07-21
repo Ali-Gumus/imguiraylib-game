@@ -34,7 +34,12 @@ static bool IsEvent(NodeType t) {
            t == NodeType::EventDestroy;
 }
 
-ScriptGraph::ScriptGraph() {
+ScriptGraph::ScriptGraph() { Reset(); }
+
+void ScriptGraph::Reset() {
+    m_nodes.clear();
+    m_links.clear();
+    m_nextID = 100;                  // 1..99 stay reserved for event nodes
     // The three entry points always exist — you don't create or delete
     // them, exactly like you don't create "Update" in a Unity script.
     m_nodes.push_back({1, NodeType::EventCreate});

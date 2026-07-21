@@ -231,25 +231,44 @@ private:
         ImGui::End();
     }
 
+    // Save the graph. Writes straight back to the remembered file;
+    // asks for a location only when there isn't one yet, or on Save As.
+    void SaveGraph(bool forceDialog) {
+        std::string path = m_graphPath;
+        if (forceDialog || path.empty()) {
+            path = eng::SaveFileDialog(kGraphFilter, "json", "graph.json");
+            if (path.empty()) return;      // cancelled: change nothing
+        }
+        if (m_graph.Save(path)) m_graphPath = path;
+    }
+
     void DrawNodeEditorPanel() {
         ImGui::Begin("Node Editor");
 
-        // Graph toolbar. The JSON is the SOURCE (reopenable in this
-        // panel); the .lua is a BUILD ARTIFACT the entities reference.
-        if (ImGui::Button("Save Graph")) {
-            std::string p = eng::SaveFileDialog(kGraphFilter, "json", "graph.json");
-            if (!p.empty()) m_graph.Save(p);
+        // Graph toolbar, text-editor style: the panel remembers which
+        // file is open, so Save writes back without re-prompting. The
+        // JSON is the SOURCE; the .lua is a BUILD ARTIFACT entities use.
+        if (ImGui::Button("New")) {
+            m_graph.Reset();
+            m_graphPath.clear();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Load Graph")) {
+        if (ImGui::Button("Open")) {
             std::string p = eng::OpenFileDialog(kGraphFilter, "json");
-            if (!p.empty()) m_graph.Load(p);
+            if (!p.empty() && m_graph.Load(p)) m_graphPath = p;
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Save")) SaveGraph(/*forceDialog=*/false);
+        ImGui::SameLine();
+        if (ImGui::Button("Save As")) SaveGraph(/*forceDialog=*/true);
         ImGui::SameLine();
         if (ImGui::Button("Generate Lua")) {
             std::string p = eng::SaveFileDialog(kLuaFilter, "lua", "myscript.lua");
             if (!p.empty()) m_graph.GenerateLua(p);
         }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", m_graphPath.empty() ? "(unsaved graph)"
+                                                      : m_graphPath.c_str());
 
         m_graph.Draw(m_nodeCtx);
         ImGui::End();
@@ -452,6 +471,7 @@ private:
     bool          m_gameActive = false;  // Game panel hovered/focused last frame
     ed::EditorContext* m_nodeCtx = nullptr;
     edtr::ScriptGraph  m_graph;
+    std::string        m_graphPath;  // file the canvas is editing ("" = unsaved)
     RenderTexture2D    m_gameRT{};   // the Game view's canvas
 };
 
