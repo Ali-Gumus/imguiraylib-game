@@ -79,6 +79,11 @@ public:
     EntityID CreateEntity(const std::string& name);
     void     DestroyEntity(EntityID id);
 
+    // Deep-copies an existing entity (fresh id, "(copy)" name, same
+    // parent/transform/components) and returns the new id — or
+    // kInvalidEntity if the source doesn't exist.
+    EntityID DuplicateEntity(EntityID id);
+
     // nullptr if the id doesn't exist (e.g. entity was destroyed).
     // The pointer is only valid until the entity list next changes!
     Entity*       Find(EntityID id);

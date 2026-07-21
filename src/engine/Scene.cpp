@@ -90,6 +90,18 @@ EntityID Scene::CreateEntity(const std::string& name) {
     return m_entities.back().id;
 }
 
+EntityID Scene::DuplicateEntity(EntityID id) {
+    const Entity* src = FindConst(id);
+    if (!src) return kInvalidEntity;
+
+    Entity copy = src->Clone();       // Clone preserves id/components...
+    EntityID newID = m_nextID++;      // ...but a duplicate needs its own id
+    copy.id   = newID;
+    copy.name = src->name + " (copy)";
+    m_entities.push_back(std::move(copy));
+    return newID;
+}
+
 void Scene::DestroyEntity(EntityID id) {
     // Give components a last word (scripts' on_destroy) BEFORE the memory goes.
     if (Entity* e = Find(id))

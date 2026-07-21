@@ -5,8 +5,9 @@
 
 #include "imgui.h"
 #include "raylib.h"
-#include "raymath.h"    // Vector3Transform / MatrixInvert for Reparent
+#include "raymath.h"    // Vector3Transform / MatrixInvert / MatrixToFloat
 #include "rlImGui.h"
+#include "rlgl.h"       // rlPushMatrix / rlMultMatrixf for the selection box
 
 #include "ScriptGraph.h"
 
@@ -116,6 +117,20 @@ public:
         eng::SetScriptInputEnabled(m_gameActive &&
                                    !ImGui::GetIO().WantTextInput && !flying);
 
+        // Editor shortcuts — suppressed while typing in a field or flying
+        // the camera (those keystrokes aren't meant for the editor).
+        if (!ImGui::GetIO().WantTextInput && !flying &&
+            m_selected != eng::kInvalidEntity) {
+            if (IsKeyPressed(KEY_DELETE)) {
+                m_scene.DestroyEntity(m_selected);
+                m_selected = eng::kInvalidEntity;   // it's gone; clear selection
+            }
+            if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_D)) {
+                eng::EntityID dup = m_scene.DuplicateEntity(m_selected);
+                if (dup != eng::kInvalidEntity) m_selected = dup;  // select the copy
+            }
+        }
+
         // Scripts only run in play mode, like Unity. In edit mode the
         // world is frozen — the viewport is for arranging, not simulating.
         if (m_playing) m_scene.Update(dt);
@@ -140,6 +155,19 @@ public:
         BeginMode3D(m_camera);
         DrawGrid(20, 1.0f);           // floor reference: 20x20 cells, 1 unit each
         m_scene.Draw();
+
+        // Selection highlight: a yellow wireframe box around the selected
+        // entity. Drawn in a SCALE-FREE frame (position+rotation only) and
+        // sized to the entity's world scale plus a CONSTANT padding — so
+        // the margin stays thin and even no matter how big the shape is.
+        if (eng::Entity* sel = m_scene.Find(m_selected)) {
+            Vector3 ws = m_scene.WorldScale(*sel);
+            const float pad = 0.15f;      // world units, same at any size
+            rlPushMatrix();
+            rlMultMatrixf(MatrixToFloat(m_scene.WorldMatrix(*sel, /*ignoreScale=*/true)));
+            DrawCubeWires({0, 0, 0}, ws.x + pad, ws.y + pad, ws.z + pad, YELLOW);
+            rlPopMatrix();
+        }
         EndMode3D();
     }
 
