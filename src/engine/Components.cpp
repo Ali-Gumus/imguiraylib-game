@@ -108,6 +108,25 @@ void ScriptComponent::Load() {
             Quaternion dq = QuaternionFromAxisAngle(Vector3Normalize({ax, ay, az}),
                                                     deg * DEG2RAD);
             t.rotation = QuaternionMultiply(t.rotation, dq);
+        },
+        // Facing vectors in WORLD space (unit length). Forward is local -Z
+        // (an unrotated entity faces -Z, matching the camera). Used for
+        // flight thrust, aiming, and firing.
+        "forward", [](Transform3D& t) {
+            return Vector3RotateByQuaternion({0.0f, 0.0f, -1.0f}, t.rotation);
+        },
+        "right", [](Transform3D& t) {
+            return Vector3RotateByQuaternion({1.0f, 0.0f, 0.0f}, t.rotation);
+        },
+        "up", [](Transform3D& t) {
+            return Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, t.rotation);
+        },
+        // Move by an offset expressed in the entity's LOCAL axes: the
+        // offset is rotated by the orientation, then added to position.
+        // translate_local(0,0,-d) = move d units forward.
+        "translate_local", [](Transform3D& t, float dx, float dy, float dz) {
+            Vector3 o = Vector3RotateByQuaternion({dx, dy, dz}, t.rotation);
+            t.position.x += o.x;  t.position.y += o.y;  t.position.z += o.z;
         });
     m_lua.new_usertype<Entity>("Entity",
         "name",      &Entity::name,

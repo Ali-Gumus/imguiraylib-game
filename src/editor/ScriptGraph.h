@@ -20,6 +20,7 @@ enum class NodeType {
     CondEvery,      // gate: fires its branch once every N seconds
     ActionDestroySelf,  // queue this entity's destruction (safe mid-update)
     ActionSpawnCube,    // queue spawning a cube at entity position + offset
+    ActionMoveForward,  // move along the entity's own facing (local -Z)
 };
 
 // Our OWN data model of the graph. The node-editor library only handles

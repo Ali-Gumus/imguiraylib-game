@@ -25,6 +25,7 @@ static const char* TypeTitle(NodeType t) {
         case NodeType::CondEvery:    return "Every X s";
         case NodeType::ActionDestroySelf: return "Destroy Self";
         case NodeType::ActionSpawnCube:   return "Spawn Cube";
+        case NodeType::ActionMoveForward: return "Move Fwd";
     }
     return "?";
 }
@@ -95,6 +96,9 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     switch (n.type) {
         case NodeType::ActionSpin:
             ImGui::DragFloat("deg/s", &n.speed, 1.0f);
+            break;
+        case NodeType::ActionMoveForward:
+            ImGui::DragFloat("units/s", &n.speed, 0.1f);
             break;
         case NodeType::ActionMove:
             ImGui::DragFloat3("units/s", n.offset, 0.1f);
@@ -198,6 +202,7 @@ void ScriptGraph::HandleContextMenu() {
         if (ImGui::MenuItem("Spin"))  { picked = NodeType::ActionSpin;  add = true; }
         if (ImGui::MenuItem("Move"))  { picked = NodeType::ActionMove;  add = true; }
         if (ImGui::MenuItem("Print")) { picked = NodeType::ActionPrint; add = true; }
+        if (ImGui::MenuItem("Move Forward")) { picked = NodeType::ActionMoveForward; add = true; }
         if (ImGui::MenuItem("Destroy Self")) { picked = NodeType::ActionDestroySelf; add = true; }
         if (ImGui::MenuItem("Spawn Cube"))   { picked = NodeType::ActionSpawnCube;   add = true; }
         ImGui::Separator();
@@ -307,6 +312,12 @@ static void EmitAction(std::string& lua, const GraphNode& n) {
             // Quaternion-safe spin around the local Y axis.
             snprintf(buf, sizeof(buf),
                 "    entity.transform:rotate(0, 1, 0, %.3f * dt)\n", n.speed);
+            lua += buf;
+            break;
+        case NodeType::ActionMoveForward:
+            // Move along the entity's own facing (local -Z = forward).
+            snprintf(buf, sizeof(buf),
+                "    entity.transform:translate_local(0, 0, -%.3f * dt)\n", n.speed);
             lua += buf;
             break;
         case NodeType::ActionMove:
