@@ -1,0 +1,15 @@
+# ground.obj — a large flat ground plane (400 x 400 units, centered at origin,
+# lying on y = 0). Give it a Model component and tint it (e.g. green) to act as
+# the ground under the world. Each face is listed with both windings so the
+# surface shows whether viewed from above or below.
+o Ground
+
+v -200.0 0.0 -200.0   # 1
+v  200.0 0.0 -200.0   # 2
+v  200.0 0.0  200.0   # 3
+v -200.0 0.0  200.0   # 4
+
+f 1 2 3
+f 1 3 4
+f 1 3 2
+f 1 4 3

@@ -1,0 +1,35 @@
+# jet.obj — a simple low-poly placeholder aircraft.
+# The .obj format is plain text: "v x y z" defines a vertex, and "f a b c"
+# defines a triangular face from three vertices (numbered from 1).
+# This model faces -Z (forward) with +Y up, matching the engine's convention.
+# Replace it with a real .obj or .glb via the Model component's Browse button.
+o Jet
+
+# --- vertices ---
+v  0.00  0.00 -2.00   # 1 nose
+v -0.35 -0.10  1.00   # 2 body back-left
+v  0.35 -0.10  1.00   # 3 body back-right
+v  0.00  0.30  0.20   # 4 canopy top
+v -1.80  0.00  0.60   # 5 left wingtip
+v  1.80  0.00  0.60   # 6 right wingtip
+v  0.00  0.00  1.40   # 7 tail back
+v  0.00  0.75  1.20   # 8 fin top
+
+# --- body ---
+f 1 4 2
+f 1 3 4
+f 1 2 3
+f 2 4 3
+f 2 3 7
+f 2 7 4
+f 4 7 3
+
+# --- wings (listed both ways so each is visible from above and below) ---
+f 1 5 2
+f 1 2 5
+f 1 3 6
+f 1 6 3
+
+# --- tail fin (both ways too) ---
+f 4 8 7
+f 4 7 8
