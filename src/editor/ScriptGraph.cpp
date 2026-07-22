@@ -5,14 +5,15 @@
 
 #include <filesystem>
 #include <fstream>
-#include <functional>
+#include <functional>   // std::function, used for a recursive lambda
 #include <cstring>
 
-namespace ed = ax::NodeEditor;
+namespace ed = ax::NodeEditor;   // short alias for the node-editor library
 using nlohmann::json;
 
 namespace edtr {
 
+// The human-readable title drawn at the top of each node.
 static const char* TypeTitle(NodeType t) {
     switch (t) {
         case NodeType::EventCreate:  return "On Create";
@@ -30,6 +31,7 @@ static const char* TypeTitle(NodeType t) {
     return "?";
 }
 
+// True for the three entry-point node types.
 static bool IsEvent(NodeType t) {
     return t == NodeType::EventCreate || t == NodeType::EventUpdate ||
            t == NodeType::EventDestroy;
@@ -40,16 +42,17 @@ ScriptGraph::ScriptGraph() { Reset(); }
 void ScriptGraph::Reset() {
     m_nodes.clear();
     m_links.clear();
-    m_nextID = 100;                  // 1..99 stay reserved for event nodes
-    // The three entry points always exist — you don't create or delete
-    // them, exactly like you don't create "Update" in a Unity script.
+    m_nextID = 100;   // ids 1..99 are reserved for the fixed event nodes
+    // The three event nodes always exist and can't be added or deleted; they
+    // are the fixed entry points a graph is built from. They use ids 1, 2, 3.
     m_nodes.push_back({1, NodeType::EventCreate});
     m_nodes.push_back({2, NodeType::EventUpdate});
     m_nodes.push_back({3, NodeType::EventDestroy});
-    m_nodes[0].y = 0;  m_nodes[1].y = 100;  m_nodes[2].y = 200;
-    m_restorePositions = true;
+    m_nodes[0].y = 0;  m_nodes[1].y = 100;  m_nodes[2].y = 200;   // stack them vertically
+    m_restorePositions = true;   // ask Draw to place them on the canvas
 }
 
+// Look a node up by id. Two versions: one that can modify it, one read-only.
 GraphNode* ScriptGraph::FindNode(int id) {
     for (auto& n : m_nodes) if (n.id == id) return &n;
     return nullptr;
@@ -59,7 +62,8 @@ const GraphNode* ScriptGraph::FindNode(int id) const {
     return nullptr;
 }
 
-// Follow the flow: every node linked after this one (fan-out = branches).
+// Return every node connected downstream of `fromNodeId`. A node's output can
+// link to several inputs, so this returns a list (the flow can branch).
 std::vector<const GraphNode*> ScriptGraph::NextInChain(int fromNodeId) const {
     std::vector<const GraphNode*> out;
     for (const auto& l : m_links)
@@ -69,18 +73,22 @@ std::vector<const GraphNode*> ScriptGraph::NextInChain(int fromNodeId) const {
     return out;
 }
 
+// Draw a single node: its title, its pins, and its editable parameter fields.
 void ScriptGraph::DrawNode(GraphNode& n) {
+    // After loading (or adding a node), push the saved position onto the canvas.
     if (m_restorePositions)
         ed::SetNodePosition(n.id, ImVec2(n.x, n.y));
 
     ed::BeginNode(n.id);
-    // Widgets inside nodes share ImGui's global ID space — two Spin
-    // nodes both drawing "deg/s" would collide. Scope IDs per node.
+    // Widgets inside a node share ImGui's single pool of widget ids. Two Spin
+    // nodes would each draw a "deg/s" field with the same id and clash, so we
+    // scope every node's widgets under its unique node id.
     ImGui::PushID(n.id);
     ImGui::TextUnformatted(TypeTitle(n.type));
 
-    // Pins: events only have an output ("then do..."); actions have an
-    // input AND an output so they can be chained in sequence.
+    // Pins are the connection points. Event nodes have only an OUTPUT ("then
+    // do this..."). Action/condition nodes also have an INPUT so they can be
+    // chained after something.
     if (!IsEvent(n.type)) {
         ed::BeginPin(InPin(n.id), ed::PinKind::Input);
         ImGui::TextUnformatted("-> in");
@@ -91,7 +99,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     ImGui::TextUnformatted("out ->");
     ed::EndPin();
 
-    // Parameters, edited directly inside the node.
+    // The editable fields, which differ per node type. PushItemWidth keeps the
+    // fields a sensible width inside the node.
     ImGui::PushItemWidth(140);
     switch (n.type) {
         case NodeType::ActionSpin:
@@ -116,31 +125,35 @@ void ScriptGraph::DrawNode(GraphNode& n) {
             ImGui::InputText("name", n.text, sizeof(n.text));
             ImGui::DragFloat3("offset", n.offset, 0.1f);
             break;
-        default: break;   // Destroy Self has no parameters
+        default: break;   // some nodes (e.g. Destroy Self) have no parameters
     }
     ImGui::PopItemWidth();
     ImGui::PopID();
     ed::EndNode();
 
-    // Remember where the user dragged it (for saving).
+    // Read back where the node currently sits so we can save it later.
     ImVec2 pos = ed::GetNodePosition(n.id);
     n.x = pos.x;  n.y = pos.y;
 }
 
+// Handle the user creating and deleting links and nodes for this frame.
 void ScriptGraph::HandleEdits() {
-    // --- Creating links: the library asks "user is dragging pin A to B,
-    // do you accept?" — WE decide validity, it draws the rubber band.
+    // --- Link creation --------------------------------------------------
+    // While the user drags from one pin toward another, the library asks us
+    // whether that link is allowed. We validate it; the library draws the
+    // rubber-band line.
     if (ed::BeginCreate()) {
         ed::PinId a, b;
         if (ed::QueryNewLink(&a, &b)) {
             int pa = (int)a.Get(), pb = (int)b.Get();
-            // Normalize: pa = output side, pb = input side.
+            // Make sure pa is the OUTPUT side and pb the INPUT side. Recall
+            // input pins are id*4+1 (so pin % 4 == 1) and outputs are id*4+2.
             if (pa % 4 == 1) std::swap(pa, pb);
 
-            bool valid = pa % 4 == 2 && pb % 4 == 1          // out -> in
-                      && PinToNode(pa) != PinToNode(pb);     // not to itself
-            // Fan-out is allowed: one output may feed several branches
-            // (e.g. On Update -> four separate If-Key chains for WASD).
+            bool valid = pa % 4 == 2 && pb % 4 == 1           // must be output -> input
+                      && PinToNode(pa) != PinToNode(pb);      // not a node to itself
+            // One output may feed several inputs (so On Update can branch into
+            // several parallel chains). AcceptNewItem confirms the drop.
             if (valid && ed::AcceptNewItem())
                 m_links.push_back({m_nextID++, pa, pb});
             if (!valid) ed::RejectNewItem();
@@ -148,8 +161,9 @@ void ScriptGraph::HandleEdits() {
     }
     ed::EndCreate();
 
-    // --- Deleting (user selects a link/node and presses Delete).
+    // --- Deletion (the user selected something and pressed Delete) ------
     if (ed::BeginDelete()) {
+        // Deleted links.
         ed::LinkId lid;
         while (ed::QueryDeletedLink(&lid)) {
             if (ed::AcceptDeletedItem())
@@ -157,13 +171,15 @@ void ScriptGraph::HandleEdits() {
                     [&](const GraphLink& l) { return l.id == (int)lid.Get(); }),
                     m_links.end());
         }
+        // Deleted nodes.
         ed::NodeId nid;
         while (ed::QueryDeletedNode(&nid)) {
             GraphNode* n = FindNode((int)nid.Get());
+            // Refuse to delete the fixed event nodes.
             if (n && IsEvent(n->type)) { ed::RejectDeletedItem(); continue; }
             if (ed::AcceptDeletedItem()) {
                 int id = (int)nid.Get();
-                // Links touching the node die with it.
+                // Remove any links attached to the node, then the node itself.
                 m_links.erase(std::remove_if(m_links.begin(), m_links.end(),
                     [id](const GraphLink& l) {
                         return PinToNode(l.fromPin) == id || PinToNode(l.toPin) == id;
@@ -177,19 +193,21 @@ void ScriptGraph::HandleEdits() {
     ed::EndDelete();
 }
 
+// The right-click "add a node" menu.
 void ScriptGraph::HandleContextMenu() {
-    // Convert mouse -> canvas coords NOW, while the canvas transform is
-    // active. Inside Suspend() that transform doesn't exist and
-    // ScreenToCanvas asserts (empty internal stack).
+    // Convert the mouse position from screen pixels to canvas coordinates NOW,
+    // while the canvas transform is active. (Between Suspend and Resume below
+    // that transform is turned off, and asking for the conversion there is
+    // invalid.)
     ImVec2 canvasMouse = ed::ScreenToCanvas(ImGui::GetMousePos());
 
-    // Popups don't live on the zoomable canvas — Suspend leaves canvas
-    // space, Resume returns. Forgetting this = popup at wrong zoom/pos.
+    // ImGui popups must be drawn in normal screen space, not on the zoomable
+    // canvas. Suspend() steps out of canvas space; Resume() steps back in.
     ed::Suspend();
-    // Capture ONLY at the moment the popup opens. ShowBackgroundContextMenu
-    // stays true while the menu is up, so without the IsPopupOpen guard the
-    // position kept following the mouse INTO the menu — nodes spawned at
-    // the menu item, offset more the further out you were zoomed.
+    // ShowBackgroundContextMenu stays true the whole time the menu is open, so
+    // we record the click position only at the instant it first opens (guarded
+    // by IsPopupOpen). Otherwise the position would follow the mouse onto the
+    // menu and the new node would appear in the wrong place.
     if (ed::ShowBackgroundContextMenu() && !ImGui::IsPopupOpen("AddNode")) {
         m_popupX = canvasMouse.x;
         m_popupY = canvasMouse.y;
@@ -199,6 +217,7 @@ void ScriptGraph::HandleContextMenu() {
     if (ImGui::BeginPopup("AddNode")) {
         NodeType picked{};
         bool add = false;
+        // Each menu item selects a node type to create.
         if (ImGui::MenuItem("Spin"))  { picked = NodeType::ActionSpin;  add = true; }
         if (ImGui::MenuItem("Move"))  { picked = NodeType::ActionMove;  add = true; }
         if (ImGui::MenuItem("Print")) { picked = NodeType::ActionPrint; add = true; }
@@ -212,11 +231,10 @@ void ScriptGraph::HandleContextMenu() {
             GraphNode n;
             n.id   = m_nextID++;
             n.type = picked;
-            n.x = m_popupX;  n.y = m_popupY;   // where the user right-clicked
+            n.x = m_popupX;  n.y = m_popupY;   // place it where the user clicked
             m_nodes.push_back(n);
-            // Don't SetNodePosition here — we're inside Suspend(), where
-            // canvas coordinates don't apply (same trap as the crash we
-            // had). The restore pass places it next frame, canvas active.
+            // We can't set the on-canvas position here (we're between Suspend
+            // and Resume). Ask Draw to apply the saved x/y on the next frame.
             m_restorePositions = true;
         }
         ImGui::EndPopup();
@@ -224,13 +242,15 @@ void ScriptGraph::HandleContextMenu() {
     ed::Resume();
 }
 
+// Draw the whole graph for one frame and process interactions.
 void ScriptGraph::Draw(ed::EditorContext* ctx) {
-    ed::SetCurrentEditor(ctx);
+    ed::SetCurrentEditor(ctx);   // tell the library which canvas we're drawing
     ed::Begin("ScriptGraph");
 
     for (auto& n : m_nodes) DrawNode(n);
-    m_restorePositions = false;       // saved positions applied on first pass
+    m_restorePositions = false;  // positions have now been applied
 
+    // Draw a line for each link.
     for (const auto& l : m_links)
         ed::Link(l.id, l.fromPin, l.toPin);
 
@@ -241,11 +261,12 @@ void ScriptGraph::Draw(ed::EditorContext* ctx) {
     ed::SetCurrentEditor(nullptr);
 }
 
-// ---- Persistence ------------------------------------------------------
+// ---- Saving and loading the graph as JSON ---------------------------------
 
 bool ScriptGraph::Save(const std::string& path) const {
     json doc;
     doc["nextID"] = m_nextID;
+    // Write every node with all of its fields.
     for (const auto& n : m_nodes)
         doc["nodes"].push_back({{"id", n.id}, {"type", (int)n.type},
                                 {"x", n.x}, {"y", n.y},
@@ -253,13 +274,14 @@ bool ScriptGraph::Save(const std::string& path) const {
                                 {"offset", {n.offset[0], n.offset[1], n.offset[2]}},
                                 {"text", n.text}, {"key", n.key},
                                 {"interval", n.interval}});
+    // Write every link.
     for (const auto& l : m_links)
         doc["links"].push_back({{"id", l.id}, {"from", l.fromPin}, {"to", l.toPin}});
 
     std::filesystem::create_directories(std::filesystem::path(path).parent_path());
     std::ofstream f(path);
     if (!f) return false;
-    f << doc.dump(2);
+    f << doc.dump(2);   // pretty-printed JSON
     return true;
 }
 
@@ -267,7 +289,7 @@ bool ScriptGraph::Load(const std::string& path) {
     std::ifstream f(path);
     if (!f) return false;
     json doc = json::parse(f, nullptr, /*allow_exceptions=*/false);
-    if (doc.is_discarded()) return false;
+    if (doc.is_discarded()) return false;   // not valid JSON: give up
 
     m_nodes.clear();
     m_links.clear();
@@ -280,6 +302,7 @@ bool ScriptGraph::Load(const std::string& path) {
         n.speed = jn.value("speed", 90.0f);
         if (jn.contains("offset"))
             for (int i = 0; i < 3; ++i) n.offset[i] = jn["offset"][i];
+        // Copy the strings into the node's fixed-size char arrays.
         std::strncpy(n.text, jn.value("text", "").c_str(), sizeof(n.text) - 1);
         std::strncpy(n.key,  jn.value("key", "W").c_str(), sizeof(n.key) - 1);
         n.interval = jn.value("interval", 1.0f);
@@ -289,13 +312,14 @@ bool ScriptGraph::Load(const std::string& path) {
         m_links.push_back({jl.value("id", 0), jl.value("from", 0), jl.value("to", 0)});
 
     m_nextID = doc.value("nextID", 100);
-    m_restorePositions = true;        // apply x/y on next Draw
+    m_restorePositions = true;   // place the loaded nodes on the canvas next frame
     return true;
 }
 
-// ---- Code generation: graph -> Lua ------------------------------------
+// ---- Turning the graph into a Lua script ----------------------------------
 
-// Minimal escaping so a quote in a Print message can't break the code.
+// Escape a string so it can sit safely inside a Lua "..." literal: a quote or
+// backslash in the user's text gets a backslash in front of it.
 static std::string EscapeLua(const char* s) {
     std::string out;
     for (const char* p = s; *p; ++p) {
@@ -305,22 +329,25 @@ static std::string EscapeLua(const char* s) {
     return out;
 }
 
+// Append the Lua for a single ACTION node to the growing script text.
 static void EmitAction(std::string& lua, const GraphNode& n) {
-    char buf[256];
+    char buf[256];   // temporary buffer for formatted lines
     switch (n.type) {
         case NodeType::ActionSpin:
-            // Quaternion-safe spin around the local Y axis.
+            // Rotate around the local Y axis (quaternion-based, so it's safe to
+            // accumulate every frame).
             snprintf(buf, sizeof(buf),
                 "    entity.transform:rotate(0, 1, 0, %.3f * dt)\n", n.speed);
             lua += buf;
             break;
         case NodeType::ActionMoveForward:
-            // Move along the entity's own facing (local -Z = forward).
+            // Move along the entity's own facing (local -Z is forward).
             snprintf(buf, sizeof(buf),
                 "    entity.transform:translate_local(0, 0, -%.3f * dt)\n", n.speed);
             lua += buf;
             break;
         case NodeType::ActionMove:
+            // Move by a fixed offset in world axes.
             snprintf(buf, sizeof(buf),
                 "    entity.transform.position.x = entity.transform.position.x + %.3f * dt\n"
                 "    entity.transform.position.y = entity.transform.position.y + %.3f * dt\n"
@@ -332,8 +359,6 @@ static void EmitAction(std::string& lua, const GraphNode& n) {
             lua += "    print(\"" + EscapeLua(n.text) + "\")\n";
             break;
         case NodeType::ActionDestroySelf:
-            // Only enqueues — the engine applies it after the update
-            // loop, so a script destroying its own entity is safe.
             lua += "    scene.destroy(entity)\n";
             break;
         case NodeType::ActionSpawnCube:
@@ -354,8 +379,8 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
         "-- GENERATED from a node graph. Edit the GRAPH, not this file --\n"
         "-- your changes here are overwritten on the next generate.\n\n";
 
-    // Timer blocks need state that SURVIVES between frames: one
-    // file-scope accumulator per "Every X s" node, named by node id.
+    // "Every X s" nodes need a counter that survives between frames. Declare
+    // one file-scope Lua variable per such node, named after its id.
     for (const auto& n : m_nodes)
         if (n.type == NodeType::CondEvery) {
             char buf[64];
@@ -364,19 +389,21 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
         }
     lua += "\n";
 
+    // Describes each of the three event functions we might generate.
     struct Event { int nodeId; const char* header; const char* dt; };
-    // on_start/on_destroy run once: dt has no meaning, so actions use 1
-    // (Move there = instant step, Spin = instant turn by `speed` degrees).
+    // on_start and on_destroy run only once, where a per-frame `dt` has no
+    // meaning, so we define dt = 1 there so time-scaled actions still work.
     const Event events[] = {
         {1, "function on_start(entity)\n",   "    local dt = 1\n"},
         {2, "function on_update(entity, dt)\n", ""},
         {3, "function on_destroy(entity)\n", "    local dt = 1\n"},
     };
 
-    // Recursive walk: emit a node, then each branch hanging off it.
-    // A condition wraps ONLY its own subtree in `if ... end`; sibling
-    // branches (fan-out) are independent statements in sequence.
-    // `depth` guards against link cycles (a cycle must not hang us).
+    // A recursive helper that writes a node and then everything chained after
+    // it. Condition nodes wrap only their own downstream chain in an `if`;
+    // separate branches off the same output become independent statements. The
+    // `depth` limit stops a looped graph from recursing forever.
+    // std::function lets a lambda call itself by name.
     std::function<void(std::string&, const GraphNode&, int)> emit =
         [&](std::string& lua, const GraphNode& n, int depth) {
             if (depth > 32) return;
@@ -386,9 +413,10 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
                     emit(lua, *next, depth + 1);
                 lua += "    end\n";
             } else if (n.type == NodeType::CondEvery) {
-                // Accumulate dt; on crossing the interval, subtract it
-                // (not reset to 0 — leftover time carries over, keeping
-                // the average rate exact) and run the branch.
+                // Add the frame time to the counter; when it passes the
+                // interval, subtract the interval (rather than resetting to 0,
+                // so leftover time carries over and the average rate stays
+                // exact) and run the branch.
                 char buf[160];
                 snprintf(buf, sizeof(buf),
                     "    acc_%d = acc_%d + dt\n"
@@ -406,9 +434,9 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
             }
         };
 
+    // Build each event function, but only if something is actually chained to
+    // it (an event with no chain produces no function at all).
     for (const Event& ev : events) {
-        // No branches off this event -> no function (the engine treats
-        // missing hooks as "not interested").
         auto roots = NextInChain(ev.nodeId);
         if (roots.empty()) continue;
 

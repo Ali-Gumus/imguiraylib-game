@@ -1,25 +1,29 @@
 #include "engine/Components.h"
-#include "engine/FileDialog.h"
-#include "engine/Scene.h"     // full Entity definition (Component.h only forward-declares)
+#include "engine/FileDialog.h"   // native "open file" dialog for the Browse button
+#include "engine/Scene.h"        // the full Entity/Scene definitions
 
-#include "imgui.h"
-#include "raymath.h"          // Vector3Transform for the camera
+#include "imgui.h"        // Dear ImGui: the immediate-mode UI used by the editor
+#include "raymath.h"      // vector/quaternion/matrix math helpers
 
-#include <cmath>
-#include <cstring>
+#include <cmath>          // std::sqrt
+#include <cstring>        // strncpy
 
 namespace eng {
 
+// A single on/off flag shared by this file. `static` at file scope means it is
+// private to this .cpp (other files can't see the variable directly). The two
+// functions below are the controlled way to set and read it.
 static bool s_scriptInputEnabled = true;
 void SetScriptInputEnabled(bool enabled) { s_scriptInputEnabled = enabled; }
 static bool ScriptInputEnabled() { return s_scriptInputEnabled; }
 
-// Map a friendly key name ("W", "SPACE", "UP") to a raylib key code.
-// Returns 0 (KEY_NULL) for names we don't know — key_down then just
-// returns false instead of erroring, which is the kind thing at runtime.
+// Translate a friendly key name that a script uses ("W", "SPACE", "UP") into
+// the numeric key code raylib expects. Unknown names return KEY_NULL, so a
+// typo simply reads as "not pressed" instead of causing an error.
 static int KeyFromName(const std::string& name) {
-    if (name.size() == 1) {
-        char c = (char)toupper((unsigned char)name[0]);
+    if (name.size() == 1) {                          // single character like "W" or "5"
+        char c = (char)toupper((unsigned char)name[0]);   // make it upper-case
+        // raylib's letter key codes are consecutive, so KEY_A + offset works.
         if (c >= 'A' && c <= 'Z') return KEY_A + (c - 'A');
         if (c >= '0' && c <= '9') return KEY_ZERO + (c - '0');
     }
@@ -34,84 +38,108 @@ static int KeyFromName(const std::string& name) {
     return KEY_NULL;
 }
 
+// The component factory: build a component object from its type name. Called
+// while loading a scene file, which stores each component by name.
 std::unique_ptr<Component> MakeComponent(const std::string& name) {
-    // An if-chain is honest at two types. When this grows annoying, it
-    // becomes a static map<string, factory-lambda> that components
-    // register themselves into — same idea, more machinery.
     if (name == "Shape")  return std::make_unique<ShapeComponent>();
     if (name == "Script") return std::make_unique<ScriptComponent>();
     if (name == "Camera") return std::make_unique<CameraComponent>();
-    return nullptr;
+    if (name == "Health") return std::make_unique<HealthComponent>();
+    return nullptr;   // unknown type: caller skips it
 }
 
-// ---- CameraComponent -------------------------------------------------
+void HealthComponent::OnInspector() {
+    // ImGui::DragFloat draws a number you can click-drag to change. Arguments:
+    // label, pointer to the value, drag speed, minimum, maximum.
+    ImGui::DragFloat("HP",  &hp,  0.1f, 0.0f, 10000.0f);
+    ImGui::DragFloat("Max", &max, 0.1f, 1.0f, 10000.0f);
+}
+
+// ---- CameraComponent -------------------------------------------------------
 
 Camera3D CameraComponent::ToCamera3D(const Matrix& world) const {
-    // The world matrix (parents included) places the camera: transform
-    // the local origin -> eye position, and a point one unit down the
-    // local -Z -> what it looks at. Parenting the camera "just works".
+    // `world` already includes every parent transform. We find two points in
+    // world space: where the camera sits (its local origin) and a point one
+    // unit ahead of it (its local -Z, which is "forward"). Vector3Transform
+    // applies the matrix to a point. Feeding the eye and a forward point to
+    // raylib is enough to describe the view.
     Vector3 pos = Vector3Transform({0.0f, 0.0f, 0.0f}, world);
     Vector3 tgt = Vector3Transform({0.0f, 0.0f, -1.0f}, world);
 
-    Camera3D cam{};
-    cam.position   = pos;
-    cam.target     = tgt;
-    cam.up         = {0.0f, 1.0f, 0.0f};
-    cam.fovy       = fovy;
-    cam.projection = CAMERA_PERSPECTIVE;
+    Camera3D cam{};                         // zero-initialize all fields
+    cam.position   = pos;                   // where the eye is
+    cam.target     = tgt;                   // the point it looks at
+    cam.up         = {0.0f, 1.0f, 0.0f};    // which way is "up" for the view
+    cam.fovy       = fovy;                  // field of view (zoom)
+    cam.projection = CAMERA_PERSPECTIVE;    // normal 3D perspective
     return cam;
 }
 
 void CameraComponent::OnInspector() {
     ImGui::DragFloat("FOV", &fovy, 0.5f, 10.0f, 140.0f);
+    // TextDisabled draws greyed-out helper text.
     ImGui::TextDisabled("position/rotation come from Transform");
 }
 
-// ---- ScriptComponent -------------------------------------------------
+// ---- ScriptComponent -------------------------------------------------------
 
+// (Re)load this component's Lua file, building a brand-new interpreter and
+// re-exposing the C++ API to it. Safe to call repeatedly (that's "reload").
 void ScriptComponent::Load() {
-    // Order matters: the hooks are references INTO m_lua. Release them
-    // BEFORE destroying the state they point at, or the release walks
-    // freed memory (access violation deep inside Lua).
+    // The m_onStart/Update/Destroy handles point INTO the current m_lua. We
+    // must clear those handles before replacing m_lua, otherwise destroying
+    // the old interpreter would try to clean up references that still think
+    // they live in it. Assigning {} makes each handle empty.
     m_onStart   = {};
     m_onUpdate  = {};
     m_onDestroy = {};
-    m_lua       = sol::state{};       // fresh state: reload = clean slate
+    m_lua       = sol::state{};   // a fresh, empty Lua interpreter
     m_loaded   = false;
     m_error.clear();
 
-    // Which Lua standard libraries scripts may use. Deliberately small:
-    // no io/os = scripts can't delete files. (Sandboxing, day one.)
+    // Open only a safe subset of Lua's standard library. We deliberately do
+    // NOT open `io` or `os`, so a script cannot read or delete files. This is
+    // a basic sandbox.
     m_lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::table,
                          sol::lib::string);
 
-    // --- Expose our C++ types to Lua (this is sol2's whole job) -------
-    // After this, Lua can do: entity.transform.position.x = 5
+    // --- Expose C++ types to Lua ------------------------------------------
+    // new_usertype tells sol2 how a C++ type looks from Lua: which fields and
+    // methods are reachable. After this, Lua code can read and write these
+    // objects directly, e.g. `entity.transform.position.x = 5`.
     m_lua.new_usertype<Vector3>("Vector3",
         "x", &Vector3::x, "y", &Vector3::y, "z", &Vector3::z);
-    // Orientation is a quaternion — exposed so scripts can read it, but
-    // rotating is done through transform:rotate (below), never by poking
-    // x/y/z/w by hand (which would denormalize it).
+
+    // The rotation quaternion is exposed read-only in spirit: scripts should
+    // turn things with transform:rotate (below), not by editing x/y/z/w, which
+    // would break the quaternion's unit-length requirement.
     m_lua.new_usertype<Quaternion>("Quaternion",
         "x", &Quaternion::x, "y", &Quaternion::y,
         "z", &Quaternion::z, "w", &Quaternion::w);
+
+    // The Transform type, plus several helper METHODS defined inline as
+    // "lambdas" (anonymous functions written as [](args){ body }). Each takes
+    // the Transform it is called on as its first argument.
     m_lua.new_usertype<Transform3D>("Transform",
         "position", &Transform3D::position,
         "rotation", &Transform3D::rotation,
         "scale",    &Transform3D::scale,
-        // transform:rotate(ax, ay, az, degrees) — turn by `degrees` around
-        // the (local) axis (ax,ay,az). Composes as a quaternion multiply,
-        // so repeated calls never gimbal-lock. This is how flight steers.
+
+        // transform:rotate(ax, ay, az, degrees) — rotate `degrees` around the
+        // local axis (ax,ay,az). It builds a small rotation quaternion and
+        // multiplies it in, so calling it repeatedly (every frame) accumulates
+        // cleanly without gimbal lock.
         "rotate", [](Transform3D& t, float ax, float ay, float az, float deg) {
             float len = std::sqrt(ax * ax + ay * ay + az * az);
-            if (len < 1e-6f) return;                 // zero axis: nothing to do
+            if (len < 1e-6f) return;                 // ignore a zero-length axis
             Quaternion dq = QuaternionFromAxisAngle(Vector3Normalize({ax, ay, az}),
-                                                    deg * DEG2RAD);
+                                                    deg * DEG2RAD);   // degrees -> radians
             t.rotation = QuaternionMultiply(t.rotation, dq);
         },
-        // Facing vectors in WORLD space (unit length). Forward is local -Z
-        // (an unrotated entity faces -Z, matching the camera). Used for
-        // flight thrust, aiming, and firing.
+
+        // The three facing directions in WORLD space, each a unit vector.
+        // "forward" is the local -Z axis rotated by the orientation; an
+        // unrotated object faces -Z. Scripts use these to thrust, aim and fire.
         "forward", [](Transform3D& t) {
             return Vector3RotateByQuaternion({0.0f, 0.0f, -1.0f}, t.rotation);
         },
@@ -121,67 +149,113 @@ void ScriptComponent::Load() {
         "up", [](Transform3D& t) {
             return Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, t.rotation);
         },
-        // Move by an offset expressed in the entity's LOCAL axes: the
-        // offset is rotated by the orientation, then added to position.
-        // translate_local(0,0,-d) = move d units forward.
+
+        // translate_local(dx,dy,dz) — move by an offset given in the object's
+        // OWN axes. The offset is rotated by the orientation first, so
+        // translate_local(0,0,-d) always means "d units forward".
         "translate_local", [](Transform3D& t, float dx, float dy, float dz) {
             Vector3 o = Vector3RotateByQuaternion({dx, dy, dz}, t.rotation);
             t.position.x += o.x;  t.position.y += o.y;  t.position.z += o.z;
         },
-        // Orient so the entity's forward (-Z) points at a world point,
-        // with world up. Great for cameras, turrets, homing missiles.
+
+        // look_at(x,y,z) — turn so the object's forward points at a world
+        // point, staying upright. Handy for cameras, turrets, homing missiles.
         "look_at", [](Transform3D& t, float x, float y, float z) {
             float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
-            if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // target == us: skip
-            // A look-AT view matrix's inverse is a look-DOWN-(-Z) world
-            // matrix; its rotation part is exactly the orientation we want.
+            if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // aimed at ourselves: skip
+            // MatrixLookAt builds a "view" matrix (world seen from the eye).
+            // Inverting it gives the eye's own orientation matrix, whose
+            // rotation part is exactly the facing we want.
             Matrix view = MatrixLookAt(t.position, {x, y, z}, {0.0f, 1.0f, 0.0f});
             t.rotation = QuaternionFromMatrix(MatrixInvert(view));
         });
+
+    // Expose Entity: a script's `entity` argument can read/write these.
     m_lua.new_usertype<Entity>("Entity",
         "name",      &Entity::name,
+        "tag",       &Entity::tag,
         "transform", &Entity::transform);
 
-    // The engine API scripts get, grouped in tables (like Unity's Input
-    // class). Grows over time: audio, spawning, physics queries...
-    // Every query respects the editor-controlled gate (see
-    // SetScriptInputEnabled) — typing in the UI must not drive the game.
+    // --- Expose the engine "API" as Lua global tables ---------------------
+    // A Lua table works like a namespace. `input.key_down("W")` calls the
+    // function stored under "key_down" in the global `input` table.
+
     sol::table input = m_lua.create_named_table("input");
+    // Each key query is ANDed with ScriptInputEnabled(), so when the editor
+    // has closed the gate (you're typing, etc.) every key reads as not pressed.
     input["key_down"]    = [](const std::string& k) { return ScriptInputEnabled() && IsKeyDown(KeyFromName(k)); };
     input["key_pressed"] = [](const std::string& k) { return ScriptInputEnabled() && IsKeyPressed(KeyFromName(k)); };
 
-    // World edits. These only ENQUEUE — the scene applies them after the
-    // update loop, so destroying yourself mid-update is perfectly safe.
+    // The `scene` table lets scripts change the world. Creating and destroying
+    // entities only ENQUEUES the request; the scene carries it out after the
+    // update loop, so it is safe even to destroy the very entity that asked.
     sol::table scn = m_lua.create_named_table("scene");
+
     scn["destroy"] = [](Entity& e) {
         if (Scene::Current()) Scene::Current()->QueueDestroy(e.id);
     };
     scn["spawn_cube"] = [](const std::string& name, float x, float y, float z) {
         if (Scene::Current()) Scene::Current()->QueueSpawnCube(name, {x, y, z});
     };
-    // Look up another entity by name (nil if absent). Use it fresh each
-    // frame — don't cache the result; a destroyed entity's memory is gone.
+    // Find another entity by name, or nil. Call it fresh each frame; never
+    // store the result, because the entity it points to may be destroyed.
     scn["find"] = [](const std::string& name) -> Entity* {
         return Scene::Current() ? Scene::Current()->FindByName(name) : nullptr;
     };
+    // spawn(name, x,y,z, dx,dy,dz, script): create an entity at a position,
+    // oriented so its forward faces the direction (dx,dy,dz), running `script`.
+    // Firing a bullet spawns it facing the shot direction.
+    scn["spawn"] = [](const std::string& name, float x, float y, float z,
+                      float dx, float dy, float dz, const std::string& script) {
+        if (!Scene::Current()) return;
+        Quaternion rot = QuaternionIdentity();       // default: unrotated
+        if (dx * dx + dy * dy + dz * dz > 1e-4f) {   // if a real direction was given
+            Matrix view = MatrixLookAt({0, 0, 0}, {dx, dy, dz}, {0, 1, 0});
+            rot = QuaternionFromMatrix(MatrixInvert(view));   // face that direction
+        }
+        Scene::Current()->QueueSpawn(name, {x, y, z}, rot, script);
+    };
+    // nearest(tag, x,y,z, radius): the closest entity carrying `tag` within
+    // `radius`, or nil. This is the bullet's simple hit test.
+    scn["nearest"] = [](const std::string& tag, float x, float y, float z,
+                        float radius) -> Entity* {
+        return Scene::Current()
+                   ? Scene::Current()->FindNearestWithTag(tag, {x, y, z}, radius)
+                   : nullptr;
+    };
+    // damage(entity, amount): reduce an entity's Health; if it drops to zero
+    // the entity is destroyed (queued). No Health component means no effect.
+    scn["damage"] = [](Entity& e, float amount) {
+        if (auto* h = e.GetComponent<HealthComponent>()) {
+            h->hp -= amount;
+            if (h->hp <= 0.0f && Scene::Current())
+                Scene::Current()->QueueDestroy(e.id);
+        }
+    };
 
-    // Run the file. protected = collect the error, don't throw/crash.
+    // --- Actually run the file --------------------------------------------
+    // safe_script_file runs the .lua file. Using the "pass on error" form
+    // means a mistake in the script is returned as an invalid result instead
+    // of throwing, so a bad script shows an error rather than crashing.
     sol::protected_function_result r = m_lua.safe_script_file(path, sol::script_pass_on_error);
     if (!r.valid()) {
-        m_error = r.get<sol::error>().what();   // e.g. syntax error with line number
-        return;
+        m_error = r.get<sol::error>().what();   // human-readable message + line
+        return;                                  // stay unloaded
     }
 
-    // Grab whatever lifecycle hooks the script defined — each one is
-    // optional (a script with only on_start is perfectly legal).
+    // Fetch the optional lifecycle functions the script may have defined.
+    // Any that the script didn't define come back empty and are simply never
+    // called.
     m_onStart   = m_lua["on_start"];
     m_onUpdate  = m_lua["on_update"];
     m_onDestroy = m_lua["on_destroy"];
     m_loaded    = true;
 }
 
-// Shared safe-call: run a hook if it exists; on error, record it and
-// disable the script (so a broken hook doesn't spam every frame).
+// Call one Lua hook safely. If it isn't loaded or doesn't exist, do nothing.
+// If calling it errors, record the message and mark the script unloaded so the
+// broken hook isn't called again every frame. This is a template so it accepts
+// any set of arguments to forward to the Lua function.
 template <typename... Args>
 static void CallHook(sol::protected_function& fn, bool& loaded,
                      std::string& error, Args&&... args) {
@@ -194,9 +268,8 @@ static void CallHook(sol::protected_function& fn, bool& loaded,
 }
 
 void ScriptComponent::OnStart(Entity& owner) {
-    Load();
-    // The entity crosses the language border BY REFERENCE — Lua edits
-    // the real C++ object, no copies.
+    Load();   // (re)load the file first, then run its on_start
+    // `owner` is passed by reference, so the script edits the real entity.
     CallHook(m_onStart, m_loaded, m_error, owner);
 }
 
@@ -209,38 +282,43 @@ void ScriptComponent::OnDestroy(Entity& owner) {
 }
 
 void ScriptComponent::OnInspector() {
+    // ImGui edits text through a fixed char buffer, not a std::string, so we
+    // copy the path into a buffer, let the user edit it, then copy back.
     char buf[256];
     strncpy(buf, path.c_str(), sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+    buf[sizeof(buf) - 1] = '\0';                 // ensure it ends with a 0 byte
     if (ImGui::InputText("Path", buf, sizeof(buf)))
         path = buf;
 
+    // A button that opens the native file picker filtered to .lua files.
     if (ImGui::Button("Browse...")) {
         std::string picked = OpenFileDialog(
             "Lua scripts (*.lua)\0*.lua\0All files\0*.*\0", "lua");
-        if (!picked.empty()) {        // empty = user cancelled: change nothing
+        if (!picked.empty()) {        // empty string = the user cancelled
             path = picked;
-            Load();                   // picking a file implies "use it now"
+            Load();                   // choosing a file also loads it
         }
     }
-    ImGui::SameLine();
+    ImGui::SameLine();               // keep the next widget on the same row
     if (ImGui::Button("Load / Reload")) Load();
 
+    // A colored status word next to the buttons.
     ImGui::SameLine();
-    if (m_loaded)             ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "loaded");
+    if (m_loaded)              ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "loaded");
     else if (!m_error.empty()) ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "error");
     else                       ImGui::TextDisabled("not loaded");
 
-    // Full error text (word-wrapped) so you can read the Lua stack trace.
+    // If there was an error, print the full message, wrapped to the panel.
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
 }
 
-// ---- ShapeComponent --------------------------------------------------
+// ---- ShapeComponent --------------------------------------------------------
 
 void ShapeComponent::OnDraw(const Entity& owner) {
-    // Scene::Draw has already pushed this entity's WORLD matrix (with
-    // all parent transforms multiplied in) — so we just draw unit-sized
-    // primitives at the origin. Components stay hierarchy-oblivious.
+    // Before calling this, Scene::Draw pushed this entity's world matrix onto
+    // raylib's matrix stack. That matrix already encodes position, rotation
+    // and scale (including parents'), so here we simply draw a unit-sized
+    // primitive centered at the origin and it appears in the right place.
     switch (kind) {
         case Kind::Cube:
             DrawCube({0, 0, 0}, 1.0f, 1.0f, 1.0f, tint);
@@ -250,30 +328,33 @@ void ShapeComponent::OnDraw(const Entity& owner) {
             DrawSphere({0, 0, 0}, 0.5f, tint);
             if (wireframe) DrawSphereWires({0, 0, 0}, 0.5f, 12, 12, BLACK);
             break;
-        case Kind::Cylinder:   // raylib grows cylinders upward from base
+        case Kind::Cylinder:   // raylib builds cylinders upward from the base,
+                               // so we offset down by half to center it
             DrawCylinder({0, -0.5f, 0}, 0.5f, 0.5f, 1.0f, 16, tint);
             if (wireframe) DrawCylinderWires({0, -0.5f, 0}, 0.5f, 0.5f, 1.0f, 16, BLACK);
             break;
-        case Kind::Cone:       // a cylinder whose top radius is zero
+        case Kind::Cone:       // a cone is a cylinder whose top radius is 0
             DrawCylinder({0, -0.5f, 0}, 0.0f, 0.5f, 1.0f, 16, tint);
             if (wireframe) DrawCylinderWires({0, -0.5f, 0}, 0.0f, 0.5f, 1.0f, 16, BLACK);
             break;
-        case Kind::Plane:      // flat ground piece; no wire version exists
+        case Kind::Plane:      // a flat square; raylib has no wireframe plane
             DrawPlane({0, 0, 0}, {1.0f, 1.0f}, tint);
             break;
     }
 }
 
 void ShapeComponent::OnInspector() {
-    // Combo indices must match the Kind enum order exactly.
+    // A dropdown to pick the shape. The names array order must match the Kind
+    // enum order, because the dropdown works with the integer index.
     static const char* kKindNames[] = {"Cube", "Sphere", "Cylinder", "Cone", "Plane"};
     int k = (int)kind;
-    // Not labeled "Shape": the CollapsingHeader above already owns that
-    // ID, and headers don't scope their contents — same-window siblings.
+    // Labeled "Type", not "Shape", so its ImGui id doesn't collide with the
+    // component's "Shape" header just above it.
     if (ImGui::Combo("Type", &k, kKindNames, 5))
         kind = (Kind)k;
 
-    // ImGui wants colors as float[4] 0..1; raylib Color is byte 0..255.
+    // ImGui color pickers use four floats in the 0..1 range; raylib's Color
+    // uses four bytes in 0..255. Convert one way in, the other way out.
     float col[4] = {tint.r / 255.0f, tint.g / 255.0f,
                     tint.b / 255.0f, tint.a / 255.0f};
     if (ImGui::ColorEdit4("Tint", col)) {

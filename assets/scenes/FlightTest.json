@@ -12,10 +12,18 @@
           ],
           "type": "Shape",
           "wireframe": true
+        },
+        {
+          "path": "assets/scripts/flight_sim.lua",
+          "type": "Script"
+        },
+        {
+          "path": "assets/scripts/gun.lua",
+          "type": "Script"
         }
       ],
       "id": 1,
-      "name": "Player",
+      "name": "Jet",
       "parent": 0,
       "tag": "",
       "transform": {
@@ -49,6 +57,11 @@
           ],
           "type": "Shape",
           "wireframe": true
+        },
+        {
+          "hp": 3.0,
+          "max": 3.0,
+          "type": "Health"
         }
       ],
       "id": 2,
@@ -57,9 +70,9 @@
       "tag": "",
       "transform": {
         "position": [
-          3.0,
-          0.5,
-          -2.0
+          0.0,
+          1.0,
+          -40.0
         ],
         "rotation": [
           0.0,
@@ -73,7 +86,41 @@
           1.0
         ]
       }
+    },
+    {
+      "components": [
+        {
+          "path": "assets/scripts/chasecam.lua",
+          "type": "Script"
+        },
+        {
+          "fovy": 60.0,
+          "type": "Camera"
+        }
+      ],
+      "id": 3,
+      "name": "Cam",
+      "parent": 0,
+      "tag": "",
+      "transform": {
+        "position": [
+          0.0,
+          1.5,
+          5.0
+        ],
+        "rotation": [
+          -0.06975647062063217,
+          0.0,
+          0.0,
+          0.9975640773773193
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
     }
   ],
-  "nextID": 3
+  "nextID": 16
 }

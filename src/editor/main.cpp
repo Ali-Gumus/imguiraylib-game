@@ -1,36 +1,46 @@
-#include "engine/Application.h"
-#include "engine/Scene.h"
-#include "engine/Components.h"
-#include "engine/FileDialog.h"
+// The editor program. It creates the window (via the engine's Application
+// base class) and fills in what to draw each frame: the 3D scene, and the
+// ImGui panels (Hierarchy, Inspector, Viewport, Game, Node Editor, Toolbar).
 
-#include "imgui.h"
-#include "raylib.h"
-#include "raymath.h"    // Vector3Transform / MatrixInvert / MatrixToFloat
-#include "rlImGui.h"
-#include "rlgl.h"       // rlPushMatrix / rlMultMatrixf for the selection box
+#include "engine/Application.h"   // window + main loop base class
+#include "engine/Scene.h"         // the world of entities
+#include "engine/Components.h"    // ShapeComponent, CameraComponent, ...
+#include "engine/FileDialog.h"    // native open/save dialogs
 
-#include "ScriptGraph.h"
+#include "imgui.h"      // the UI library
+#include "raylib.h"     // window, input, drawing, camera
+#include "raymath.h"    // Vector3Transform, MatrixInvert, quaternion<->euler
+#include "rlImGui.h"    // draws a render texture as an ImGui image
+#include "rlgl.h"       // low-level matrix stack, for the selection outline
+
+#include "ScriptGraph.h"           // the visual scripting graph
 
 #include <imgui_node_editor.h>
-namespace ed = ax::NodeEditor;   // the library's own suggested alias
+namespace ed = ax::NodeEditor;     // a shorter alias for the node-editor namespace
 
 #include <algorithm>    // std::clamp
-#include <cmath>        // cosf/sinf for the orbit camera
-#include <cstring>      // strncpy for the name-edit buffer
-#include <filesystem>   // current_path at startup
+#include <cmath>        // sinf / cosf for the orbit camera
+#include <cstring>      // strncpy for text-edit buffers
+#include <filesystem>   // set the working directory at startup
 
+// EditorApp is our program. It inherits Application (which owns the window and
+// loop) and overrides the three per-frame hooks to add the editor's behavior.
 class EditorApp : public eng::Application {
 public:
+    // The constructor runs once at startup. ": eng::Application(...)" first
+    // constructs the base class (creating the window), then this body runs.
     EditorApp(int w, int h, const char* title) : eng::Application(w, h, title) {
-        // The editor camera: orbiting viewpoint for the scene view.
+        // Set up the editor's own camera: an eye that orbits the scene so you
+        // can look around while arranging objects.
         m_camera.position   = {8.0f, 8.0f, 8.0f};
         m_camera.target     = {0.0f, 0.0f, 0.0f};
-        m_camera.up         = {0.0f, 1.0f, 0.0f};   // which way is "up" (+Y)
-        m_camera.fovy       = 45.0f;                // vertical field of view, degrees
+        m_camera.up         = {0.0f, 1.0f, 0.0f};   // +Y is up
+        m_camera.fovy       = 45.0f;                // field of view in degrees
         m_camera.projection = CAMERA_PERSPECTIVE;
 
-        // Seed the world. Note the pattern: create entity, then ATTACH
-        // what it needs. An entity without a Shape exists but is invisible.
+        // Put a couple of starter entities in the world. The pattern is:
+        // create the entity, then attach the components it needs. An entity
+        // with no visual component exists but can't be seen.
         auto id = m_scene.CreateEntity("Player");
         eng::Entity* e = m_scene.Find(id);
         e->transform.position = {0.0f, 0.5f, 0.0f};
@@ -41,31 +51,33 @@ public:
         e->transform.position = {3.0f, 0.5f, -2.0f};
         e->AddComponent<eng::ShapeComponent>().tint = DARKGREEN;
 
-        // The node editor keeps per-canvas state (pan, zoom, node
-        // positions) in a context object we own.
+        // The node editor library keeps its own per-canvas state (pan, zoom,
+        // where nodes sit) inside a context object that we create and own.
         ed::Config cfg;
-        cfg.SettingsFile = nullptr;   // don't write a NodeEditor.json yet
+        cfg.SettingsFile = nullptr;   // don't write a settings file to disk
         m_nodeCtx = ed::CreateEditor(&cfg);
 
-        // Second render target: the Game view (rendered through whatever
-        // entity has a CameraComponent — the Scene viewport stays on the
-        // editor's own camera, Unity-style).
+        // A second off-screen texture, separate from the engine's viewport
+        // one, used to render the "Game" view through an in-scene camera.
         m_gameRT = LoadRenderTexture(1280, 720);
     }
 
+    // The destructor runs at shutdown. `override` documents that it replaces
+    // the base class's virtual destructor.
     ~EditorApp() override {
         UnloadRenderTexture(m_gameRT);
         ed::DestroyEditor(m_nodeCtx);
     }
 
+    // Called once per frame BEFORE anything is drawn. Handles input and,
+    // during play, advances the world. `dt` is the frame time in seconds.
     void OnUpdate(float dt) override {
-        // Editor camera: OUR orbit code, mouse-only. raylib's
-        // UpdateCamera(CAMERA_THIRD_PERSON) also reads WASD internally —
-        // it fought the game for the keyboard (drive cube = drive camera).
-        // Cursor capture: RMB down over the viewport locks the pointer
-        // (hidden, can't leave the window, deltas keep coming) until
-        // release. While locked, ImGui hover tests go blind — so flight
-        // is tracked by m_flyLock, not by hover.
+        // --- Editor camera control ------------------------------------------
+        // Holding the right mouse button over the viewport enters "fly" mode:
+        // DisableCursor hides and locks the mouse pointer (so it can't leave
+        // the window) while still reporting how far it moved. Because a locked
+        // cursor hovers nothing, we track fly mode with our own flag instead
+        // of asking ImGui whether the mouse is over the viewport.
         if (m_viewportHovered && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
             DisableCursor();
             m_flyLock = true;
@@ -78,32 +90,38 @@ public:
         bool flying = m_flyLock;
         if (m_viewportHovered || m_flyLock) {
             if (flying) {
+                // Mouse movement turns the camera (yaw = left/right, pitch =
+                // up/down). The 0.005 factor converts pixels moved to radians.
                 Vector2 d = GetMouseDelta();
-                m_camYaw   -= d.x * 0.005f;   // radians per pixel dragged
+                m_camYaw   -= d.x * 0.005f;
                 m_camPitch += d.y * 0.005f;
-                // Clamp pitch short of straight up/down (gimbal flip).
+                // Keep pitch just short of straight up/down so the view can't
+                // flip over.
                 m_camPitch = std::clamp(m_camPitch, -1.5f, 1.5f);
 
-                // Unity-style fly: WASD moves the look TARGET on the
-                // ground plane while RMB is held (camera follows below).
+                // WASD slides the point the camera looks at across the ground.
+                // Each key contributes +1 or 0, so opposite keys cancel out.
                 float fwdIn   = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) - (IsKeyDown(KEY_S) ? 1.0f : 0.0f);
                 float rightIn = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) - (IsKeyDown(KEY_A) ? 1.0f : 0.0f);
-                Vector3 fwd   = {-sinf(m_camYaw), 0.0f, -cosf(m_camYaw)};   // view dir, flattened
+                // Flatten the view direction onto the ground (no vertical part).
+                Vector3 fwd   = {-sinf(m_camYaw), 0.0f, -cosf(m_camYaw)};
                 Vector3 right = { cosf(m_camYaw), 0.0f, -sinf(m_camYaw)};
-                float speed = m_camDist * 0.75f;   // faster when zoomed out
+                float speed = m_camDist * 0.75f;   // move faster when zoomed further out
                 m_camera.target.x += (fwd.x * fwdIn + right.x * rightIn) * speed * dt;
                 m_camera.target.z += (fwd.z * fwdIn + right.z * rightIn) * speed * dt;
             }
+            // The mouse wheel zooms by changing the orbit distance.
             m_camDist -= GetMouseWheelMove() * 1.0f;
             m_camDist  = std::clamp(m_camDist, 2.0f, 60.0f);
 
-            // E/Q raise/lower the LOOK TARGET; the camera follows.
+            // E and Q raise and lower the look-at point (and the camera with it).
             float lift = (IsKeyDown(KEY_E) ? 1.0f : 0.0f) -
                          (IsKeyDown(KEY_Q) ? 1.0f : 0.0f);
             m_camera.target.y += lift * 5.0f * dt;
 
-            // Spherical -> cartesian: place the eye on a sphere of radius
-            // m_camDist around the target, at the yaw/pitch angles.
+            // Place the camera on a sphere of radius m_camDist around the
+            // look-at point, at the current yaw/pitch angles (spherical to
+            // cartesian coordinates).
             m_camera.position = {
                 m_camera.target.x + m_camDist * cosf(m_camPitch) * sinf(m_camYaw),
                 m_camera.target.y + m_camDist * sinf(m_camPitch),
@@ -111,58 +129,62 @@ public:
             };
         }
 
-        // Script input flows only when the GAME panel is hovered/focused
-        // (Unity's rule), nobody is typing, and the editor camera isn't
-        // claiming the keyboard.
+        // --- Route keyboard input to the game only when appropriate ---------
+        // Scripts should react to keys only when the Game panel has focus/hover,
+        // nobody is typing in a text box, and the editor camera isn't using the
+        // keyboard to fly. SetScriptInputEnabled toggles the scripting input API.
         eng::SetScriptInputEnabled(m_gameActive &&
                                    !ImGui::GetIO().WantTextInput && !flying);
 
-        // Editor shortcuts — suppressed while typing in a field or flying
-        // the camera (those keystrokes aren't meant for the editor).
+        // --- Editor keyboard shortcuts --------------------------------------
+        // Only when not typing, not flying, and something is selected.
         if (!ImGui::GetIO().WantTextInput && !flying &&
             m_selected != eng::kInvalidEntity) {
-            if (IsKeyPressed(KEY_DELETE)) {
+            if (IsKeyPressed(KEY_DELETE)) {           // Delete removes the entity
                 m_scene.DestroyEntity(m_selected);
-                m_selected = eng::kInvalidEntity;   // it's gone; clear selection
+                m_selected = eng::kInvalidEntity;
             }
-            if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_D)) {
+            if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_D)) {   // Ctrl+D duplicates
                 eng::EntityID dup = m_scene.DuplicateEntity(m_selected);
-                if (dup != eng::kInvalidEntity) m_selected = dup;  // select the copy
+                if (dup != eng::kInvalidEntity) m_selected = dup;       // select the copy
             }
         }
 
-        // Scripts only run in play mode, like Unity. In edit mode the
-        // world is frozen — the viewport is for arranging, not simulating.
+        // --- Advance the simulation while playing ---------------------------
+        // In edit mode the world is frozen so you can arrange it; only in play
+        // mode do scripts run.
         if (m_playing) m_scene.Update(dt);
 
-        // Game view render pass: through the scene's camera entity, if
-        // any. (Render textures can be drawn to outside BeginDrawing.)
+        // --- Render the Game view -------------------------------------------
+        // If some entity is a camera, render the scene from its point of view
+        // into m_gameRT. (Render textures can be drawn to before BeginDrawing.)
         if (eng::Entity* camEnt = FindCameraEntity()) {
-            // ignoreScale: a scaled parent must not push the camera away
-            // or skew its aim — position/rotation inherit, scale doesn't.
+            // Pass ignoreScale = true so a scaled parent can't stretch or shove
+            // the camera; only its position and rotation should matter.
             Camera3D cam = camEnt->GetComponent<eng::CameraComponent>()
                                  ->ToCamera3D(m_scene.WorldMatrix(*camEnt, true));
             BeginTextureMode(m_gameRT);
             ClearBackground(Color{15, 15, 20, 255});
             BeginMode3D(cam);
-            m_scene.Draw();               // no grid: this is the player's view
+            m_scene.Draw();               // the player's view has no editor grid
             EndMode3D();
             EndTextureMode();
         }
     }
 
+    // Called each frame to draw the 3D scene into the engine's viewport texture.
     void OnRenderScene() override {
-        BeginMode3D(m_camera);
-        DrawGrid(20, 1.0f);           // floor reference: 20x20 cells, 1 unit each
+        BeginMode3D(m_camera);            // view the world through the editor camera
+        DrawGrid(20, 1.0f);              // a 20x20 reference grid on the ground
         m_scene.Draw();
 
-        // Selection highlight: a yellow wireframe box around the selected
-        // entity. Drawn in a SCALE-FREE frame (position+rotation only) and
-        // sized to the entity's world scale plus a CONSTANT padding — so
-        // the margin stays thin and even no matter how big the shape is.
+        // Draw a yellow wireframe box around the selected entity so you can see
+        // what's selected. It's drawn in a scale-free frame (position+rotation
+        // only) and sized to the entity's actual world size plus a small fixed
+        // padding, so the outline hugs the object evenly at any size.
         if (eng::Entity* sel = m_scene.Find(m_selected)) {
             Vector3 ws = m_scene.WorldScale(*sel);
-            const float pad = 0.15f;      // world units, same at any size
+            const float pad = 0.15f;
             rlPushMatrix();
             rlMultMatrixf(MatrixToFloat(m_scene.WorldMatrix(*sel, /*ignoreScale=*/true)));
             DrawCubeWires({0, 0, 0}, ws.x + pad, ws.y + pad, ws.z + pad, YELLOW);
@@ -171,6 +193,7 @@ public:
         EndMode3D();
     }
 
+    // Called each frame to draw all the editor panels.
     void OnRenderUI() override {
         DrawToolbarPanel();
         DrawViewportPanel();
@@ -181,41 +204,42 @@ public:
     }
 
 private:
-    // First entity carrying a CameraComponent (nullptr if none). Unity
-    // uses the "main camera" tag for this; first-found is fine for now.
+    // Return the first entity that has a CameraComponent, or nullptr if none.
     eng::Entity* FindCameraEntity() {
         for (auto& e : m_scene.Entities())
             if (e.GetComponent<eng::CameraComponent>()) return &e;
         return nullptr;
     }
 
-    // Unity's play/stop cycle = snapshot/restore:
-    //   Play: deep-copy the scene (the "authored" version), then simulate.
-    //   Stop: throw the simulated state away, put the copy back.
+    // Play/Stop works by snapshot and restore: on Play we deep-copy the whole
+    // scene, then let scripts run and change the live copy. On Stop we throw
+    // the changed copy away and put the saved one back, so play never
+    // permanently alters what you authored.
     void StartPlay() {
         m_backup.clear();
         for (const auto& e : m_scene.Entities())
             m_backup.push_back(e.Clone());
-        m_scene.Start();              // fires OnStart (scripts load here)
+        m_scene.Start();              // run every script's on_start
         m_playing = true;
     }
 
     void StopPlay() {
-        m_scene.Entities() = std::move(m_backup);   // restore authored scene
+        m_scene.Entities() = std::move(m_backup);   // restore the saved scene
         m_playing = false;
-        // m_selected survives: ids were preserved by Clone().
+        // The selection still works because Clone kept the same entity ids.
     }
 
+    // The top toolbar: Play/Stop, and (in edit mode) Save/Load of the scene.
     void DrawToolbarPanel() {
-        ImGui::Begin("Toolbar");
+        ImGui::Begin("Toolbar");                    // begin a panel window
         if (m_playing) {
             if (ImGui::Button("Stop")) StopPlay();
             ImGui::SameLine();
             ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "playing");
         } else {
             if (ImGui::Button("Play")) StartPlay();
-            // Save/Load only in edit mode: saving mid-play would capture
-            // simulated state as if it were authored (Unity forbids it too).
+            // Saving is only offered in edit mode; saving mid-play would
+            // capture the simulated state instead of what you authored.
             ImGui::SameLine();
             if (ImGui::Button("Save")) {
                 std::string p = eng::SaveFileDialog(kSceneFilter, "json", "scene.json");
@@ -225,14 +249,14 @@ private:
             if (ImGui::Button("Load")) {
                 std::string p = eng::OpenFileDialog(kSceneFilter, "json");
                 if (!p.empty() && m_scene.Load(p))
-                    m_selected = eng::kInvalidEntity;   // old selection id may not exist
+                    m_selected = eng::kInvalidEntity;   // the loaded scene has different ids
             }
         }
-        ImGui::End();
+        ImGui::End();                                // end the panel
     }
 
-    // Save the graph. Writes straight back to the remembered file;
-    // asks for a location only when there isn't one yet, or on Save As.
+    // Save the node graph. If we already know its file (or forceDialog is
+    // false and a path is set) write straight back; otherwise ask where.
     void SaveGraph(bool forceDialog) {
         std::string path = m_graphPath;
         if (forceDialog || path.empty()) {
@@ -242,12 +266,13 @@ private:
         if (m_graph.Save(path)) m_graphPath = path;
     }
 
+    // The visual scripting panel: a small file toolbar plus the node canvas.
     void DrawNodeEditorPanel() {
         ImGui::Begin("Node Editor");
 
-        // Graph toolbar, text-editor style: the panel remembers which
-        // file is open, so Save writes back without re-prompting. The
-        // JSON is the SOURCE; the .lua is a BUILD ARTIFACT entities use.
+        // A document-style toolbar. The graph's JSON file is the source you
+        // edit here; "Generate Lua" writes a .lua script from it that entities
+        // then run.
         if (ImGui::Button("New")) {
             m_graph.Reset();
             m_graphPath.clear();
@@ -267,40 +292,44 @@ private:
             if (!p.empty()) m_graph.GenerateLua(p);
         }
         ImGui::SameLine();
+        // Show the open file's name, or a placeholder if unsaved.
         ImGui::TextDisabled("%s", m_graphPath.empty() ? "(unsaved graph)"
                                                       : m_graphPath.c_str());
 
-        m_graph.Draw(m_nodeCtx);
+        m_graph.Draw(m_nodeCtx);    // draw the node canvas itself
         ImGui::End();
     }
 
+    // The Scene viewport panel: shows the editor-camera view (the texture the
+    // engine rendered the scene into), and reports whether the mouse is over it.
     void DrawViewportPanel() {
         ImGui::Begin("Viewport");
         m_viewportHovered = ImGui::IsWindowHovered();
+        // Match the render texture's size to the space the panel gives us.
         ImVec2 avail = ImGui::GetContentRegionAvail();
         ResizeViewport((int)avail.x, (int)avail.y);
-        rlImGuiImageRenderTexture(&m_viewport);   // flips Y for OpenGL
+        rlImGuiImageRenderTexture(&m_viewport);   // draws the texture (Y-flipped for OpenGL)
         ImGui::End();
     }
 
-    // What the player will see: rendered through the scene's camera
-    // entity. Scripts move that entity -> this view moves. Unity's "Game".
+    // The Game view panel: what the player sees, rendered through the scene's
+    // camera entity. Also tracks whether the game "owns" the keyboard.
     void DrawGamePanel() {
         ImGui::Begin("Game");
-        // Does the game "own" the keyboard? Hovered or focused counts.
         m_gameActive = ImGui::IsWindowFocused() || ImGui::IsWindowHovered();
         if (FindCameraEntity()) {
             ImVec2 avail = ImGui::GetContentRegionAvail();
             ResizeRenderTexture(m_gameRT, (int)avail.x, (int)avail.y);
             rlImGuiImageRenderTexture(&m_gameRT);
         } else {
+            // No camera exists, so there's nothing to show; explain how to fix.
             ImGui::TextDisabled("No camera in scene.");
             ImGui::TextDisabled("Add Component -> Camera on an entity.");
         }
         ImGui::End();
     }
 
-    // Lists every entity; click to select. Unity's "Hierarchy" window.
+    // The Hierarchy panel: an indented list of every entity. Click to select.
     void DrawHierarchyPanel() {
         ImGui::Begin("Hierarchy");
 
@@ -309,7 +338,8 @@ private:
 
         ImGui::Separator();
 
-        // Roots first; each recurses into its children, indented.
+        // Draw the top-level (parent-less) entities; each row recurses into its
+        // children, indented one level deeper.
         for (auto& e : m_scene.Entities())
             if (e.parent == eng::kInvalidEntity)
                 DrawHierarchyRow(e, 0);
@@ -317,13 +347,14 @@ private:
         ImGui::End();
     }
 
-    // Change parent while keeping the entity WHERE IT IS and AT THE SIZE
-    // it was (Unity-style world-transform preservation):
-    //  - position: world position pushed through the INVERSE of the new
-    //    parent's world matrix = that same spot, expressed parent-locally
-    //  - scale: world scale divided by the new parent chain's scale
-    // (Rotation is not compensated yet: under a rotated parent the entity
-    // keeps its local angles, so its world orientation can change.)
+    // Re-parent an entity while keeping it looking the same on screen. When you
+    // change an object's parent, its local transform is measured relative to
+    // the new parent, so we recompute it:
+    //  - position: take the current WORLD position, then express it in the new
+    //    parent's space by multiplying by the inverse of the parent's matrix.
+    //  - scale: divide the world scale by the parent chain's scale.
+    // (Rotation isn't adjusted, so under a rotated parent the orientation can
+    // change; position and size are the parts that matter most here.)
     void Reparent(eng::Entity& e, eng::EntityID newParent) {
         Vector3 worldPos   = Vector3Transform({0, 0, 0}, m_scene.WorldMatrix(e));
         Vector3 worldScale = m_scene.WorldScale(e);
@@ -342,11 +373,14 @@ private:
                                 worldScale.z / chain.z};
     }
 
+    // Draw one entity's row in the Hierarchy, then its children recursively.
     void DrawHierarchyRow(eng::Entity& e, int depth) {
-        ImGui::PushID((int)e.id);   // entities may share a name
-        if (depth > 0) ImGui::Indent(depth * 16.0f);
+        // PushID gives this row a unique ImGui identity even if two entities
+        // share a name (ImGui identifies widgets by their label otherwise).
+        ImGui::PushID((int)e.id);
+        if (depth > 0) ImGui::Indent(depth * 16.0f);     // indent children
         if (ImGui::Selectable(e.name.c_str(), e.id == m_selected))
-            m_selected = e.id;
+            m_selected = e.id;                            // clicking selects it
         if (depth > 0) ImGui::Unindent(depth * 16.0f);
         ImGui::PopID();
 
@@ -355,9 +389,9 @@ private:
                 DrawHierarchyRow(child, depth + 1);
     }
 
-    // Edits the selected entity. Generic on purpose: it knows about name
-    // + transform, and asks each component to draw ITSELF. Adding new
-    // component types never requires touching this code again.
+    // The Inspector panel: edit the selected entity. It knows only about the
+    // built-in fields (name, tag, parent, transform); every component draws its
+    // own editing UI, so adding a new component type never changes this code.
     void DrawInspectorPanel() {
         ImGui::Begin("Inspector");
 
@@ -368,24 +402,30 @@ private:
             return;
         }
 
-        // --- Name -----------------------------------------------------
+        // --- Name (edited through a char buffer, then copied back) ----------
         char buf[64];
         strncpy(buf, e->name.c_str(), sizeof(buf) - 1);
         buf[sizeof(buf) - 1] = '\0';
         if (ImGui::InputText("Name", buf, sizeof(buf)))
             e->name = buf;
 
-        // --- Parent (the scene-graph link) ----------------------------
-        // Cycle-creating choices (own descendants) are filtered out.
-        // On change, local scale is recomputed so the entity keeps its
-        // VISIBLE size (Unity does the same when you reparent).
+        // --- Tag (a shared category used by gameplay lookups) ---------------
+        char tagbuf[64];
+        strncpy(tagbuf, e->tag.c_str(), sizeof(tagbuf) - 1);
+        tagbuf[sizeof(tagbuf) - 1] = '\0';
+        if (ImGui::InputText("Tag", tagbuf, sizeof(tagbuf)))
+            e->tag = tagbuf;
+
+        // --- Parent (choose from a dropdown of valid parents) ---------------
+        // Entities that would create a loop (this entity's own descendants) are
+        // left out. Selecting one re-parents while preserving position and size.
         const eng::Entity* curParent = m_scene.FindConst(e->parent);
         if (ImGui::BeginCombo("Parent", curParent ? curParent->name.c_str() : "(none)")) {
             if (ImGui::Selectable("(none)", e->parent == eng::kInvalidEntity))
                 Reparent(*e, eng::kInvalidEntity);
             for (auto& other : m_scene.Entities()) {
-                if (other.id == e->id) continue;                  // not yourself
-                if (m_scene.WouldCycle(e->id, other.id)) continue; // no loops
+                if (other.id == e->id) continue;                   // can't parent to itself
+                if (m_scene.WouldCycle(e->id, other.id)) continue; // would form a loop
                 ImGui::PushID((int)other.id);
                 if (ImGui::Selectable(other.name.c_str(), e->parent == other.id))
                     Reparent(*e, other.id);
@@ -394,14 +434,15 @@ private:
             ImGui::EndCombo();
         }
 
-        // --- Transform (built-in, always present) ---------------------
+        // --- Transform (always present) -------------------------------------
         ImGui::SeparatorText("Transform");
         ImGui::DragFloat3("Position", &e->transform.position.x, 0.1f);
-        // Rotation is stored as a quaternion but EDITED as euler degrees.
-        // We keep a separate euler edit-buffer and only re-seed it from the
-        // quaternion when the SELECTION changes. Deriving euler from the
-        // quaternion every frame would "flip" past 90 deg (two eulers map to
-        // one orientation), making values jump — this buffer avoids that.
+        // Rotation is stored as a quaternion but shown as three euler angles.
+        // We keep those angles in a separate buffer and only refill it from the
+        // quaternion when the selection changes. If we recomputed the angles
+        // from the quaternion every frame, they would jump around past 90
+        // degrees (several angle triples describe the same orientation); the
+        // buffer avoids that so dragging is smooth.
         if (m_rotEulerFor != m_selected) {
             Vector3 e0 = QuaternionToEuler(e->transform.rotation);   // radians
             m_rotEuler = {e0.x * RAD2DEG, e0.y * RAD2DEG, e0.z * RAD2DEG};
@@ -413,93 +454,98 @@ private:
                                                         m_rotEuler.z * DEG2RAD);
         ImGui::DragFloat3("Scale", &e->transform.scale.x, 0.05f);
 
-        // --- Components (each draws its own UI) -----------------------
-        // Index loop, not range-for: the X button erases while iterating,
-        // and erasing invalidates range-for iterators.
+        // --- Components (each draws its own editing UI) ---------------------
+        // We loop by index (not a range-for) because the X button can erase the
+        // current component mid-loop, which would break a range-for's iterator.
         for (size_t i = 0; i < e->components.size(); ) {
             eng::Component* c = e->components[i].get();
             ImGui::PushID((int)i);
 
-            // AllowOverlap: without it the header eats every click on its
-            // row and the X button underneath never fires.
+            // A collapsing header for the component. AllowOverlap lets the X
+            // button sit on the same row without the header swallowing its click.
             bool open = ImGui::CollapsingHeader(c->Name(),
                                                 ImGuiTreeNodeFlags_DefaultOpen |
                                                 ImGuiTreeNodeFlags_AllowOverlap);
-            // Small "X" on the same line to remove the component.
+            // A small "X" at the right edge to remove this component.
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
             bool removed = ImGui::SmallButton("X");
-            if (open && !removed) c->OnInspector();
+            if (open && !removed) c->OnInspector();   // let the component draw itself
 
             ImGui::PopID();
 
             if (removed) e->components.erase(e->components.begin() + i);
-            else ++i;
+            else ++i;                                 // only advance if we kept it
         }
 
-        // --- Add Component (Unity's button) ---------------------------
+        // --- Add Component menu ---------------------------------------------
         ImGui::Separator();
-        if (ImGui::Button("Add Component", ImVec2(-1, 0)))   // -1 = full width
+        if (ImGui::Button("Add Component", ImVec2(-1, 0)))   // width -1 = fill the row
             ImGui::OpenPopup("AddComponentPopup");
         if (ImGui::BeginPopup("AddComponentPopup")) {
-            // Hard-coded menu for now; becomes a registry when the list grows.
-            // Entries are greyed out if the entity already has one and the
-            // component type doesn't allow duplicates.
+            // Each entry is disabled (greyed out) if the entity already has one
+            // and that type doesn't allow duplicates.
             bool hasShape = e->GetComponent<eng::ShapeComponent>() != nullptr;
             if (ImGui::MenuItem("Shape", nullptr, false, !hasShape))
                 e->AddComponent<eng::ShapeComponent>();
-            if (ImGui::MenuItem("Script"))   // multiple allowed, never greyed
+            if (ImGui::MenuItem("Script"))   // multiple scripts are allowed
                 e->AddComponent<eng::ScriptComponent>();
             bool hasCam = e->GetComponent<eng::CameraComponent>() != nullptr;
             if (ImGui::MenuItem("Camera", nullptr, false, !hasCam))
                 e->AddComponent<eng::CameraComponent>();
+            bool hasHealth = e->GetComponent<eng::HealthComponent>() != nullptr;
+            if (ImGui::MenuItem("Health", nullptr, false, !hasHealth))
+                e->AddComponent<eng::HealthComponent>();
             ImGui::EndPopup();
         }
 
-        // --- Danger zone ----------------------------------------------
+        // --- Delete the whole entity ----------------------------------------
         ImGui::Separator();
         if (ImGui::Button("Delete Entity")) {
-            m_scene.DestroyEntity(m_selected);   // `e` is dangling after this!
-            m_selected = eng::kInvalidEntity;
+            m_scene.DestroyEntity(m_selected);   // after this, `e` points at freed memory
+            m_selected = eng::kInvalidEntity;    // so clear the selection and don't touch e
         }
 
         ImGui::End();
     }
 
-    // Win32 filter strings: (label, pattern) pairs, double-null separated.
+    // File-type filters for the dialogs, in the Windows (label,pattern) format.
     static constexpr const char* kSceneFilter = "Scene (*.json)\0*.json\0All files\0*.*\0";
     static constexpr const char* kGraphFilter = "Node graph (*.json)\0*.json\0All files\0*.*\0";
     static constexpr const char* kLuaFilter   = "Lua script (*.lua)\0*.lua\0All files\0*.*\0";
 
-    eng::Scene    m_scene;
-    std::vector<eng::Entity> m_backup;   // authored scene, held during play
-    bool          m_playing  = false;
-    eng::EntityID m_selected = eng::kInvalidEntity;
-    Camera3D      m_camera{};
-    // Orbit state; initial values reproduce the old (8,8,8) view.
-    float         m_camYaw   = 0.785f;   // 45 degrees
+    // --- Editor state -------------------------------------------------------
+    eng::Scene    m_scene;                              // the world being edited
+    std::vector<eng::Entity> m_backup;                  // saved scene while playing
+    bool          m_playing  = false;                   // are we in play mode?
+    eng::EntityID m_selected = eng::kInvalidEntity;     // the selected entity (or none)
+    Camera3D      m_camera{};                            // the editor's orbit camera
+    // Orbit camera angles/distance (initial values give a nice 3/4 view).
+    float         m_camYaw   = 0.785f;                  // ~45 degrees, in radians
     float         m_camPitch = 0.615f;
     float         m_camDist  = 13.9f;
-    bool          m_viewportHovered = false;
-    bool          m_flyLock   = false;   // RMB flight in progress (cursor captured)
-    bool          m_gameActive = false;  // Game panel hovered/focused last frame
+    bool          m_viewportHovered = false;            // mouse over the viewport panel?
+    bool          m_flyLock   = false;                  // right-drag fly in progress?
+    bool          m_gameActive = false;                 // Game panel focused/hovered?
 
-    // Inspector rotation edit-buffer (euler degrees), and which entity it
-    // currently mirrors — re-seeded from the quaternion on selection change.
+    // The euler-angle edit buffer for the Inspector's Rotation field, and the
+    // id of the entity it currently reflects.
     Vector3       m_rotEuler{0, 0, 0};
     eng::EntityID m_rotEulerFor = eng::kInvalidEntity;
-    ed::EditorContext* m_nodeCtx = nullptr;
-    edtr::ScriptGraph  m_graph;
-    std::string        m_graphPath;  // file the canvas is editing ("" = unsaved)
-    RenderTexture2D    m_gameRT{};   // the Game view's canvas
+
+    ed::EditorContext* m_nodeCtx = nullptr;             // node-editor canvas state
+    edtr::ScriptGraph  m_graph;                         // the graph being edited
+    std::string        m_graphPath;                     // its file ("" if unsaved)
+    RenderTexture2D    m_gameRT{};                       // the Game view's texture
 };
 
+// The program's entry point.
 int main() {
-    // Run from the project root, wherever the exe actually lives. Every
-    // relative path ("assets/...") now hits the REAL source assets — the
-    // editor edits the project, not a copy next to the exe.
+    // Make every relative path (like "assets/scripts/flight.lua") resolve
+    // against the project folder, regardless of where the built .exe sits.
+    // PROJECT_ROOT_DIR is a string baked in at build time by CMake.
     std::filesystem::current_path(PROJECT_ROOT_DIR);
 
     EditorApp app(1280, 720, "MyEngine Editor");
-    app.Run();
+    app.Run();          // run the main loop until the window is closed
     return 0;
 }
