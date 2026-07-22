@@ -6,6 +6,8 @@
 #include "sol/sol.hpp"     // sol2: a C++ wrapper that runs Lua and binds C++ to it
 
 #include <string>
+#include <utility>         // std::pair
+#include <vector>
 
 namespace eng {
 
@@ -42,13 +44,20 @@ public:
     void OnDestroy(Entity& owner) override;
     void OnUpdate(float dt, Entity& owner) override;
 
-    // Save/load which script file this component points at.
-    void Serialize(nlohmann::json& out) const override { out["path"] = path; }
+    // Save the script path AND any tuned property values, so per-entity tweaks
+    // survive saving and reloading.
+    void Serialize(nlohmann::json& out) const override {
+        out["path"] = path;
+        nlohmann::json props = nlohmann::json::object();
+        for (const auto& pr : m_props) props[pr.first] = pr.second;
+        out["props"] = props;
+    }
     void Deserialize(const nlohmann::json& in) override {
-        // .value(key, fallback) returns the stored value, or `fallback` if the
-        // key is missing. Using it means old save files (that lack newer keys)
-        // still load instead of throwing an error.
         path = in.value("path", path);
+        m_props.clear();
+        if (in.contains("props") && in["props"].is_object())
+            for (auto it = in["props"].begin(); it != in["props"].end(); ++it)
+                m_props.push_back({it.key(), it.value().get<float>()});
     }
 
     // Draws the path field + a Load/Reload button + any error text.
@@ -71,6 +80,11 @@ private:
     sol::protected_function m_onDestroy;
     bool        m_loaded = false;           // did the file load without error?
     std::string m_error;                    // last error message, "" if none
+
+    // Tunable values the script exposed via a global `properties` table, as
+    // (name, value) pairs. Shown as editable fields in the Inspector; edited
+    // values are kept here so they survive a reload and are saved with scenes.
+    std::vector<std::pair<std::string, float>> m_props;
 };
 
 // ============================================================================
@@ -282,6 +296,12 @@ private:
 // text back into real C++ objects. Returns nullptr for names it doesn't know,
 // so an unfamiliar entry in a file is skipped rather than crashing the load.
 std::unique_ptr<Component> MakeComponent(const std::string& name);
+
+// A tiny shared store of named numbers that scripts can post to (via the Lua
+// `hud.set(name, value)` call) and the editor's HUD can read back. This is how
+// a value that lives inside a Lua script (like throttle) reaches the C++ HUD.
+void  SetHudValue(const std::string& key, float value);
+float GetHudValue(const std::string& key, float fallback = 0.0f);
 
 // Global on/off switch for the scripting `input` API. The editor turns it OFF
 // while you are typing in a text box or flying the editor's own camera, so the

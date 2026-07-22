@@ -5,10 +5,24 @@
 #include "imgui.h"        // Dear ImGui: the immediate-mode UI used by the editor
 #include "raymath.h"      // vector/quaternion/matrix math helpers
 
+#include <algorithm>      // std::sort
 #include <cmath>          // std::sqrt
 #include <cstring>        // strncpy
+#include <unordered_map>  // the HUD value store
 
 namespace eng {
+
+// The shared store of HUD values (see SetHudValue/GetHudValue). A function-
+// local static so it is created the first time it's used.
+static std::unordered_map<std::string, float>& HudValues() {
+    static std::unordered_map<std::string, float> values;
+    return values;
+}
+void SetHudValue(const std::string& key, float value) { HudValues()[key] = value; }
+float GetHudValue(const std::string& key, float fallback) {
+    auto it = HudValues().find(key);
+    return it != HudValues().end() ? it->second : fallback;
+}
 
 // A single on/off flag shared by this file. `static` at file scope means it is
 // private to this .cpp (other files can't see the variable directly). The two
@@ -322,6 +336,11 @@ void ScriptComponent::Load() {
     input["key_down"]    = [](const std::string& k) { return ScriptInputEnabled() && IsKeyDown(KeyFromName(k)); };
     input["key_pressed"] = [](const std::string& k) { return ScriptInputEnabled() && IsKeyPressed(KeyFromName(k)); };
 
+    // hud.set(name, value): publish a number for the editor's HUD to display
+    // (e.g. hud.set("throttle", throttle) from the flight script).
+    sol::table hud = m_lua.create_named_table("hud");
+    hud["set"] = [](const std::string& k, float v) { SetHudValue(k, v); };
+
     // The `scene` table lets scripts change the world. Creating and destroying
     // entities only ENQUEUES the request; the scene carries it out after the
     // update loop, so it is safe even to destroy the very entity that asked.
@@ -394,7 +413,33 @@ void ScriptComponent::Load() {
     m_onStart   = m_lua["on_start"];
     m_onUpdate  = m_lua["on_update"];
     m_onDestroy = m_lua["on_destroy"];
-    m_loaded    = true;
+
+    // Read the optional global `properties` table: each numeric entry becomes
+    // an editable field in the Inspector. We keep any value the user already
+    // tuned (stored in m_props) instead of resetting it to the script default,
+    // and write the effective value back into the table so the script uses it.
+    std::vector<std::pair<std::string, float>> merged;
+    sol::object propObj = m_lua["properties"];
+    if (propObj.is<sol::table>()) {
+        sol::table pt = propObj.as<sol::table>();
+        for (auto& kv : pt) {
+            if (kv.first.is<std::string>() && kv.second.is<double>()) {
+                std::string name  = kv.first.as<std::string>();
+                float       value = kv.second.as<float>();
+                for (const auto& pr : m_props)      // keep a prior tuned value
+                    if (pr.first == name) { value = pr.second; break; }
+                pt[name] = value;                    // the script reads this back
+                merged.push_back({name, value});
+            }
+        }
+        // Sort by name so the fields keep a stable order in the Inspector
+        // (a Lua table has no defined iteration order).
+        std::sort(merged.begin(), merged.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+    }
+    m_props = std::move(merged);
+
+    m_loaded = true;
 }
 
 // Call one Lua hook safely. If it isn't loaded or doesn't exist, do nothing.
@@ -427,6 +472,12 @@ void ScriptComponent::OnDestroy(Entity& owner) {
 }
 
 void ScriptComponent::OnInspector() {
+    // Load the script the first time it's shown (unless it already failed), so
+    // its properties appear without pressing a button. This only runs the
+    // script's top level, not the per-frame hooks.
+    if (!m_loaded && m_error.empty() && !path.empty())
+        Load();
+
     // ImGui edits text through a fixed char buffer, not a std::string, so we
     // copy the path into a buffer, let the user edit it, then copy back.
     char buf[256];
@@ -455,6 +506,17 @@ void ScriptComponent::OnInspector() {
 
     // If there was an error, print the full message, wrapped to the panel.
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
+
+    // The script's exposed properties, as editable fields. Editing one writes
+    // the new value straight into the running script's `properties` table, so
+    // changes take effect immediately (including mid-play).
+    if (m_loaded && !m_props.empty()) {
+        ImGui::SeparatorText("Properties");
+        for (auto& pr : m_props) {
+            if (ImGui::DragFloat(pr.first.c_str(), &pr.second, 0.05f))
+                m_lua["properties"][pr.first] = pr.second;
+        }
+    }
 }
 
 // ---- ShapeComponent --------------------------------------------------------

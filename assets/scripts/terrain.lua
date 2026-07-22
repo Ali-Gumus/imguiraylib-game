@@ -1,41 +1,40 @@
 -- terrain.lua
 -- =============================================================================
 -- Builds a ground reference out of blocks so that, while flying, you can sense
--- your speed, height and heading. Objects near you sweep past quickly while
--- far ones drift slowly (motion parallax), which is what gives a feeling of
--- depth and motion in an otherwise empty sky.
+-- speed, height and heading (near blocks sweep past faster than far ones).
 --
--- Attach to a single empty entity (it needs no Shape of its own). On the first
--- frame of play it spawns a grid of ground blocks plus a few tall towers as
--- landmarks, then does nothing more.
+-- Attach to a single empty entity. On the first frame of play it spawns a grid
+-- of ground blocks plus a few tall towers as landmarks, then does nothing more.
+-- Note: the grid is built once, so changing the values below takes effect only
+-- on a fresh play, not live.
 -- =============================================================================
 
-local spacing = 15     -- world-unit gap between ground blocks
-local half    = 7      -- grid runs from -half..half on each axis (so 15 x 15 blocks)
+-- Tunable numbers, shown as editable fields in the Inspector.
+properties = {
+    spacing = 15,   -- world-unit gap between ground blocks
+    half    = 7,    -- grid runs from -half..half on each axis
+}
 
--- A one-time guard. Lua locals keep their value between frames, so this stays
--- true after the first build and the grid is never spawned twice.
-local built = false
+local built = false     -- one-time guard (runtime state)
 
 function on_update(entity, dt)
-    if built then return end   -- already built: nothing to do
+    if built then return end
     built = true
 
-    -- Lay down the ground grid. ix and iz step across the grid in both
-    -- directions; multiplying by `spacing` turns them into world positions.
+    local spacing = properties.spacing
+    local half    = math.floor(properties.half)
+
     for ix = -half, half do
         for iz = -half, half do
             local x = ix * spacing
             local z = iz * spacing
-            -- Vary the height slightly with a smooth wave so the ground reads
-            -- as gentle terrain instead of a perfectly flat checkerboard.
+            -- Slight height variation so it reads as terrain, not a flat grid.
             local h = math.floor((math.sin(ix * 0.7) + math.cos(iz * 0.5)) * 1.5)
             scene.spawn_cube("Ground", x, h, z)
         end
     end
 
-    -- A handful of tall towers at fixed spots act as landmarks you can steer
-    -- by. Each tower is just a stack of blocks (same x,z, rising y).
+    -- A few tall towers as landmarks (stacks of blocks at fixed spots).
     local towers = { {30, 30}, {-45, 20}, {60, -50}, {-30, -65}, {75, 40} }
     for _, tw in ipairs(towers) do
         for y = 0, 8 do

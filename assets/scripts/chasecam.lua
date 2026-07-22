@@ -2,42 +2,46 @@
 -- =============================================================================
 -- A follow ("chase") camera. Attach it to a Camera entity that has NO parent,
 -- because this script sets the camera's world position and orientation itself.
--- Each frame it moves toward a point behind and above a target entity, easing
--- in smoothly rather than snapping, and always turns to look at that target.
+-- Each frame it eases toward a point behind and above a target entity and
+-- turns to look at that target.
 -- =============================================================================
 
-local target_name = "Jet"   -- the entity to follow, matched by its name
-local distance    = 9       -- how far behind the target to sit (world units)
-local height      = 3       -- how far above the target to sit (world units)
-local stiffness   = 4       -- follow tightness; higher snaps faster, lower drifts
+-- The entity to follow, matched by name. This is text, not a number, so it
+-- stays a plain local (the Inspector's property fields are numbers only).
+local target_name = "Jet"
+
+-- Tunable numbers, shown as editable fields in the Inspector.
+properties = {
+    distance  = 9,   -- how far behind the target to sit (world units)
+    height    = 3,   -- how far above the target to sit (world units)
+    stiffness = 4,   -- follow tightness; higher snaps faster, lower drifts
+}
 
 function on_update(entity, dt)
-    -- Look up the entity to follow by name. Returns nil if it does not exist
-    -- (for example before it is created), in which case we do nothing this frame.
+    local P = properties
+
+    -- Find the target by name; do nothing if it doesn't exist yet.
     local jet = scene.find(target_name)
     if jet == nil then return end
 
-    local jt = jet.transform     -- the target's position + orientation
-    local f  = jt:forward()      -- unit vector out of the target's nose (world space)
+    local jt = jet.transform
+    local f  = jt:forward()
 
-    -- Work out the ideal camera spot: start at the target, step BACKWARDS along
-    -- its facing (subtracting forward * distance), then lift straight up by height.
-    local dx = jt.position.x - f.x * distance
-    local dy = jt.position.y - f.y * distance + height
-    local dz = jt.position.z - f.z * distance
+    -- Ideal camera spot: behind the target (minus forward) and above it.
+    local dx = jt.position.x - f.x * P.distance
+    local dy = jt.position.y - f.y * P.distance + P.height
+    local dz = jt.position.z - f.z * P.distance
 
-    -- Smooth follow. Instead of jumping to the ideal spot, close only a FRACTION
-    -- of the remaining gap each frame. The fraction 1 - exp(-stiffness*dt) makes
-    -- the smoothing behave the same regardless of frame rate.
-    local a = 1 - math.exp(-stiffness * dt)
+    -- Ease toward that spot: close a fraction of the gap each frame. The
+    -- fraction 1 - exp(-stiffness*dt) behaves the same at any frame rate.
+    local a = 1 - math.exp(-P.stiffness * dt)
 
-    local t = entity.transform                       -- the camera's transform
+    local t = entity.transform
     local px, py, pz = t.position.x, t.position.y, t.position.z
-    t.position.x = px + (dx - px) * a                -- move part-way toward dx
-    t.position.y = py + (dy - py) * a                -- move part-way toward dy
-    t.position.z = pz + (dz - pz) * a                -- move part-way toward dz
+    t.position.x = px + (dx - px) * a
+    t.position.y = py + (dy - py) * a
+    t.position.z = pz + (dz - pz) * a
 
-    -- Rotate the camera so its forward points at the target. look_at keeps the
-    -- camera upright (world up), so the view does not tilt as the target rolls.
+    -- Look at the target (world up keeps the view from rolling).
     t:look_at(jt.position.x, jt.position.y, jt.position.z)
 end

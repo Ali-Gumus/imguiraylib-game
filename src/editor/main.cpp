@@ -153,7 +153,26 @@ public:
         // --- Advance the simulation while playing ---------------------------
         // In edit mode the world is frozen so you can arrange it; only in play
         // mode do scripts run.
-        if (m_playing) m_scene.Update(dt);
+        if (m_playing) {
+            m_scene.Update(dt);
+            // Track the player's speed for the HUD by measuring how far it
+            // moved this frame (distance / time). This avoids reaching into
+            // the flight script for its internal velocity.
+            if (eng::Entity* pl = FindPlayer()) {
+                Vector3 p = pl->transform.position;
+                if (m_hasLastPos && dt > 0.0001f) {
+                    float dx = p.x - m_lastPlayerPos.x;
+                    float dy = p.y - m_lastPlayerPos.y;
+                    float dz = p.z - m_lastPlayerPos.z;
+                    m_playerSpeed = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+                }
+                m_lastPlayerPos = p;
+                m_hasLastPos = true;
+            }
+        } else {
+            m_hasLastPos  = false;   // reset so speed doesn't jump when play resumes
+            m_playerSpeed = 0.0f;
+        }
 
         // --- Render the Game view -------------------------------------------
         // If some entity is a camera, render the scene from its point of view
@@ -168,7 +187,62 @@ public:
             BeginMode3D(cam);
             m_scene.Draw();               // the player's view has no editor grid
             EndMode3D();
+            // Draw the 2D HUD on top of the 3D view (after EndMode3D so it's
+            // flat screen-space, not in the world).
+            if (eng::Entity* player = FindPlayer())
+                DrawGameHud(player);
             EndTextureMode();
+        }
+    }
+
+    // Draw the heads-up display over the Game view: a crosshair in the middle,
+    // airspeed on the left, altitude on the right, and a health bar at the
+    // bottom. Coordinates are in the game texture's pixels.
+    void DrawGameHud(eng::Entity* player) {
+        const int   w   = m_gameRT.texture.width;
+        const int   h   = m_gameRT.texture.height;
+        const int   cx  = w / 2;
+        const int   cy  = h / 2;
+        const Color hud = {90, 255, 130, 220};   // translucent green
+
+        // Crosshair: four short ticks and a small center ring.
+        DrawLine(cx - 16, cy, cx - 5, cy, hud);
+        DrawLine(cx + 5, cy, cx + 16, cy, hud);
+        DrawLine(cx, cy - 16, cx, cy - 5, hud);
+        DrawLine(cx, cy + 5, cx, cy + 16, hud);
+        DrawCircleLines(cx, cy, 3, hud);
+
+        // Airspeed (units per second) on the left, vertically centered.
+        DrawText(TextFormat("SPD %3.0f", m_playerSpeed), 24, cy - 10, 20, hud);
+
+        // Engine power (throttle) below the speed, if the flight script posted
+        // it. Shown as a percentage and a small bar so the player can fine-tune
+        // their speed with the throttle keys.
+        float throttle = eng::GetHudValue("throttle", -1.0f);
+        if (throttle >= 0.0f) {
+            if (throttle > 1.0f) throttle = 1.0f;
+            DrawText(TextFormat("PWR %3.0f%%", throttle * 100.0f), 24, cy + 16, 20, hud);
+            const int bx = 24, by = cy + 40, bw = 150, bh = 10;
+            DrawRectangleLines(bx, by, bw, bh, hud);
+            DrawRectangle(bx + 2, by + 2, (int)((bw - 4) * throttle), bh - 4,
+                          Color{90, 255, 130, 170});
+        }
+
+        // Altitude (the jet's world height) on the right, right-aligned.
+        const char* alt = TextFormat("ALT %4.0f", player->transform.position.y);
+        DrawText(alt, w - 24 - MeasureText(alt, 20), cy - 10, 20, hud);
+
+        // Health bar along the bottom, if the player has a Health component.
+        if (auto* hpc = player->GetComponent<eng::HealthComponent>()) {
+            float frac = (hpc->max > 0.0f) ? hpc->hp / hpc->max : 0.0f;
+            if (frac < 0) frac = 0;
+            if (frac > 1) frac = 1;
+            const int bw = 220, bh = 16;
+            const int bx = cx - bw / 2, by = h - 44;
+            DrawText("HP", bx - 34, by - 2, 20, hud);
+            DrawRectangleLines(bx, by, bw, bh, hud);                     // outline
+            DrawRectangle(bx + 2, by + 2, (int)((bw - 4) * frac), bh - 4, // fill
+                          Color{90, 255, 130, 170});
         }
     }
 
@@ -208,6 +282,13 @@ private:
     eng::Entity* FindCameraEntity() {
         for (auto& e : m_scene.Entities())
             if (e.GetComponent<eng::CameraComponent>()) return &e;
+        return nullptr;
+    }
+
+    // Return the first entity tagged "player" (the one the HUD reports on).
+    eng::Entity* FindPlayer() {
+        for (auto& e : m_scene.Entities())
+            if (e.tag == "player") return &e;
         return nullptr;
     }
 
@@ -542,6 +623,12 @@ private:
     edtr::ScriptGraph  m_graph;                         // the graph being edited
     std::string        m_graphPath;                     // its file ("" if unsaved)
     RenderTexture2D    m_gameRT{};                       // the Game view's texture
+
+    // HUD state: the player's position last frame and its measured speed, used
+    // to show airspeed without reading the flight script's internal velocity.
+    Vector3 m_lastPlayerPos{};
+    bool    m_hasLastPos  = false;
+    float   m_playerSpeed = 0.0f;
 };
 
 // The program's entry point.
