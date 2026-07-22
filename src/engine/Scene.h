@@ -140,7 +140,10 @@ public:
     // The nearest entity carrying `tag` within `maxDist` of `pos`, or nullptr.
     // This is the game's cheap stand-in for collision detection: instead of a
     // physics engine, a bullet just asks "is any enemy within my hit radius?".
-    Entity* FindNearestWithTag(const std::string& tag, Vector3 pos, float maxDist);
+    // `exclude` optionally skips one entity by id (used so an entity searching
+    // for others of its own tag doesn't just find itself).
+    Entity* FindNearestWithTag(const std::string& tag, Vector3 pos, float maxDist,
+                               EntityID exclude = kInvalidEntity);
 
     // Save the whole scene to a JSON file, or load one back. Save returns
     // false if the file can't be written; Load returns false on a missing or

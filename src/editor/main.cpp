@@ -495,6 +495,12 @@ private:
             bool hasHealth = e->GetComponent<eng::HealthComponent>() != nullptr;
             if (ImGui::MenuItem("Health", nullptr, false, !hasHealth))
                 e->AddComponent<eng::HealthComponent>();
+            bool hasModel = e->GetComponent<eng::ModelComponent>() != nullptr;
+            if (ImGui::MenuItem("Model", nullptr, false, !hasModel))
+                e->AddComponent<eng::ModelComponent>();
+            bool hasTerrain = e->GetComponent<eng::TerrainComponent>() != nullptr;
+            if (ImGui::MenuItem("Terrain", nullptr, false, !hasTerrain))
+                e->AddComponent<eng::TerrainComponent>();
             ImGui::EndPopup();
         }
 

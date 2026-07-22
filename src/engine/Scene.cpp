@@ -180,13 +180,15 @@ Entity* Scene::FindByName(const std::string& name) {
 }
 
 // Find the closest entity that carries `tag` and is within `maxDist`.
-Entity* Scene::FindNearestWithTag(const std::string& tag, Vector3 pos, float maxDist) {
+Entity* Scene::FindNearestWithTag(const std::string& tag, Vector3 pos, float maxDist,
+                                  EntityID exclude) {
     Entity* best = nullptr;
     // We compare SQUARED distances so we never need the (slower) square root:
     // if a^2 < b^2 then a < b for non-negative distances. Start the best at
     // maxDist^2 so anything farther than maxDist is ignored.
     float bestDist = maxDist * maxDist;
     for (Entity& e : m_entities) {
+        if (e.id == exclude) continue;              // skip the searcher itself
         if (e.tag != tag) continue;                 // wrong category, skip
         float dx = e.transform.position.x - pos.x;
         float dy = e.transform.position.y - pos.y;

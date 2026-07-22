@@ -45,7 +45,117 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
     if (name == "Script") return std::make_unique<ScriptComponent>();
     if (name == "Camera") return std::make_unique<CameraComponent>();
     if (name == "Health") return std::make_unique<HealthComponent>();
+    if (name == "Model")  return std::make_unique<ModelComponent>();
+    if (name == "Terrain") return std::make_unique<TerrainComponent>();
     return nullptr;   // unknown type: caller skips it
+}
+
+// ---- TerrainComponent ------------------------------------------------------
+
+TerrainComponent::~TerrainComponent() {
+    if (m_built) UnloadModel(m_model);
+}
+
+void TerrainComponent::Rebuild() {
+    if (m_built) UnloadModel(m_model);
+    m_built = false;
+    m_tried = false;   // regenerate on the next draw
+}
+
+void TerrainComponent::EnsureBuilt() {
+    if (m_tried) return;
+    m_tried = true;
+    // A grayscale Perlin-noise image: brighter pixels become higher ground.
+    Image img = GenImagePerlinNoise(resolution, resolution, seed, seed, noiseScale);
+    // Turn that heightmap into a 3D mesh spanning worldSize across, maxHeight tall.
+    Mesh mesh = GenMeshHeightmap(img, {worldSize, maxHeight, worldSize});
+    UnloadImage(img);                       // the image isn't needed once the mesh exists
+    m_model = LoadModelFromMesh(mesh);       // wrap the mesh in a drawable model
+    m_built = true;
+}
+
+void TerrainComponent::OnDraw(const Entity& owner) {
+    EnsureBuilt();
+    if (!m_built) return;
+    // GenMeshHeightmap builds the terrain starting at a corner; offset by half
+    // its width/depth so it's centered under this entity.
+    Vector3 off = {-worldSize * 0.5f, 0.0f, -worldSize * 0.5f};
+    DrawModel(m_model, off, 1.0f, tint);
+    // Optional darker contour lines so the elevation is easy to read without
+    // any lighting.
+    if (wire) DrawModelWires(m_model, off, 1.0f, Color{0, 0, 0, 60});
+}
+
+void TerrainComponent::OnInspector() {
+    ImGui::DragFloat("World size", &worldSize, 5.0f, 20.0f, 4000.0f);
+    ImGui::DragFloat("Max height", &maxHeight, 0.5f, 0.0f, 500.0f);
+    ImGui::DragInt("Resolution", &resolution, 1.0f, 8, 400);
+    ImGui::DragFloat("Hill scale", &noiseScale, 0.1f, 0.5f, 40.0f);
+    ImGui::DragInt("Seed", &seed);
+
+    float col[4] = {tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f};
+    if (ImGui::ColorEdit4("Tint", col))
+        tint = {(unsigned char)(col[0] * 255), (unsigned char)(col[1] * 255),
+                (unsigned char)(col[2] * 255), (unsigned char)(col[3] * 255)};
+    ImGui::Checkbox("Contour lines", &wire);
+
+    // Regenerating the mesh is expensive, so it happens only when you ask,
+    // not on every slider tweak.
+    if (ImGui::Button("Regenerate")) Rebuild();
+}
+
+// ---- ModelComponent --------------------------------------------------------
+
+ModelComponent::~ModelComponent() {
+    if (m_loaded) UnloadModel(m_model);   // free the GPU resources
+}
+
+void ModelComponent::SetPath(const std::string& p) {
+    if (m_loaded) UnloadModel(m_model);   // drop the old model
+    path     = p;
+    m_loaded = false;
+    m_tried  = false;                     // load the new one on the next draw
+}
+
+void ModelComponent::EnsureLoaded() {
+    if (m_tried) return;                  // only attempt the load once per path
+    m_tried = true;
+    if (path.empty()) return;
+    m_model = LoadModel(path.c_str());
+    // LoadModel returns a model with zero meshes if the file was missing or
+    // invalid; treat that as "not loaded" so we don't try to draw nothing.
+    m_loaded = (m_model.meshCount > 0);
+}
+
+void ModelComponent::OnDraw(const Entity& owner) {
+    EnsureLoaded();
+    // Scene::Draw already applied this entity's world matrix, so we draw the
+    // model at the origin, unscaled; the world matrix places and orients it.
+    if (m_loaded) DrawModel(m_model, {0, 0, 0}, 1.0f, tint);
+}
+
+void ModelComponent::OnInspector() {
+    char buf[256];
+    strncpy(buf, path.c_str(), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    if (ImGui::InputText("Path", buf, sizeof(buf)))
+        SetPath(buf);
+
+    if (ImGui::Button("Browse...")) {
+        std::string picked = OpenFileDialog(
+            "Models (*.obj *.glb *.gltf)\0*.obj;*.glb;*.gltf\0All files\0*.*\0", "obj");
+        if (!picked.empty()) SetPath(picked);
+    }
+    ImGui::SameLine();
+    if (m_loaded)              ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "loaded");
+    else if (!path.empty())    ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "not found");
+    else                       ImGui::TextDisabled("no model");
+
+    // Tint color (float 0..1 in ImGui, byte 0..255 in raylib Color).
+    float col[4] = {tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f};
+    if (ImGui::ColorEdit4("Tint", col))
+        tint = {(unsigned char)(col[0] * 255), (unsigned char)(col[1] * 255),
+                (unsigned char)(col[2] * 255), (unsigned char)(col[3] * 255)};
 }
 
 void HealthComponent::OnInspector() {
@@ -168,6 +278,32 @@ void ScriptComponent::Load() {
             // rotation part is exactly the facing we want.
             Matrix view = MatrixLookAt(t.position, {x, y, z}, {0.0f, 1.0f, 0.0f});
             t.rotation = QuaternionFromMatrix(MatrixInvert(view));
+        },
+        // rotate_toward(x,y,z, max_degrees) — turn PART-WAY toward facing a
+        // world point, by at most max_degrees this call. Unlike look_at (which
+        // snaps instantly), this gives a limited turn rate, so an AI plane
+        // banks toward its target and can overshoot if it can't turn fast
+        // enough. Returns having rotated as far as allowed.
+        "rotate_toward", [](Transform3D& t, float x, float y, float z, float maxDeg) {
+            float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
+            if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // target is here: skip
+            // The orientation we would have if we faced the target directly.
+            Matrix view = MatrixLookAt(t.position, {x, y, z}, {0.0f, 1.0f, 0.0f});
+            Quaternion target = QuaternionFromMatrix(MatrixInvert(view));
+            // The angle between our current orientation and that target one.
+            // (For unit quaternions, the dot product's arccos, times two, is
+            // the rotation angle between them.)
+            float dot = t.rotation.x * target.x + t.rotation.y * target.y +
+                        t.rotation.z * target.z + t.rotation.w * target.w;
+            dot = std::fabs(dot);
+            if (dot > 0.9995f) { t.rotation = target; return; }   // essentially aligned
+            float angle  = 2.0f * std::acos(dot < 1.0f ? dot : 1.0f);   // radians
+            float maxRad = maxDeg * DEG2RAD;
+            // Slerp is smooth rotation interpolation; the fraction is how far of
+            // the way to the target we're allowed to go this call (capped at 1).
+            float frac = (angle > 0.0f) ? (maxRad / angle) : 1.0f;
+            if (frac > 1.0f) frac = 1.0f;
+            t.rotation = QuaternionSlerp(t.rotation, target, frac);
         });
 
     // Expose Entity: a script's `entity` argument can read/write these.
@@ -221,6 +357,15 @@ void ScriptComponent::Load() {
                         float radius) -> Entity* {
         return Scene::Current()
                    ? Scene::Current()->FindNearestWithTag(tag, {x, y, z}, radius)
+                   : nullptr;
+    };
+    // nearest_other(self, tag, radius): like nearest, but searches from the
+    // `self` entity's position and never returns `self`. Used so a group of
+    // same-tag agents (e.g. enemies) can steer apart instead of overlapping.
+    scn["nearest_other"] = [](Entity& self, const std::string& tag, float radius) -> Entity* {
+        return Scene::Current()
+                   ? Scene::Current()->FindNearestWithTag(tag, self.transform.position,
+                                                          radius, self.id)
                    : nullptr;
     };
     // damage(entity, amount): reduce an entity's Health; if it drops to zero

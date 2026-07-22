@@ -164,6 +164,119 @@ public:
     float max = 3.0f;   // starting / maximum hit points
 };
 
+// Draws the entity as a loaded 3D MODEL (an .obj or .glb file) instead of a
+// simple primitive. The model file is loaded lazily the first time it's drawn,
+// and freed when the component is destroyed.
+class ModelComponent : public Component {
+public:
+    ModelComponent() = default;
+    // A loaded Model owns GPU resources that must be freed exactly once, so we
+    // forbid copying this component (which would copy the handles and free them
+    // twice). Clone() below makes a fresh, independent one instead.
+    ModelComponent(const ModelComponent&) = delete;
+    ModelComponent& operator=(const ModelComponent&) = delete;
+    ~ModelComponent() override;
+
+    const char* Name() const override { return "Model"; }
+
+    // Clone copies only the path and tint; the new component loads its own copy
+    // of the model on its first draw.
+    std::unique_ptr<Component> Clone() const override {
+        auto c = std::make_unique<ModelComponent>();
+        c->path = path;
+        c->tint = tint;
+        return c;
+    }
+
+    void OnDraw(const Entity& owner) override;
+    void OnInspector() override;
+
+    void Serialize(nlohmann::json& out) const override {
+        out["path"] = path;
+        out["tint"] = {tint.r, tint.g, tint.b, tint.a};
+    }
+    void Deserialize(const nlohmann::json& in) override {
+        SetPath(in.value("path", path));
+        if (in.contains("tint"))
+            tint = {in["tint"][0], in["tint"][1], in["tint"][2], in["tint"][3]};
+    }
+
+    // Change which file to draw (unloads any current model so the new one loads
+    // on the next draw).
+    void SetPath(const std::string& p);
+
+    std::string path;             // the model file, e.g. "assets/models/jet.obj"
+    Color       tint = WHITE;     // multiplied over the model's own colors
+
+private:
+    void EnsureLoaded();          // load the file the first time we need it
+    Model m_model{};              // the loaded model (raylib type)
+    bool  m_loaded = false;       // did it load successfully?
+    bool  m_tried  = false;       // have we already attempted to load `path`?
+};
+
+// Procedurally generates and draws a 3D terrain mesh with rolling hills. The
+// heights come from Perlin noise (a smooth, natural-looking random pattern),
+// so you get real elevation to fly over instead of a flat plane. The mesh is
+// built once (lazily) and rebuilt when you change the settings.
+class TerrainComponent : public Component {
+public:
+    TerrainComponent() = default;
+    // Owns a GPU mesh, so (like ModelComponent) it must not be copied.
+    TerrainComponent(const TerrainComponent&) = delete;
+    TerrainComponent& operator=(const TerrainComponent&) = delete;
+    ~TerrainComponent() override;
+
+    const char* Name() const override { return "Terrain"; }
+
+    std::unique_ptr<Component> Clone() const override {
+        auto c = std::make_unique<TerrainComponent>();
+        c->worldSize  = worldSize;  c->maxHeight  = maxHeight;
+        c->resolution = resolution; c->noiseScale = noiseScale;
+        c->seed = seed; c->tint = tint; c->wire = wire;
+        return c;
+    }
+
+    void OnDraw(const Entity& owner) override;
+    void OnInspector() override;
+
+    void Serialize(nlohmann::json& out) const override {
+        out["worldSize"]  = worldSize;  out["maxHeight"]  = maxHeight;
+        out["resolution"] = resolution; out["noiseScale"] = noiseScale;
+        out["seed"] = seed;
+        out["tint"] = {tint.r, tint.g, tint.b, tint.a};
+        out["wire"] = wire;
+    }
+    void Deserialize(const nlohmann::json& in) override {
+        worldSize  = in.value("worldSize", worldSize);
+        maxHeight  = in.value("maxHeight", maxHeight);
+        resolution = in.value("resolution", resolution);
+        noiseScale = in.value("noiseScale", noiseScale);
+        seed       = in.value("seed", seed);
+        if (in.contains("tint"))
+            tint = {in["tint"][0], in["tint"][1], in["tint"][2], in["tint"][3]};
+        wire = in.value("wire", wire);
+        Rebuild();
+    }
+
+    // Settings you can tweak in the Inspector (press Regenerate to apply).
+    float worldSize  = 400.0f;      // how many world units wide/deep the terrain is
+    float maxHeight  = 25.0f;       // height of the tallest hills
+    int   resolution = 80;          // grid detail (more = smoother, heavier)
+    float noiseScale = 5.0f;        // hill frequency (higher = more, smaller hills)
+    int   seed       = 0;           // change for a different random landscape
+    Color tint       = DARKGREEN;
+    bool  wire       = true;        // overlay contour lines so the hills read clearly
+
+    void Rebuild();                 // discard the mesh so it regenerates next draw
+
+private:
+    void EnsureBuilt();
+    Model m_model{};
+    bool  m_built = false;
+    bool  m_tried = false;
+};
+
 // Component "factory": given a type name read from a save file (a string like
 // "Shape"), build the matching component object. This is how loading turns
 // text back into real C++ objects. Returns nullptr for names it doesn't know,
