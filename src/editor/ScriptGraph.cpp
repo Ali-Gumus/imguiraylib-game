@@ -32,6 +32,11 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::MoveForward:  return "Move Forward";
         case NodeKind::Print:        return "Print";
         case NodeKind::DestroySelf:  return "Destroy Self";
+        case NodeKind::KeyDown:      return "Key Down";
+        case NodeKind::Greater:      return "A > B";
+        case NodeKind::Less:         return "A < B";
+        case NodeKind::Equal:        return "A == B";
+        case NodeKind::Branch:       return "Branch";
     }
     return "?";
 }
@@ -44,6 +49,10 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::Sub:
         case NodeKind::Mul:
         case NodeKind::Div:
+        case NodeKind::KeyDown:
+        case NodeKind::Greater:
+        case NodeKind::Less:
+        case NodeKind::Equal:
             return true;
         default:
             return false;
@@ -84,8 +93,33 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
         case NodeKind::DestroySelf:
             return {{SlotExecIn,  PinType::Exec, true,  "in"},
                     {SlotExecOut, PinType::Exec, false, "out"}};
+
+        case NodeKind::KeyDown:
+            return {{SlotDataOut, PinType::Bool, false, "held"}};
+        case NodeKind::Greater:
+        case NodeKind::Less:
+        case NodeKind::Equal:
+            return {{SlotDataIn,     PinType::Float, true,  "a"},
+                    {SlotDataIn + 1, PinType::Float, true,  "b"},
+                    {SlotDataOut,    PinType::Bool,  false, "result"}};
+        case NodeKind::Branch:
+            return {{SlotExecIn,   PinType::Exec, true,  "in"},
+                    {SlotDataIn,    PinType::Bool, true,  "cond"},
+                    {SlotExecOut,   PinType::Exec, false, "true"},
+                    {SlotExecOut2,  PinType::Exec, false, "false"}};
     }
     return {};
+}
+
+// Look up a pin's type from its node's signature.
+PinType ScriptGraph::PinTypeOf(int pin) const {
+    const GraphNode* n = FindNode(PinToNode(pin));
+    if (n) {
+        int slot = PinToSlot(pin);
+        for (const Pin& p : Signature(n->kind))
+            if (p.slot == slot) return p.type;
+    }
+    return PinType::Exec;
 }
 
 static bool IsEvent(NodeKind k) {
@@ -156,8 +190,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     ImGui::PushItemWidth(90);
     if (n.kind == NodeKind::Number)
         ImGui::DragFloat("##val", &n.value, 0.1f);
-    else if (n.kind == NodeKind::Print)
-        ImGui::InputText("##txt", n.text, sizeof(n.text));
+    else if (n.kind == NodeKind::Print || n.kind == NodeKind::KeyDown)
+        ImGui::InputText("##txt", n.text, sizeof(n.text));   // message, or key name
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -172,27 +206,22 @@ void ScriptGraph::HandleEdits() {
         ed::PinId a, b;
         if (ed::QueryNewLink(&a, &b)) {
             int pa = (int)a.Get(), pb = (int)b.Get();
-            // Identify the two pins from their slots.
-            auto slotOf = [](int pin) { return pin % 16; };
-            int sa = slotOf(pa), sb = slotOf(pb);
-            auto isOutput = [](int slot) { return slot == 1 || slot >= 10; };
+            int sa = PinToSlot(pa), sb = PinToSlot(pb);
+            auto isOut = [](int s) { return s == SlotExecOut || s == SlotExecOut2 || s >= SlotDataOut; };
+            auto isIn  = [](int s) { return s == SlotExecIn || (s >= SlotDataIn && s < SlotDataOut); };
             // Make pa the output side, pb the input side.
-            if (!isOutput(sa)) { std::swap(pa, pb); std::swap(sa, sb); }
+            if (isOut(sb) && isIn(sa)) { std::swap(pa, pb); std::swap(sa, sb); }
 
-            bool outOk = isOutput(sa);
-            bool inOk  = (sb == 0) || (sb >= 4 && sb < 10);   // exec-in or data-in
-            // Exec connects to exec; data connects to data.
-            bool execA = (sa == 1), execB = (sb == 0);
-            bool typesMatch = (execA == execB);
-            bool differentNodes = PinToNode(pa) != PinToNode(pb);
+            bool ok = isOut(sa) && isIn(sb)                 // output -> input
+                   && PinToNode(pa) != PinToNode(pb)        // not to itself
+                   && PinTypeOf(pa) == PinTypeOf(pb);       // same pin type
 
-            if (outOk && inOk && typesMatch && differentNodes && ed::AcceptNewItem()) {
-                // An input pin accepts only ONE wire, so drop any existing wire
-                // into pb before adding the new one.
+            if (ok && ed::AcceptNewItem()) {
+                // An input pin holds only ONE wire; drop any existing one first.
                 m_links.erase(std::remove_if(m_links.begin(), m_links.end(),
                     [pb](const GraphLink& l) { return l.toPin == pb; }), m_links.end());
                 m_links.push_back({m_nextID++, pa, pb});
-            } else if (!(outOk && inOk && typesMatch && differentNodes)) {
+            } else if (!ok) {
                 ed::RejectNewItem();
             }
         }
@@ -245,6 +274,11 @@ void ScriptGraph::HandleContextMenu() {
             item("Subtract", NodeKind::Sub);
             item("Multiply", NodeKind::Mul);
             item("Divide", NodeKind::Div);
+            ImGui::Separator();
+            item("Key Down", NodeKind::KeyDown);
+            item("A > B", NodeKind::Greater);
+            item("A < B", NodeKind::Less);
+            item("A == B", NodeKind::Equal);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Actions")) {
@@ -256,12 +290,18 @@ void ScriptGraph::HandleContextMenu() {
             item("Destroy Self", NodeKind::DestroySelf);
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Flow")) {
+            item("Branch (If)", NodeKind::Branch);
+            ImGui::EndMenu();
+        }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
             n.kind = picked;
             n.x = m_popupX;  n.y = m_popupY;
             if (picked == NodeKind::Number) n.value = 1.0f;
+            if (picked == NodeKind::KeyDown)
+                std::strncpy(n.text, "W", sizeof(n.text) - 1);   // default key
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -344,68 +384,89 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         case NodeKind::EventUpdate:
             return "dt";   // the update event's dt output
         case NodeKind::Add: case NodeKind::Sub:
-        case NodeKind::Mul: case NodeKind::Div: {
-            const char* op = (n.kind == NodeKind::Add) ? " + " :
-                             (n.kind == NodeKind::Sub) ? " - " :
-                             (n.kind == NodeKind::Mul) ? " * " : " / ";
+        case NodeKind::Mul: case NodeKind::Div:
+        case NodeKind::Greater: case NodeKind::Less: case NodeKind::Equal: {
+            const char* op = (n.kind == NodeKind::Add)     ? " + "  :
+                             (n.kind == NodeKind::Sub)     ? " - "  :
+                             (n.kind == NodeKind::Mul)     ? " * "  :
+                             (n.kind == NodeKind::Div)     ? " / "  :
+                             (n.kind == NodeKind::Greater) ? " > "  :
+                             (n.kind == NodeKind::Less)    ? " < "  : " == ";
             std::string a = ExprForInput(PinId(n.id, SlotDataIn));
             std::string b = ExprForInput(PinId(n.id, SlotDataIn + 1));
             return "(" + a + op + b + ")";
+        }
+        case NodeKind::KeyDown: {
+            std::string key(n.text), esc;
+            for (char c : key) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+            return "input.key_down(\"" + esc + "\")";
         }
         default:
             return "0";
     }
 }
 
-// The expression wired into a data-input pin, or "0" if nothing is connected.
+// The expression wired into a data-input pin. If nothing is connected, use a
+// sensible default for the pin's type (false for a Bool input, 0 for a Float).
 std::string ScriptGraph::ExprForInput(int inputPin) const {
     const GraphNode* src = SourceOf(inputPin);
-    if (!src) return "0";
+    if (!src) return PinTypeOf(inputPin) == PinType::Bool ? "false" : "0";
     return ExprForNode(*src);
 }
 
-// Walk the exec wire out of `fromExecPin` and emit each action's statement,
-// following the chain until it ends.
-void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin) const {
-    int pin = fromExecPin;
-    int guard = 0;
-    while (guard++ < 256) {
-        // Find the node whose exec-in this exec-out wires to.
-        const GraphNode* next = nullptr;
-        for (const auto& l : m_links)
-            if (l.fromPin == pin) { next = FindNode(PinToNode(l.toPin)); break; }
-        if (!next) return;
+// Emit every action wired to `fromExecPin`, in order. An exec output may fan
+// out to several targets (so On Update can drive several independent checks);
+// each target emits its statement and then its own continuation. This is
+// recursive so a Branch can emit an if/else. `depth` guards against a loop.
+void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) const {
+    if (depth > 256) return;
 
-        switch (next->kind) {
+    for (const auto& l : m_links) {
+        if (l.fromPin != fromExecPin) continue;
+        const GraphNode* n = FindNode(PinToNode(l.toPin));
+        if (!n) continue;
+
+        switch (n->kind) {
             case NodeKind::Yaw:
                 lua += "    entity.transform:rotate(0, 1, 0, " +
-                       ExprForInput(PinId(next->id, SlotDataIn)) + ")\n";
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             case NodeKind::Pitch:
                 lua += "    entity.transform:rotate(1, 0, 0, " +
-                       ExprForInput(PinId(next->id, SlotDataIn)) + ")\n";
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             case NodeKind::Roll:
                 lua += "    entity.transform:rotate(0, 0, 1, " +
-                       ExprForInput(PinId(next->id, SlotDataIn)) + ")\n";
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             case NodeKind::MoveForward:
                 lua += "    entity.transform:translate_local(0, 0, -(" +
-                       ExprForInput(PinId(next->id, SlotDataIn)) + "))\n";
+                       ExprForInput(PinId(n->id, SlotDataIn)) + "))\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             case NodeKind::Print: {
-                std::string msg(next->text);
-                std::string esc;
+                std::string msg(n->text), esc;
                 for (char c : msg) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
                 lua += "    print(\"" + esc + "\")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
             case NodeKind::DestroySelf:
                 lua += "    scene.destroy(entity)\n";
                 break;
-            default: break;
+            case NodeKind::Branch:
+                lua += "    if " + ExprForInput(PinId(n->id, SlotDataIn)) + " then\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut),  depth + 1);
+                lua += "    else\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut2), depth + 1);
+                lua += "    end\n";
+                break;
+            default:
+                break;
         }
-        pin = PinId(next->id, SlotExecOut);   // continue down the chain
     }
 }
 
