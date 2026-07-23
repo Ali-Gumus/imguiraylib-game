@@ -27,6 +27,9 @@ enum class NodeKind {
     KeyDown,                 // value: is a named key held? -> Bool
     Greater, Less, Equal,    // value: compare two floats -> Bool
     Branch,                  // action: run one of two exec outputs by a Bool
+    // Stage 3: variables (persistent float state)
+    GetVar,                  // value: read a variable -> Float
+    SetVar,                  // action: write a Float into a variable
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
@@ -53,6 +56,14 @@ struct GraphLink {
     int id      = 0;
     int fromPin = 0;
     int toPin   = 0;
+};
+
+// A persistent variable the graph declares. It becomes a file-scope Lua local
+// that keeps its value between frames (throttle, cooldown timers, ...). Get/Set
+// nodes reference it by name.
+struct GraphVar {
+    std::string name = "var";
+    float       init = 0.0f;   // starting value
 };
 
 // The whole graph: nodes + wires, drawn on the canvas and compiled to Lua.
@@ -105,8 +116,11 @@ private:
     void        EmitEvent(std::string& lua, NodeKind ev,
                           const char* header, bool provideDt) const;
 
+    void DrawVariablesUI();   // the little "Variables" list at the top of the panel
+
     std::vector<GraphNode> m_nodes;
     std::vector<GraphLink> m_links;
+    std::vector<GraphVar>  m_vars;
     int   m_nextID = 100;
     bool  m_restorePositions = false;
     float m_popupX = 0, m_popupY = 0;

@@ -37,6 +37,8 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::Less:         return "A < B";
         case NodeKind::Equal:        return "A == B";
         case NodeKind::Branch:       return "Branch";
+        case NodeKind::GetVar:       return "Get";
+        case NodeKind::SetVar:       return "Set";
     }
     return "?";
 }
@@ -53,6 +55,7 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::Greater:
         case NodeKind::Less:
         case NodeKind::Equal:
+        case NodeKind::GetVar:
             return true;
         default:
             return false;
@@ -107,6 +110,13 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotDataIn,    PinType::Bool, true,  "cond"},
                     {SlotExecOut,   PinType::Exec, false, "true"},
                     {SlotExecOut2,  PinType::Exec, false, "false"}};
+
+        case NodeKind::GetVar:
+            return {{SlotDataOut, PinType::Float, false, "value"}};
+        case NodeKind::SetVar:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "value"}};
     }
     return {};
 }
@@ -192,6 +202,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::DragFloat("##val", &n.value, 0.1f);
     else if (n.kind == NodeKind::Print || n.kind == NodeKind::KeyDown)
         ImGui::InputText("##txt", n.text, sizeof(n.text));   // message, or key name
+    else if (n.kind == NodeKind::GetVar || n.kind == NodeKind::SetVar)
+        ImGui::InputText("##var", n.text, sizeof(n.text));   // the variable name
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -294,6 +306,11 @@ void ScriptGraph::HandleContextMenu() {
             item("Branch (If)", NodeKind::Branch);
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Variables")) {
+            item("Get", NodeKind::GetVar);
+            item("Set", NodeKind::SetVar);
+            ImGui::EndMenu();
+        }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
@@ -310,7 +327,33 @@ void ScriptGraph::HandleContextMenu() {
     ed::Resume();
 }
 
+// The little "Variables" list drawn at the top of the Node Editor panel,
+// above the canvas. Each row is a variable's name and starting value.
+void ScriptGraph::DrawVariablesUI() {
+    if (!ImGui::CollapsingHeader("Variables")) return;
+    int removeIdx = -1;
+    for (size_t i = 0; i < m_vars.size(); ++i) {
+        ImGui::PushID((int)i);
+        char nb[64];
+        std::strncpy(nb, m_vars[i].name.c_str(), sizeof(nb) - 1);
+        nb[sizeof(nb) - 1] = '\0';
+        ImGui::SetNextItemWidth(130);
+        if (ImGui::InputText("##name", nb, sizeof(nb))) m_vars[i].name = nb;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90);
+        ImGui::DragFloat("##init", &m_vars[i].init, 0.1f);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("remove")) removeIdx = (int)i;
+        ImGui::PopID();
+    }
+    if (removeIdx >= 0) m_vars.erase(m_vars.begin() + removeIdx);
+    if (ImGui::SmallButton("+ Add Variable")) m_vars.push_back({"var", 0.0f});
+    ImGui::Separator();
+}
+
 void ScriptGraph::Draw(ed::EditorContext* ctx) {
+    DrawVariablesUI();
+
     ed::SetCurrentEditor(ctx);
     ed::Begin("ScriptGraph");
 
@@ -338,6 +381,8 @@ bool ScriptGraph::Save(const std::string& path) const {
                                 {"x", n.x}, {"y", n.y}});
     for (const auto& l : m_links)
         doc["links"].push_back({{"id", l.id}, {"from", l.fromPin}, {"to", l.toPin}});
+    for (const auto& v : m_vars)
+        doc["vars"].push_back({{"name", v.name}, {"init", v.init}});
 
     std::filesystem::create_directories(std::filesystem::path(path).parent_path());
     std::ofstream f(path);
@@ -366,6 +411,9 @@ bool ScriptGraph::Load(const std::string& path) {
     }
     for (const json& jl : doc.value("links", json::array()))
         m_links.push_back({jl.value("id", 0), jl.value("from", 0), jl.value("to", 0)});
+    m_vars.clear();
+    for (const json& jv : doc.value("vars", json::array()))
+        m_vars.push_back({jv.value("name", std::string("var")), jv.value("init", 0.0f)});
     m_nextID = doc.value("nextID", 100);
     m_restorePositions = true;
     return true;
@@ -401,6 +449,8 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             for (char c : key) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
             return "input.key_down(\"" + esc + "\")";
         }
+        case NodeKind::GetVar:
+            return n.text[0] ? std::string(n.text) : "0";   // the variable's name
         default:
             return "0";
     }
@@ -457,6 +507,12 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::DestroySelf:
                 lua += "    scene.destroy(entity)\n";
                 break;
+            case NodeKind::SetVar:
+                if (n->text[0])
+                    lua += "    " + std::string(n->text) + " = " +
+                           ExprForInput(PinId(n->id, SlotDataIn)) + "\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
             case NodeKind::Branch:
                 lua += "    if " + ExprForInput(PinId(n->id, SlotDataIn)) + " then\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut),  depth + 1);
@@ -491,6 +547,15 @@ void ScriptGraph::EmitEvent(std::string& lua, NodeKind ev,
 bool ScriptGraph::GenerateLua(const std::string& path) const {
     std::string lua =
         "-- GENERATED from a node graph. Edit the GRAPH, not this file --\n\n";
+
+    // Declare the graph's variables as file-scope locals so they keep their
+    // value between frames.
+    for (const GraphVar& v : m_vars) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "local %s = %.4g\n", v.name.c_str(), v.init);
+        lua += buf;
+    }
+    if (!m_vars.empty()) lua += "\n";
 
     EmitEvent(lua, NodeKind::EventCreate,  "function on_start(entity)\n",      false);
     EmitEvent(lua, NodeKind::EventUpdate,  "function on_update(entity, dt)\n", true);
