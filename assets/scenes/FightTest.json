@@ -4,10 +4,24 @@
       "components": [
         {
           "path": "assets/scripts/flight_sim.lua",
+          "props": {
+            "align": 0.10000000149011612,
+            "cruise": 20.0,
+            "drag": 0.019999999552965164,
+            "gravity": 13.0,
+            "pitch_rate": 50.0,
+            "roll_rate": 110.0,
+            "thrust": 32.0,
+            "yaw_rate": 35.0
+          },
           "type": "Script"
         },
         {
           "path": "assets/scripts/gun.lua",
+          "props": {
+            "fire_rate": 0.11999999731779099,
+            "muzzle": 3.0
+          },
           "type": "Script"
         },
         {
@@ -69,6 +83,7 @@
         },
         {
           "path": "assets/scripts/enemy.lua",
+          "props": {},
           "type": "Script"
         }
       ],
@@ -99,6 +114,7 @@
       "components": [
         {
           "path": "assets/scripts/chasecam.lua",
+          "props": {},
           "type": "Script"
         },
         {
@@ -133,8 +149,8 @@
       "components": [
         {
           "maxHeight": 25.0,
-          "noiseScale": 5.0,
-          "resolution": 80,
+          "noiseScale": 30.0,
+          "resolution": 300,
           "seed": 0,
           "tint": [
             0,
@@ -144,7 +160,7 @@
           ],
           "type": "Terrain",
           "wire": true,
-          "worldSize": 400.0
+          "worldSize": 2000.0
         }
       ],
       "id": 29,
@@ -190,6 +206,7 @@
         },
         {
           "path": "assets/scripts/enemy.lua",
+          "props": {},
           "type": "Script"
         }
       ],
@@ -236,6 +253,7 @@
         },
         {
           "path": "assets/scripts/enemy.lua",
+          "props": {},
           "type": "Script"
         }
       ],
@@ -282,6 +300,7 @@
         },
         {
           "path": "assets/scripts/enemy.lua",
+          "props": {},
           "type": "Script"
         }
       ],
@@ -309,5 +328,5 @@
       }
     }
   ],
-  "nextID": 741
+  "nextID": 798
 }
