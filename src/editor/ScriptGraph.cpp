@@ -39,6 +39,23 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::Branch:       return "Branch";
         case NodeKind::GetVar:       return "Get";
         case NodeKind::SetVar:       return "Set";
+        case NodeKind::PosX:         return "Pos X";
+        case NodeKind::PosY:         return "Pos Y";
+        case NodeKind::PosZ:         return "Pos Z";
+        case NodeKind::FwdX:         return "Forward X";
+        case NodeKind::FwdY:         return "Forward Y";
+        case NodeKind::FwdZ:         return "Forward Z";
+        case NodeKind::UpX:          return "Up X";
+        case NodeKind::UpY:          return "Up Y";
+        case NodeKind::UpZ:          return "Up Z";
+        case NodeKind::Sqrt:         return "Sqrt";
+        case NodeKind::Exp:          return "Exp";
+        case NodeKind::SetPosX:      return "Set Pos X";
+        case NodeKind::SetPosY:      return "Set Pos Y";
+        case NodeKind::SetPosZ:      return "Set Pos Z";
+        case NodeKind::TurnToPlayer: return "Turn To Player";
+        case NodeKind::Fire:         return "Fire";
+        case NodeKind::IsPlayerNear: return "If Player Near";
     }
     return "?";
 }
@@ -56,6 +73,11 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::Less:
         case NodeKind::Equal:
         case NodeKind::GetVar:
+        case NodeKind::PosX: case NodeKind::PosY: case NodeKind::PosZ:
+        case NodeKind::FwdX: case NodeKind::FwdY: case NodeKind::FwdZ:
+        case NodeKind::UpX:  case NodeKind::UpY:  case NodeKind::UpZ:
+        case NodeKind::Sqrt: case NodeKind::Exp:
+        case NodeKind::IsPlayerNear:
             return true;
         default:
             return false;
@@ -117,6 +139,32 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
                     {SlotExecOut, PinType::Exec,  false, "out"},
                     {SlotDataIn,  PinType::Float, true,  "value"}};
+
+        // Value nodes that read something about this entity (no inputs).
+        case NodeKind::PosX: case NodeKind::PosY: case NodeKind::PosZ:
+        case NodeKind::FwdX: case NodeKind::FwdY: case NodeKind::FwdZ:
+        case NodeKind::UpX:  case NodeKind::UpY:  case NodeKind::UpZ:
+            return {{SlotDataOut, PinType::Float, false, "value"}};
+        // Unary math: one number in, one out.
+        case NodeKind::Sqrt: case NodeKind::Exp:
+            return {{SlotDataIn,  PinType::Float, true,  "x"},
+                    {SlotDataOut, PinType::Float, false, "result"}};
+        // Is a player within range? number in, bool out.
+        case NodeKind::IsPlayerNear:
+            return {{SlotDataIn,  PinType::Float, true,  "range"},
+                    {SlotDataOut, PinType::Bool,  false, "near"}};
+        // Write a position component.
+        case NodeKind::SetPosX: case NodeKind::SetPosY: case NodeKind::SetPosZ:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "value"}};
+        case NodeKind::TurnToPlayer:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "deg"}};
+        case NodeKind::Fire:
+            return {{SlotExecIn,  PinType::Exec, true,  "in"},
+                    {SlotExecOut, PinType::Exec, false, "out"}};
     }
     return {};
 }
@@ -204,6 +252,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::InputText("##txt", n.text, sizeof(n.text));   // message, or key name
     else if (n.kind == NodeKind::GetVar || n.kind == NodeKind::SetVar)
         ImGui::InputText("##var", n.text, sizeof(n.text));   // the variable name
+    else if (n.kind == NodeKind::Fire)
+        ImGui::InputText("##bullet", n.text, sizeof(n.text)); // the bullet script
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -311,6 +361,24 @@ void ScriptGraph::HandleContextMenu() {
             item("Set", NodeKind::SetVar);
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Read")) {
+            item("Pos X", NodeKind::PosX);   item("Pos Y", NodeKind::PosY);   item("Pos Z", NodeKind::PosZ);
+            item("Forward X", NodeKind::FwdX); item("Forward Y", NodeKind::FwdY); item("Forward Z", NodeKind::FwdZ);
+            item("Up X", NodeKind::UpX);     item("Up Y", NodeKind::UpY);     item("Up Z", NodeKind::UpZ);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Math")) {
+            item("Sqrt", NodeKind::Sqrt);
+            item("Exp", NodeKind::Exp);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Engine")) {
+            item("Set Pos X", NodeKind::SetPosX); item("Set Pos Y", NodeKind::SetPosY); item("Set Pos Z", NodeKind::SetPosZ);
+            item("Turn To Player", NodeKind::TurnToPlayer);
+            item("Fire", NodeKind::Fire);
+            item("If Player Near", NodeKind::IsPlayerNear);
+            ImGui::EndMenu();
+        }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
@@ -319,6 +387,9 @@ void ScriptGraph::HandleContextMenu() {
             if (picked == NodeKind::Number) n.value = 1.0f;
             if (picked == NodeKind::KeyDown)
                 std::strncpy(n.text, "W", sizeof(n.text) - 1);   // default key
+            if (picked == NodeKind::Fire)
+                std::strncpy(n.text, "assets/scripts/bullet.lua", sizeof(n.text) - 1);
+            if (picked == NodeKind::TurnToPlayer) n.value = 65.0f;   // (unused, but tidy)
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -451,6 +522,24 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         }
         case NodeKind::GetVar:
             return n.text[0] ? std::string(n.text) : "0";   // the variable's name
+
+        case NodeKind::PosX: return "entity.transform.position.x";
+        case NodeKind::PosY: return "entity.transform.position.y";
+        case NodeKind::PosZ: return "entity.transform.position.z";
+        case NodeKind::FwdX: return "entity.transform:forward().x";
+        case NodeKind::FwdY: return "entity.transform:forward().y";
+        case NodeKind::FwdZ: return "entity.transform:forward().z";
+        case NodeKind::UpX:  return "entity.transform:up().x";
+        case NodeKind::UpY:  return "entity.transform:up().y";
+        case NodeKind::UpZ:  return "entity.transform:up().z";
+        case NodeKind::Sqrt:
+            return "math.sqrt(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
+        case NodeKind::Exp:
+            return "math.exp(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
+        case NodeKind::IsPlayerNear:
+            return "(scene.nearest(\"player\", entity.transform.position.x, "
+                   "entity.transform.position.y, entity.transform.position.z, " +
+                   ExprForInput(PinId(n.id, SlotDataIn)) + ") ~= nil)";
         default:
             return "0";
     }
@@ -513,6 +602,49 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                            ExprForInput(PinId(n->id, SlotDataIn)) + "\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
+            case NodeKind::SetPosX:
+                lua += "    entity.transform.position.x = " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + "\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            case NodeKind::SetPosY:
+                lua += "    entity.transform.position.y = " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + "\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            case NodeKind::SetPosZ:
+                lua += "    entity.transform.position.z = " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + "\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            case NodeKind::TurnToPlayer: {
+                // Find the nearest player and rotate gradually toward it. A
+                // unique local (by node id) avoids clashes between two of these.
+                char buf[320];
+                snprintf(buf, sizeof(buf),
+                    "    local tgt%d = scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000)\n"
+                    "    if tgt%d ~= nil then entity.transform:rotate_toward(tgt%d.transform.position.x, tgt%d.transform.position.y, tgt%d.transform.position.z, %s) end\n",
+                    n->id, n->id, n->id, n->id, n->id,
+                    ExprForInput(PinId(n->id, SlotDataIn)).c_str());
+                lua += buf;
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::Fire: {
+                // Spawn a bullet a little ahead of the entity, facing forward.
+                std::string script(n->text), esc;
+                for (char c : script) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                char buf[420];
+                snprintf(buf, sizeof(buf),
+                    "    local ff%d = entity.transform:forward()\n"
+                    "    local pp%d = entity.transform.position\n"
+                    "    scene.spawn(\"Bullet\", pp%d.x+ff%d.x*3, pp%d.y+ff%d.y*3, pp%d.z+ff%d.z*3, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
+                    n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id,
+                    esc.c_str());
+                lua += buf;
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
             case NodeKind::Branch:
                 lua += "    if " + ExprForInput(PinId(n->id, SlotDataIn)) + " then\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut),  depth + 1);

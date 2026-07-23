@@ -30,6 +30,15 @@ enum class NodeKind {
     // Stage 3: variables (persistent float state)
     GetVar,                  // value: read a variable -> Float
     SetVar,                  // action: write a Float into a variable
+    // Stage 4: engine access + math + canned calls
+    PosX, PosY, PosZ,        // value: this entity's position component -> Float
+    FwdX, FwdY, FwdZ,        // value: this entity's forward vector component -> Float
+    UpX, UpY, UpZ,           // value: this entity's up vector component -> Float
+    Sqrt, Exp,               // value: unary math (sqrt / e^x) -> Float
+    SetPosX, SetPosY, SetPosZ, // action: write a position component
+    TurnToPlayer,            // action: rotate toward the nearest "player"
+    Fire,                    // action: spawn a bullet forward
+    IsPlayerNear,            // value: is a "player" within range? -> Bool
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
