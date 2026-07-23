@@ -44,6 +44,15 @@ enum class NodeKind {
     SetScale,                // action: set all three scale components at once
     HitNearest,              // action: damage the nearest tagged entity in range,
                              //         then remove self (a bullet's impact test)
+    HudSet,                  // action: publish a number to the C++ HUD by name
+    // Stage 6: enemy AI helpers (canned calls, still float/bool only)
+    AvoidCrowd,              // action: steer away from the nearest same-tag
+                             //         neighbour (squadron separation)
+    AimedAtPlayer,           // value: is the nearest "player" both within range
+                             //        and within a firing cone? -> Bool
+    // Stage 7: a follow ("chase") camera behaviour in one node
+    ChaseTarget,             // action: ease toward a point behind/above a named
+                             //         target and look at it (a chase camera)
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the

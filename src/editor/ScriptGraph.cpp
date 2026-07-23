@@ -58,6 +58,10 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::IsPlayerNear: return "If Player Near";
         case NodeKind::SetScale:     return "Set Scale";
         case NodeKind::HitNearest:   return "Hit Nearest";
+        case NodeKind::HudSet:       return "HUD Set";
+        case NodeKind::AvoidCrowd:   return "Avoid Crowd";
+        case NodeKind::AimedAtPlayer:return "Aimed At Player";
+        case NodeKind::ChaseTarget:  return "Chase Target";
     }
     return "?";
 }
@@ -80,6 +84,7 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::UpX:  case NodeKind::UpY:  case NodeKind::UpZ:
         case NodeKind::Sqrt: case NodeKind::Exp:
         case NodeKind::IsPlayerNear:
+        case NodeKind::AimedAtPlayer:
             return true;
         default:
             return false;
@@ -179,6 +184,30 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
                     {SlotExecOut, PinType::Exec,  false, "out"},
                     {SlotDataIn,  PinType::Float, true,  "radius"}};
+        // Publish one number to the HUD; the display name is a node field.
+        case NodeKind::HudSet:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "value"}};
+        // Separation: the neighbour tag and push strength are node fields; the
+        // reach is the "range" data input.
+        case NodeKind::AvoidCrowd:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "range"}};
+        // Firing test: within "range" of the player AND within the "angle" cone.
+        case NodeKind::AimedAtPlayer:
+            return {{SlotDataIn,     PinType::Float, true,  "range"},
+                    {SlotDataIn + 1, PinType::Float, true,  "angle"},
+                    {SlotDataOut,    PinType::Bool,  false, "aimed"}};
+        // Chase camera: the target name is a node field; the three follow
+        // numbers are data inputs.
+        case NodeKind::ChaseTarget:
+            return {{SlotExecIn,     PinType::Exec,  true,  "in"},
+                    {SlotExecOut,    PinType::Exec,  false, "out"},
+                    {SlotDataIn,     PinType::Float, true,  "distance"},
+                    {SlotDataIn + 1, PinType::Float, true,  "height"},
+                    {SlotDataIn + 2, PinType::Float, true,  "stiffness"}};
     }
     return {};
 }
@@ -272,6 +301,14 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::InputText("##tag", n.text, sizeof(n.text));    // the tag to damage
         ImGui::DragFloat("##dmg", &n.value, 0.1f);            // hit points removed
     }
+    else if (n.kind == NodeKind::HudSet)
+        ImGui::InputText("##hud", n.text, sizeof(n.text));    // the HUD value name
+    else if (n.kind == NodeKind::AvoidCrowd) {
+        ImGui::InputText("##ctag", n.text, sizeof(n.text));   // the neighbour tag
+        ImGui::DragFloat("##force", &n.value, 0.1f);          // push strength
+    }
+    else if (n.kind == NodeKind::ChaseTarget)
+        ImGui::InputText("##target", n.text, sizeof(n.text)); // the target entity name
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -397,6 +434,10 @@ void ScriptGraph::HandleContextMenu() {
             item("If Player Near", NodeKind::IsPlayerNear);
             item("Set Scale", NodeKind::SetScale);
             item("Hit Nearest", NodeKind::HitNearest);
+            item("HUD Set", NodeKind::HudSet);
+            item("Avoid Crowd", NodeKind::AvoidCrowd);
+            item("Aimed At Player", NodeKind::AimedAtPlayer);
+            item("Chase Target", NodeKind::ChaseTarget);
             ImGui::EndMenu();
         }
         if (add) {
@@ -414,6 +455,14 @@ void ScriptGraph::HandleContextMenu() {
                 std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default target tag
                 n.value = 1.0f;                                      // default damage
             }
+            if (picked == NodeKind::HudSet)
+                std::strncpy(n.text, "value", sizeof(n.text) - 1);   // default HUD name
+            if (picked == NodeKind::AvoidCrowd) {
+                std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default neighbour tag
+                n.value = 12.0f;                                     // default push strength
+            }
+            if (picked == NodeKind::ChaseTarget)
+                std::strncpy(n.text, "Jet", sizeof(n.text) - 1);     // default target name
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -564,6 +613,27 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             return "(scene.nearest(\"player\", entity.transform.position.x, "
                    "entity.transform.position.y, entity.transform.position.z, " +
                    ExprForInput(PinId(n.id, SlotDataIn)) + ") ~= nil)";
+        case NodeKind::AimedAtPlayer: {
+            // Self-contained expression: find the nearest player, then test that
+            // it is both within "range" and within the "angle" firing cone (the
+            // off-nose angle from a clamped forward-vs-direction dot product).
+            std::string range = ExprForInput(PinId(n.id, SlotDataIn));
+            std::string angle = ExprForInput(PinId(n.id, SlotDataIn + 1));
+            return
+              "(function() "
+              "local tp = scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000) "
+              "if tp == nil then return false end "
+              "local dx = tp.transform.position.x - entity.transform.position.x "
+              "local dy = tp.transform.position.y - entity.transform.position.y "
+              "local dz = tp.transform.position.z - entity.transform.position.z "
+              "local dd = math.sqrt(dx*dx + dy*dy + dz*dz) "
+              "local f = entity.transform:forward() "
+              "local inv = 0 if dd > 0.0001 then inv = 1 / dd end "
+              "local dot = f.x*dx*inv + f.y*dy*inv + f.z*dz*inv "
+              "if dot > 1 then dot = 1 end if dot < -1 then dot = -1 end "
+              "local ang = math.deg(math.acos(dot)) "
+              "return dd < " + range + " and ang < " + angle + " end)()";
+        }
         default:
             return "0";
     }
@@ -693,6 +763,72 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str(),
                     n->id, n->id, n->value);
                 lua += buf;
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::AvoidCrowd: {
+                // Push away from the nearest neighbour of the same tag when it
+                // crowds within range, so a squadron spreads out. Node-scoped
+                // locals (by id) keep two of these from clashing.
+                std::string i = std::to_string(n->id);
+                std::string tag(n->text), esc;
+                for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                std::string rng = ExprForInput(PinId(n->id, SlotDataIn));
+                char fbuf[32]; snprintf(fbuf, sizeof(fbuf), "%.4g", n->value);
+                std::string force = fbuf;
+                lua +=
+                  "    local rng" + i + " = " + rng + "\n"
+                  "    local oth" + i + " = scene.nearest_other(entity, \"" + esc + "\", rng" + i + ")\n"
+                  "    if oth" + i + " ~= nil then\n"
+                  "        local sx" + i + " = entity.transform.position.x - oth" + i + ".transform.position.x\n"
+                  "        local sy" + i + " = entity.transform.position.y - oth" + i + ".transform.position.y\n"
+                  "        local sz" + i + " = entity.transform.position.z - oth" + i + ".transform.position.z\n"
+                  "        local sd" + i + " = math.sqrt(sx" + i + "*sx" + i + " + sy" + i + "*sy" + i + " + sz" + i + "*sz" + i + ")\n"
+                  "        if sd" + i + " > 0.001 then\n"
+                  "            local st" + i + " = (rng" + i + " - sd" + i + ") / rng" + i + "\n"
+                  "            local pu" + i + " = " + force + " * st" + i + " * dt / sd" + i + "\n"
+                  "            entity.transform.position.x = entity.transform.position.x + sx" + i + "*pu" + i + "\n"
+                  "            entity.transform.position.y = entity.transform.position.y + sy" + i + "*pu" + i + "\n"
+                  "            entity.transform.position.z = entity.transform.position.z + sz" + i + "*pu" + i + "\n"
+                  "        end\n"
+                  "    end\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::ChaseTarget: {
+                // Ease toward a point behind and above the named target, then
+                // look at it. Node-scoped locals (by id) avoid clashes.
+                std::string i = std::to_string(n->id);
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                std::string dist = ExprForInput(PinId(n->id, SlotDataIn));
+                std::string hgt  = ExprForInput(PinId(n->id, SlotDataIn + 1));
+                std::string stf  = ExprForInput(PinId(n->id, SlotDataIn + 2));
+                lua +=
+                  "    local jet" + i + " = scene.find(\"" + esc + "\")\n"
+                  "    if jet" + i + " ~= nil then\n"
+                  "        local cd" + i + " = " + dist + "\n"
+                  "        local ch" + i + " = " + hgt + "\n"
+                  "        local cs" + i + " = " + stf + "\n"
+                  "        local jf" + i + " = jet" + i + ".transform:forward()\n"
+                  "        local dx" + i + " = jet" + i + ".transform.position.x - jf" + i + ".x * cd" + i + "\n"
+                  "        local dy" + i + " = jet" + i + ".transform.position.y - jf" + i + ".y * cd" + i + " + ch" + i + "\n"
+                  "        local dz" + i + " = jet" + i + ".transform.position.z - jf" + i + ".z * cd" + i + "\n"
+                  "        local ca" + i + " = 1 - math.exp(-cs" + i + " * dt)\n"
+                  "        entity.transform.position.x = entity.transform.position.x + (dx" + i + " - entity.transform.position.x) * ca" + i + "\n"
+                  "        entity.transform.position.y = entity.transform.position.y + (dy" + i + " - entity.transform.position.y) * ca" + i + "\n"
+                  "        entity.transform.position.z = entity.transform.position.z + (dz" + i + " - entity.transform.position.z) * ca" + i + "\n"
+                  "        entity.transform:look_at(jet" + i + ".transform.position.x, jet" + i + ".transform.position.y, jet" + i + ".transform.position.z)\n"
+                  "    end\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::HudSet: {
+                // Publish a number for the C++ HUD to read by name.
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                lua += "    hud.set(\"" + esc + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
