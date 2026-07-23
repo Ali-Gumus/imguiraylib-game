@@ -56,6 +56,8 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::TurnToPlayer: return "Turn To Player";
         case NodeKind::Fire:         return "Fire";
         case NodeKind::IsPlayerNear: return "If Player Near";
+        case NodeKind::SetScale:     return "Set Scale";
+        case NodeKind::HitNearest:   return "Hit Nearest";
     }
     return "?";
 }
@@ -165,6 +167,18 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
         case NodeKind::Fire:
             return {{SlotExecIn,  PinType::Exec, true,  "in"},
                     {SlotExecOut, PinType::Exec, false, "out"}};
+
+        // Set every scale axis to one number wired into "value".
+        case NodeKind::SetScale:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "value"}};
+        // Impact test: the tag to hit and the hit points are node fields; the
+        // reach is the "radius" data input.
+        case NodeKind::HitNearest:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "radius"}};
     }
     return {};
 }
@@ -254,6 +268,10 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::InputText("##var", n.text, sizeof(n.text));   // the variable name
     else if (n.kind == NodeKind::Fire)
         ImGui::InputText("##bullet", n.text, sizeof(n.text)); // the bullet script
+    else if (n.kind == NodeKind::HitNearest) {
+        ImGui::InputText("##tag", n.text, sizeof(n.text));    // the tag to damage
+        ImGui::DragFloat("##dmg", &n.value, 0.1f);            // hit points removed
+    }
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -377,6 +395,8 @@ void ScriptGraph::HandleContextMenu() {
             item("Turn To Player", NodeKind::TurnToPlayer);
             item("Fire", NodeKind::Fire);
             item("If Player Near", NodeKind::IsPlayerNear);
+            item("Set Scale", NodeKind::SetScale);
+            item("Hit Nearest", NodeKind::HitNearest);
             ImGui::EndMenu();
         }
         if (add) {
@@ -390,6 +410,10 @@ void ScriptGraph::HandleContextMenu() {
             if (picked == NodeKind::Fire)
                 std::strncpy(n.text, "assets/scripts/bullet.lua", sizeof(n.text) - 1);
             if (picked == NodeKind::TurnToPlayer) n.value = 65.0f;   // (unused, but tidy)
+            if (picked == NodeKind::HitNearest) {
+                std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default target tag
+                n.value = 1.0f;                                      // default damage
+            }
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -641,6 +665,33 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                     "    scene.spawn(\"Bullet\", pp%d.x+ff%d.x*3, pp%d.y+ff%d.y*3, pp%d.z+ff%d.z*3, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
                     n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id,
                     esc.c_str());
+                lua += buf;
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::SetScale: {
+                // One number drives all three axes, so a Number node feeding
+                // "value" makes a uniform scale.
+                std::string v = ExprForInput(PinId(n->id, SlotDataIn));
+                lua += "    entity.transform.scale.x = " + v + "\n";
+                lua += "    entity.transform.scale.y = " + v + "\n";
+                lua += "    entity.transform.scale.z = " + v + "\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::HitNearest: {
+                // Find the nearest entity of the given tag within reach; if one
+                // exists, damage it and remove this entity (a bullet's impact).
+                // A unique local (by node id) avoids clashes between two of these.
+                std::string tag(n->text), esc;
+                for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                char buf[400];
+                snprintf(buf, sizeof(buf),
+                    "    local hit%d = scene.nearest(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
+                    "    if hit%d ~= nil then scene.damage(hit%d, %.4g); scene.destroy(entity) end\n",
+                    n->id, esc.c_str(),
+                    ExprForInput(PinId(n->id, SlotDataIn)).c_str(),
+                    n->id, n->id, n->value);
                 lua += buf;
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;

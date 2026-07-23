@@ -39,6 +39,11 @@ enum class NodeKind {
     TurnToPlayer,            // action: rotate toward the nearest "player"
     Fire,                    // action: spawn a bullet forward
     IsPlayerNear,            // value: is a "player" within range? -> Bool
+    // Stage 5: projectile helpers. Canned engine calls (like Fire above), so
+    // they need no new pin types.
+    SetScale,                // action: set all three scale components at once
+    HitNearest,              // action: damage the nearest tagged entity in range,
+                             //         then remove self (a bullet's impact test)
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
