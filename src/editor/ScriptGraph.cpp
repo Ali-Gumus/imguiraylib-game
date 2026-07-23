@@ -27,6 +27,11 @@ static const char* TypeTitle(NodeType t) {
         case NodeType::ActionDestroySelf: return "Destroy Self";
         case NodeType::ActionSpawnCube:   return "Spawn Cube";
         case NodeType::ActionMoveForward: return "Move Fwd";
+        case NodeType::ActionPitch:        return "Pitch";
+        case NodeType::ActionRoll:         return "Roll";
+        case NodeType::ActionTurnToPlayer: return "Turn To Player";
+        case NodeType::ActionFire:         return "Fire";
+        case NodeType::CondPlayerNear:     return "If Player Near";
     }
     return "?";
 }
@@ -108,6 +113,17 @@ void ScriptGraph::DrawNode(GraphNode& n) {
             break;
         case NodeType::ActionMoveForward:
             ImGui::DragFloat("units/s", &n.speed, 0.1f);
+            break;
+        case NodeType::ActionPitch:
+        case NodeType::ActionRoll:
+        case NodeType::ActionTurnToPlayer:
+            ImGui::DragFloat("deg/s", &n.speed, 1.0f);
+            break;
+        case NodeType::ActionFire:
+            ImGui::InputText("bullet", n.text, sizeof(n.text));
+            break;
+        case NodeType::CondPlayerNear:
+            ImGui::DragFloat("range", &n.speed, 1.0f);
             break;
         case NodeType::ActionMove:
             ImGui::DragFloat3("units/s", n.offset, 0.1f);
@@ -222,16 +238,27 @@ void ScriptGraph::HandleContextMenu() {
         if (ImGui::MenuItem("Move"))  { picked = NodeType::ActionMove;  add = true; }
         if (ImGui::MenuItem("Print")) { picked = NodeType::ActionPrint; add = true; }
         if (ImGui::MenuItem("Move Forward")) { picked = NodeType::ActionMoveForward; add = true; }
+        if (ImGui::MenuItem("Pitch"))        { picked = NodeType::ActionPitch;        add = true; }
+        if (ImGui::MenuItem("Roll"))         { picked = NodeType::ActionRoll;         add = true; }
+        if (ImGui::MenuItem("Turn To Player")) { picked = NodeType::ActionTurnToPlayer; add = true; }
+        if (ImGui::MenuItem("Fire"))         { picked = NodeType::ActionFire;         add = true; }
         if (ImGui::MenuItem("Destroy Self")) { picked = NodeType::ActionDestroySelf; add = true; }
         if (ImGui::MenuItem("Spawn Cube"))   { picked = NodeType::ActionSpawnCube;   add = true; }
         ImGui::Separator();
-        if (ImGui::MenuItem("If Key"))    { picked = NodeType::CondKey;   add = true; }
-        if (ImGui::MenuItem("Every X s")) { picked = NodeType::CondEvery; add = true; }
+        if (ImGui::MenuItem("If Key"))         { picked = NodeType::CondKey;       add = true; }
+        if (ImGui::MenuItem("Every X s"))      { picked = NodeType::CondEvery;     add = true; }
+        if (ImGui::MenuItem("If Player Near")) { picked = NodeType::CondPlayerNear; add = true; }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
             n.type = picked;
             n.x = m_popupX;  n.y = m_popupY;   // place it where the user clicked
+            // Type-specific default values that differ from the struct defaults.
+            if (picked == NodeType::ActionTurnToPlayer) n.speed = 65.0f;   // turn deg/s
+            if (picked == NodeType::ActionPitch || picked == NodeType::ActionRoll) n.speed = 60.0f;
+            if (picked == NodeType::CondPlayerNear)     n.speed = 40.0f;   // range
+            if (picked == NodeType::ActionFire)
+                std::strncpy(n.text, "assets/scripts/bullet.lua", sizeof(n.text) - 1);
             m_nodes.push_back(n);
             // We can't set the on-canvas position here (we're between Suspend
             // and Resume). Ask Draw to apply the saved x/y on the next frame.
@@ -346,6 +373,40 @@ static void EmitAction(std::string& lua, const GraphNode& n) {
                 "    entity.transform:translate_local(0, 0, -%.3f * dt)\n", n.speed);
             lua += buf;
             break;
+        case NodeType::ActionPitch:
+            // Rotate around the local X axis (nose up/down).
+            snprintf(buf, sizeof(buf),
+                "    entity.transform:rotate(1, 0, 0, %.3f * dt)\n", n.speed);
+            lua += buf;
+            break;
+        case NodeType::ActionRoll:
+            // Rotate around the local Z axis (bank left/right).
+            snprintf(buf, sizeof(buf),
+                "    entity.transform:rotate(0, 0, 1, %.3f * dt)\n", n.speed);
+            lua += buf;
+            break;
+        case NodeType::ActionTurnToPlayer: {
+            // Find the nearest player and turn gradually toward it. A unique
+            // local name (by node id) avoids clashes if several are used.
+            snprintf(buf, sizeof(buf),
+                "    local tgt%d = scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000)\n"
+                "    if tgt%d ~= nil then entity.transform:rotate_toward(tgt%d.transform.position.x, tgt%d.transform.position.y, tgt%d.transform.position.z, %.3f * dt) end\n",
+                n.id, n.id, n.id, n.id, n.id, n.speed);
+            lua += buf;
+            break;
+        }
+        case NodeType::ActionFire: {
+            // Spawn a bullet a little ahead of the entity, facing forward,
+            // running the chosen bullet script.
+            snprintf(buf, sizeof(buf),
+                "    local ff%d = entity.transform:forward()\n"
+                "    local pp%d = entity.transform.position\n"
+                "    scene.spawn(\"Bullet\", pp%d.x + ff%d.x*3, pp%d.y + ff%d.y*3, pp%d.z + ff%d.z*3, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
+                n.id, n.id, n.id, n.id, n.id, n.id, n.id, n.id, n.id, n.id, n.id,
+                EscapeLua(n.text).c_str());
+            lua += buf;
+            break;
+        }
         case NodeType::ActionMove:
             // Move by a fixed offset in world axes.
             snprintf(buf, sizeof(buf),
@@ -409,6 +470,16 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
             if (depth > 32) return;
             if (n.type == NodeType::CondKey) {
                 lua += "    if input.key_down(\"" + EscapeLua(n.key) + "\") then\n";
+                for (const GraphNode* next : NextInChain(n.id))
+                    emit(lua, *next, depth + 1);
+                lua += "    end\n";
+            } else if (n.type == NodeType::CondPlayerNear) {
+                // Run the branch only if a "player" entity is within range.
+                char buf[220];
+                snprintf(buf, sizeof(buf),
+                    "    if scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %.3f) ~= nil then\n",
+                    n.speed);
+                lua += buf;
                 for (const GraphNode* next : NextInChain(n.id))
                     emit(lua, *next, depth + 1);
                 lua += "    end\n";

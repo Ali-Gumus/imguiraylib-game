@@ -24,6 +24,11 @@ enum class NodeType {
     ActionDestroySelf,  // destroy this entity
     ActionSpawnCube,    // spawn a cube near this entity
     ActionMoveForward,  // move along the entity's own facing
+    ActionPitch,        // rotate around the local X axis (nose up/down)
+    ActionRoll,         // rotate around the local Z axis (bank)
+    ActionTurnToPlayer, // rotate gradually toward the nearest "player"
+    ActionFire,         // spawn a bullet forward, running a chosen script
+    CondPlayerNear,     // continue only if a "player" is within range
 };
 
 // Our own description of one node. The node-editor library only draws things
