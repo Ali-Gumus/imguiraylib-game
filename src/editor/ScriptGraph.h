@@ -66,6 +66,9 @@ enum class NodeKind {
                              //         a loop-variable "i" output for the body
     Sin, Cos, Floor,         // value: more unary math (radians)
     SpawnCube,               // action: scene.spawn_cube(name, x, y, z)
+    // Stage 11: general entity spawning and tag counting.
+    Spawn,                   // action: scene.spawn with a script, tag and health
+    CountTag,                // value: scene.count(tag) -> Float
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
@@ -83,7 +86,8 @@ struct GraphNode {
     int       id = 0;
     NodeKind  kind{};
     float     value = 0.0f;              // the constant for a Number node
-    char      text[128] = "hello";       // the message for a Print node
+    char      text[128]  = "hello";      // the message for a Print node
+    char      text2[128] = "";           // a second string (Spawn's tag)
     float     x = 0.0f, y = 0.0f;        // canvas position (saved)
 };
 

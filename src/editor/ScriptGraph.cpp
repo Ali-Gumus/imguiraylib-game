@@ -72,6 +72,8 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::Cos:          return "Cos";
         case NodeKind::Floor:        return "Floor";
         case NodeKind::SpawnCube:    return "Spawn Cube";
+        case NodeKind::Spawn:        return "Spawn";
+        case NodeKind::CountTag:     return "Count Tag";
     }
     return "?";
 }
@@ -99,6 +101,7 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::LessEqual: case NodeKind::GreaterEqual:
         case NodeKind::Param:
         case NodeKind::Sin: case NodeKind::Cos: case NodeKind::Floor:
+        case NodeKind::CountTag:
             return true;
         default:
             return false;
@@ -197,6 +200,20 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotDataIn,     PinType::Float, true,  "x"},
                     {SlotDataIn + 1, PinType::Float, true,  "y"},
                     {SlotDataIn + 2, PinType::Float, true,  "z"}};
+        // General spawn: position (x,y,z) and facing (dx,dy,dz) are inputs; the
+        // script and tag are node fields, and health is the node's value.
+        case NodeKind::Spawn:
+            return {{SlotExecIn,     PinType::Exec,  true,  "in"},
+                    {SlotExecOut,    PinType::Exec,  false, "out"},
+                    {SlotDataIn,     PinType::Float, true,  "x"},
+                    {SlotDataIn + 1, PinType::Float, true,  "y"},
+                    {SlotDataIn + 2, PinType::Float, true,  "z"},
+                    {SlotDataIn + 3, PinType::Float, true,  "dx"},
+                    {SlotDataIn + 4, PinType::Float, true,  "dy"},
+                    {SlotDataIn + 5, PinType::Float, true,  "dz"}};
+        // Count entities carrying a tag (the tag is a node field).
+        case NodeKind::CountTag:
+            return {{SlotDataOut, PinType::Float, false, "count"}};
         // Is a player within range? number in, bool out.
         case NodeKind::IsPlayerNear:
             return {{SlotDataIn,  PinType::Float, true,  "range"},
@@ -356,6 +373,13 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::InputText("##target", n.text, sizeof(n.text)); // the target entity name
     else if (n.kind == NodeKind::SpawnCube)
         ImGui::InputText("##cubename", n.text, sizeof(n.text)); // the spawned cube's name
+    else if (n.kind == NodeKind::Spawn) {
+        ImGui::InputText("##sscript", n.text,  sizeof(n.text));  // the script to run
+        ImGui::InputText("##stag",    n.text2, sizeof(n.text2)); // the tag to give it
+        ImGui::DragFloat("##shp", &n.value, 0.1f);               // starting health
+    }
+    else if (n.kind == NodeKind::CountTag)
+        ImGui::InputText("##counttag", n.text, sizeof(n.text)); // the tag to count
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -486,6 +510,8 @@ void ScriptGraph::HandleContextMenu() {
         if (ImGui::BeginMenu("Engine")) {
             item("Set Pos X", NodeKind::SetPosX); item("Set Pos Y", NodeKind::SetPosY); item("Set Pos Z", NodeKind::SetPosZ);
             item("Spawn Cube", NodeKind::SpawnCube);
+            item("Spawn", NodeKind::Spawn);
+            item("Count Tag", NodeKind::CountTag);
             item("Turn To Player", NodeKind::TurnToPlayer);
             item("Fire", NodeKind::Fire);
             item("If Player Near", NodeKind::IsPlayerNear);
@@ -527,6 +553,13 @@ void ScriptGraph::HandleContextMenu() {
             if (picked == NodeKind::For) { n.value = 0; }            // (from/to are inputs)
             if (picked == NodeKind::SpawnCube)
                 std::strncpy(n.text, "Cube", sizeof(n.text) - 1);    // default cube name
+            if (picked == NodeKind::Spawn) {
+                std::strncpy(n.text,  "assets/scripts/enemy.lua", sizeof(n.text) - 1);
+                std::strncpy(n.text2, "enemy", sizeof(n.text2) - 1); // default tag
+                n.value = 3.0f;                                      // default health
+            }
+            if (picked == NodeKind::CountTag)
+                std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default tag to count
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -586,6 +619,7 @@ bool ScriptGraph::Save(const std::string& path) const {
     for (const auto& n : m_nodes)
         doc["nodes"].push_back({{"id", n.id}, {"kind", (int)n.kind},
                                 {"value", n.value}, {"text", n.text},
+                                {"text2", n.text2},
                                 {"x", n.x}, {"y", n.y}});
     for (const auto& l : m_links)
         doc["links"].push_back({{"id", l.id}, {"from", l.fromPin}, {"to", l.toPin}});
@@ -615,6 +649,7 @@ bool ScriptGraph::Load(const std::string& path) {
         n.x     = jn.value("x", 0.0f);
         n.y     = jn.value("y", 0.0f);
         std::strncpy(n.text, jn.value("text", "").c_str(), sizeof(n.text) - 1);
+        std::strncpy(n.text2, jn.value("text2", "").c_str(), sizeof(n.text2) - 1);
         m_nodes.push_back(n);
     }
     for (const json& jl : doc.value("links", json::array()))
@@ -692,6 +727,11 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             // The loop variable, referenced by nodes inside the body. Its name
             // is unique per For node so nested loops don't collide.
             return "i" + std::to_string(n.id);
+        case NodeKind::CountTag: {
+            std::string tag(n.text), esc;
+            for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+            return "scene.count(\"" + esc + "\")";
+        }
         case NodeKind::IsPlayerNear:
             return "(scene.nearest(\"player\", entity.transform.position.x, "
                    "entity.transform.position.y, entity.transform.position.z, " +
@@ -934,6 +974,25 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                        ExprForInput(PinId(n->id, SlotDataIn)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 2)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::Spawn: {
+                // scene.spawn(name, x,y,z, dx,dy,dz, script, tag, hp). The tag
+                // doubles as the entity name (gameplay identifies by tag).
+                std::string script(n->text), es1;
+                for (char c : script) { if (c == '"' || c == '\\') es1 += '\\'; es1 += c; }
+                std::string tag(n->text2), es2;
+                for (char c : tag) { if (c == '"' || c == '\\') es2 += '\\'; es2 += c; }
+                char hp[32]; snprintf(hp, sizeof(hp), "%.4g", n->value);
+                lua += "    scene.spawn(\"" + es2 + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 2)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 3)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 4)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 5)) + ", \"" +
+                       es1 + "\", \"" + es2 + "\", " + hp + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
