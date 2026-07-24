@@ -1,26 +1,54 @@
 -- GENERATED from a node graph. Edit the GRAPH, not this file --
 
 properties = {
-    distance = 9,
-    height = 3,
-    stiffness = 4,
+    respawn_delay = 2,
+    base_count = 3,
+    per_wave = 1,
+    spawn_radius = 60,
+    spawn_height = 20,
 }
 
+local wave = 0
+local timer = 0
+local had_player = 0
+local over = 0
+local wcount = 0
+local ang = 0
+local xx = 0
+local zz = 0
+
+function on_start(entity)
+    hud.set("score", 0)
+    hud.set("wave", 0)
+    hud.set("game_over", 0)
+    wave = 0
+    timer = 1
+    had_player = 0
+    over = 0
+end
+
 function on_update(entity, dt)
-    local jet100 = scene.find("Jet")
-    if jet100 ~= nil then
-        local cd100 = properties.distance
-        local ch100 = properties.height
-        local cs100 = properties.stiffness
-        local jf100 = jet100.transform:forward()
-        local dx100 = jet100.transform.position.x - jf100.x * cd100
-        local dy100 = jet100.transform.position.y - jf100.y * cd100 + ch100
-        local dz100 = jet100.transform.position.z - jf100.z * cd100
-        local ca100 = 1 - math.exp(-cs100 * dt)
-        entity.transform.position.x = entity.transform.position.x + (dx100 - entity.transform.position.x) * ca100
-        entity.transform.position.y = entity.transform.position.y + (dy100 - entity.transform.position.y) * ca100
-        entity.transform.position.z = entity.transform.position.z + (dz100 - entity.transform.position.z) * ca100
-        entity.transform:look_at(jet100.transform.position.x, jet100.transform.position.y, jet100.transform.position.z)
+    if (scene.count("player") > 0) then
+    had_player = 1
+    end
+    if ((had_player > 0) and (scene.count("player") == 0)) then
+    hud.set("game_over", 1)
+    over = 1
+    end
+    if ((over <= 0) and (scene.count("enemy") == 0)) then
+    timer = (timer - dt)
+    if (timer <= 0) then
+    wave = (wave + 1)
+    timer = properties.respawn_delay
+    hud.set("wave", wave)
+    wcount = (properties.base_count + ((wave - 1) * properties.per_wave))
+    for i163 = 1, wcount do
+    ang = ((i163 / wcount) * 6.283)
+    xx = (math.cos(ang) * properties.spawn_radius)
+    zz = (math.sin(ang) * properties.spawn_radius)
+    scene.spawn("enemy", xx, properties.spawn_height, zz, (0 - xx), 0, (0 - zz), "assets/scripts/enemy.lua", "enemy", 3)
+    end
+    end
     end
 end
 
