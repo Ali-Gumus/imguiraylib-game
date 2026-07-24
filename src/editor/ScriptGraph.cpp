@@ -62,6 +62,11 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::AvoidCrowd:   return "Avoid Crowd";
         case NodeKind::AimedAtPlayer:return "Aimed At Player";
         case NodeKind::ChaseTarget:  return "Chase Target";
+        case NodeKind::And:          return "And";
+        case NodeKind::Or:           return "Or";
+        case NodeKind::LessEqual:    return "A <= B";
+        case NodeKind::GreaterEqual: return "A >= B";
+        case NodeKind::Param:        return "Param";
     }
     return "?";
 }
@@ -85,6 +90,9 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::Sqrt: case NodeKind::Exp:
         case NodeKind::IsPlayerNear:
         case NodeKind::AimedAtPlayer:
+        case NodeKind::And: case NodeKind::Or:
+        case NodeKind::LessEqual: case NodeKind::GreaterEqual:
+        case NodeKind::Param:
             return true;
         default:
             return false;
@@ -102,6 +110,7 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotDataOut,  PinType::Float, false, "dt"}};
 
         case NodeKind::Number:
+        case NodeKind::Param:
             return {{SlotDataOut, PinType::Float, false, "value"}};
         case NodeKind::Add:
         case NodeKind::Sub:
@@ -131,9 +140,17 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
         case NodeKind::Greater:
         case NodeKind::Less:
         case NodeKind::Equal:
+        case NodeKind::LessEqual:
+        case NodeKind::GreaterEqual:
             return {{SlotDataIn,     PinType::Float, true,  "a"},
                     {SlotDataIn + 1, PinType::Float, true,  "b"},
                     {SlotDataOut,    PinType::Bool,  false, "result"}};
+        // Boolean combiners: two Bool inputs, one Bool output.
+        case NodeKind::And:
+        case NodeKind::Or:
+            return {{SlotDataIn,     PinType::Bool, true,  "a"},
+                    {SlotDataIn + 1, PinType::Bool, true,  "b"},
+                    {SlotDataOut,    PinType::Bool, false, "result"}};
         case NodeKind::Branch:
             return {{SlotExecIn,   PinType::Exec, true,  "in"},
                     {SlotDataIn,    PinType::Bool, true,  "cond"},
@@ -291,6 +308,10 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     ImGui::PushItemWidth(90);
     if (n.kind == NodeKind::Number)
         ImGui::DragFloat("##val", &n.value, 0.1f);
+    else if (n.kind == NodeKind::Param) {
+        ImGui::InputText("##pname", n.text, sizeof(n.text));  // the property name
+        ImGui::DragFloat("##pdef", &n.value, 0.05f);          // its default value
+    }
     else if (n.kind == NodeKind::Print || n.kind == NodeKind::KeyDown)
         ImGui::InputText("##txt", n.text, sizeof(n.text));   // message, or key name
     else if (n.kind == NodeKind::GetVar || n.kind == NodeKind::SetVar)
@@ -387,6 +408,7 @@ void ScriptGraph::HandleContextMenu() {
         };
         if (ImGui::BeginMenu("Values")) {
             item("Number", NodeKind::Number);
+            item("Param", NodeKind::Param);
             item("Add", NodeKind::Add);
             item("Subtract", NodeKind::Sub);
             item("Multiply", NodeKind::Mul);
@@ -396,6 +418,10 @@ void ScriptGraph::HandleContextMenu() {
             item("A > B", NodeKind::Greater);
             item("A < B", NodeKind::Less);
             item("A == B", NodeKind::Equal);
+            item("A >= B", NodeKind::GreaterEqual);
+            item("A <= B", NodeKind::LessEqual);
+            item("And", NodeKind::And);
+            item("Or", NodeKind::Or);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Actions")) {
@@ -446,6 +472,10 @@ void ScriptGraph::HandleContextMenu() {
             n.kind = picked;
             n.x = m_popupX;  n.y = m_popupY;
             if (picked == NodeKind::Number) n.value = 1.0f;
+            if (picked == NodeKind::Param) {
+                std::strncpy(n.text, "param", sizeof(n.text) - 1);  // default property name
+                n.value = 1.0f;                                     // default value
+            }
             if (picked == NodeKind::KeyDown)
                 std::strncpy(n.text, "W", sizeof(n.text) - 1);   // default key
             if (picked == NodeKind::Fire)
@@ -577,13 +607,19 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             return "dt";   // the update event's dt output
         case NodeKind::Add: case NodeKind::Sub:
         case NodeKind::Mul: case NodeKind::Div:
-        case NodeKind::Greater: case NodeKind::Less: case NodeKind::Equal: {
-            const char* op = (n.kind == NodeKind::Add)     ? " + "  :
-                             (n.kind == NodeKind::Sub)     ? " - "  :
-                             (n.kind == NodeKind::Mul)     ? " * "  :
-                             (n.kind == NodeKind::Div)     ? " / "  :
-                             (n.kind == NodeKind::Greater) ? " > "  :
-                             (n.kind == NodeKind::Less)    ? " < "  : " == ";
+        case NodeKind::Greater: case NodeKind::Less: case NodeKind::Equal:
+        case NodeKind::LessEqual: case NodeKind::GreaterEqual:
+        case NodeKind::And: case NodeKind::Or: {
+            const char* op = (n.kind == NodeKind::Add)          ? " + "   :
+                             (n.kind == NodeKind::Sub)          ? " - "   :
+                             (n.kind == NodeKind::Mul)          ? " * "   :
+                             (n.kind == NodeKind::Div)          ? " / "   :
+                             (n.kind == NodeKind::Greater)      ? " > "   :
+                             (n.kind == NodeKind::Less)         ? " < "   :
+                             (n.kind == NodeKind::Equal)        ? " == "  :
+                             (n.kind == NodeKind::LessEqual)    ? " <= "  :
+                             (n.kind == NodeKind::GreaterEqual) ? " >= "  :
+                             (n.kind == NodeKind::And)          ? " and " : " or ";
             std::string a = ExprForInput(PinId(n.id, SlotDataIn));
             std::string b = ExprForInput(PinId(n.id, SlotDataIn + 1));
             return "(" + a + op + b + ")";
@@ -595,6 +631,9 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         }
         case NodeKind::GetVar:
             return n.text[0] ? std::string(n.text) : "0";   // the variable's name
+        case NodeKind::Param:
+            // Read the tunable back from the generated properties table.
+            return n.text[0] ? ("properties." + std::string(n.text)) : "0";
 
         case NodeKind::PosX: return "entity.transform.position.x";
         case NodeKind::PosY: return "entity.transform.position.y";
@@ -832,13 +871,22 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
-            case NodeKind::Branch:
+            case NodeKind::Branch: {
                 lua += "    if " + ExprForInput(PinId(n->id, SlotDataIn)) + " then\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut),  depth + 1);
-                lua += "    else\n";
-                EmitExecChain(lua, PinId(n->id, SlotExecOut2), depth + 1);
+                // Only emit an "else" arm when something is actually wired to the
+                // false output; a bare guard (if ... then ... end) reads cleaner.
+                int falsePin = PinId(n->id, SlotExecOut2);
+                bool hasElse = false;
+                for (const auto& e : m_links)
+                    if (e.fromPin == falsePin) { hasElse = true; break; }
+                if (hasElse) {
+                    lua += "    else\n";
+                    EmitExecChain(lua, falsePin, depth + 1);
+                }
                 lua += "    end\n";
                 break;
+            }
             default:
                 break;
         }
@@ -866,6 +914,26 @@ void ScriptGraph::EmitEvent(std::string& lua, NodeKind ev,
 bool ScriptGraph::GenerateLua(const std::string& path) const {
     std::string lua =
         "-- GENERATED from a node graph. Edit the GRAPH, not this file --\n\n";
+
+    // Collect the Param nodes into a `properties` table. Each unique name (the
+    // first occurrence wins its default) becomes an Inspector-editable field the
+    // engine reads at load. Param value nodes reference these as properties.<name>.
+    std::vector<std::pair<std::string, float>> props;
+    for (const GraphNode& n : m_nodes) {
+        if (n.kind != NodeKind::Param || n.text[0] == '\0') continue;
+        bool seen = false;
+        for (const auto& p : props) if (p.first == n.text) { seen = true; break; }
+        if (!seen) props.push_back({n.text, n.value});
+    }
+    if (!props.empty()) {
+        lua += "properties = {\n";
+        for (const auto& p : props) {
+            char buf[160];
+            snprintf(buf, sizeof(buf), "    %s = %.4g,\n", p.first.c_str(), p.second);
+            lua += buf;
+        }
+        lua += "}\n\n";
+    }
 
     // Declare the graph's variables as file-scope locals so they keep their
     // value between frames.

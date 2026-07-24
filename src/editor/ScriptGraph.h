@@ -53,6 +53,14 @@ enum class NodeKind {
     // Stage 7: a follow ("chase") camera behaviour in one node
     ChaseTarget,             // action: ease toward a point behind/above a named
                              //         target and look at it (a chase camera)
+    // Stage 8: boolean combiners and the remaining comparisons, so compound
+    // conditions need not be split into nested Branch nodes.
+    And, Or,                 // value: combine two Bools -> Bool
+    LessEqual, GreaterEqual, // value: compare two floats -> Bool
+    // Stage 9: a tunable exposed to the Inspector. Each Param node contributes
+    // one entry to a generated `properties` table (name = default) and reads
+    // back as properties.<name>, so it is live-editable in the Inspector.
+    Param,                   // value: a named, Inspector-tunable float
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the

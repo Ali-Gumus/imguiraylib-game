@@ -35,25 +35,25 @@
                   },
                   {
                       "id":  101,
-                      "kind":  3,
+                      "kind":  48,
                       "value":  9,
-                      "text":  "",
+                      "text":  "distance",
                       "x":  120,
                       "y":  60
                   },
                   {
                       "id":  102,
-                      "kind":  3,
+                      "kind":  48,
                       "value":  3,
-                      "text":  "",
+                      "text":  "height",
                       "x":  120,
                       "y":  160
                   },
                   {
                       "id":  103,
-                      "kind":  3,
+                      "kind":  48,
                       "value":  4,
-                      "text":  "",
+                      "text":  "stiffness",
                       "x":  120,
                       "y":  260
                   }
