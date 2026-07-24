@@ -4,3 +4,9 @@ out/
 .claude/
 imgui.ini
 HANDOVER.md
+
+# Large model assets are kept local, not in the repo. The small hand-written
+# placeholder models stay tracked so a fresh clone still has something to draw.
+assets/models/*
+!assets/models/jet.obj
+!assets/models/ground.obj
