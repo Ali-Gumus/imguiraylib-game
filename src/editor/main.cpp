@@ -154,20 +154,27 @@ public:
         // In edit mode the world is frozen so you can arrange it; only in play
         // mode do scripts run.
         if (m_playing) {
-            m_scene.Update(dt);
-            // Track the player's speed for the HUD by measuring how far it
-            // moved this frame (distance / time). This avoids reaching into
-            // the flight script for its internal velocity.
-            if (eng::Entity* pl = FindPlayer()) {
-                Vector3 p = pl->transform.position;
-                if (m_hasLastPos && dt > 0.0001f) {
-                    float dx = p.x - m_lastPlayerPos.x;
-                    float dy = p.y - m_lastPlayerPos.y;
-                    float dz = p.z - m_lastPlayerPos.z;
-                    m_playerSpeed = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+            // Once a script sets "game_over", the world freezes on the game-over
+            // screen (scripts stop advancing) and R restarts the run by
+            // restoring the authored scene and playing it again.
+            if (eng::GetHudValue("game_over", 0.0f) > 0.0f) {
+                if (IsKeyPressed(KEY_R)) { StopPlay(); StartPlay(); }
+            } else {
+                m_scene.Update(dt);
+                // Track the player's speed for the HUD by measuring how far it
+                // moved this frame (distance / time). This avoids reaching into
+                // the flight script for its internal velocity.
+                if (eng::Entity* pl = FindPlayer()) {
+                    Vector3 p = pl->transform.position;
+                    if (m_hasLastPos && dt > 0.0001f) {
+                        float dx = p.x - m_lastPlayerPos.x;
+                        float dy = p.y - m_lastPlayerPos.y;
+                        float dz = p.z - m_lastPlayerPos.z;
+                        m_playerSpeed = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+                    }
+                    m_lastPlayerPos = p;
+                    m_hasLastPos = true;
                 }
-                m_lastPlayerPos = p;
-                m_hasLastPos = true;
             }
         } else {
             m_hasLastPos  = false;   // reset so speed doesn't jump when play resumes
@@ -191,6 +198,9 @@ public:
             // flat screen-space, not in the world).
             if (eng::Entity* player = FindPlayer())
                 DrawGameHud(player);
+            // The game-over banner draws even with no player left alive.
+            if (eng::GetHudValue("game_over", 0.0f) > 0.0f)
+                DrawGameOverOverlay();
             EndTextureMode();
         }
     }
@@ -259,6 +269,26 @@ public:
             DrawRectangle(bx + 2, by + 2, (int)((bw - 4) * frac), bh - 4, // fill
                           Color{90, 255, 130, 170});
         }
+    }
+
+    // A full-screen "GAME OVER" banner over the Game view, shown while the
+    // "game_over" HUD flag is set. Dims the frozen scene, states the final
+    // score, and prompts for the restart key.
+    void DrawGameOverOverlay() {
+        const int w = m_gameRT.texture.width;
+        const int h = m_gameRT.texture.height;
+        DrawRectangle(0, 0, w, h, Color{0, 0, 0, 150});   // dim the frozen world
+
+        const char* t1 = "GAME OVER";
+        DrawText(t1, w / 2 - MeasureText(t1, 48) / 2, h / 2 - 70, 48,
+                 Color{255, 80, 80, 255});
+
+        const char* t2 = TextFormat("SCORE %d", (int)eng::GetHudValue("score", 0.0f));
+        DrawText(t2, w / 2 - MeasureText(t2, 28) / 2, h / 2 - 6, 28, RAYWHITE);
+
+        const char* t3 = "Press R to restart";
+        DrawText(t3, w / 2 - MeasureText(t3, 20) / 2, h / 2 + 36, 20,
+                 Color{200, 200, 200, 255});
     }
 
     // Called each frame to draw the 3D scene into the engine's viewport texture.

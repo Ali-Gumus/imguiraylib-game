@@ -23,19 +23,35 @@ properties = {
     respawn_delay = 2,    -- seconds between clearing a wave and the next
 }
 
-local wave  = 0     -- current wave number (runtime state)
-local timer = 0     -- seconds until the next wave may start
+local wave       = 0      -- current wave number (runtime state)
+local timer      = 0      -- seconds until the next wave may start
+local had_player = false  -- have we seen the player alive yet?
 
 function on_start(entity)
     -- A fresh run starts at zero. Play deep-clones the scene and runs on_start,
     -- so this resets every time you press Play.
     hud.set("score", 0)
     hud.set("wave", 0)
-    wave  = 0
-    timer = 1        -- a short beat before the first wave
+    hud.set("game_over", 0)
+    wave       = 0
+    timer      = 1        -- a short beat before the first wave
+    had_player = false
 end
 
 function on_update(entity, dt)
+    -- Nothing more to do once the game is over (the engine freezes the world
+    -- and waits for the restart key).
+    if hud.get("game_over") > 0 then return end
+
+    -- Watch the player: once one has existed, its disappearance (health gone,
+    -- entity destroyed) means the player died -> game over.
+    if scene.count("player") > 0 then
+        had_player = true
+    elseif had_player then
+        hud.set("game_over", 1)
+        return
+    end
+
     -- Waves only advance when the field is clear. While enemies remain, wait.
     if scene.count("enemy") > 0 then return end
 
