@@ -21,7 +21,15 @@ properties = {
     sep_range   = 8,     -- start avoiding other enemies within this distance
     sep_force   = 12,    -- how strongly to push apart from a crowding neighbor
     points      = 1,     -- score awarded to the player when this enemy dies
+    hitbox      = 1.5,   -- radius of its hittable ball (size to the model)
 }
+
+function on_start(entity)
+    -- Ensure this enemy has a hitbox so bullets register on the whole body.
+    -- This only sets a default for spawned enemies (which start with none); an
+    -- enemy given a Hitbox component in the editor keeps that authored radius.
+    scene.set_hitbox(entity, properties.hitbox)
+end
 
 local cooldown = 0       -- seconds until the enemy can fire again (runtime state)
 

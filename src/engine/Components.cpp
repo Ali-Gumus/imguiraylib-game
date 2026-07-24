@@ -60,6 +60,7 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
     if (name == "Script") return std::make_unique<ScriptComponent>();
     if (name == "Camera") return std::make_unique<CameraComponent>();
     if (name == "Health") return std::make_unique<HealthComponent>();
+    if (name == "Hitbox") return std::make_unique<HitboxComponent>();
     if (name == "Model")  return std::make_unique<ModelComponent>();
     if (name == "Terrain") return std::make_unique<TerrainComponent>();
     return nullptr;   // unknown type: caller skips it
@@ -140,13 +141,21 @@ void ModelComponent::EnsureLoaded() {
     // LoadModel returns a model with zero meshes if the file was missing or
     // invalid; treat that as "not loaded" so we don't try to draw nothing.
     m_loaded = (m_model.meshCount > 0);
+    m_baseTransform = m_model.transform;   // remember the file's own transform
 }
 
 void ModelComponent::OnDraw(const Entity& owner) {
     EnsureLoaded();
-    // Scene::Draw already applied this entity's world matrix, so we draw the
-    // model at the origin, unscaled; the world matrix places and orients it.
-    if (m_loaded) DrawModel(m_model, {0, 0, 0}, 1.0f, tint);
+    if (!m_loaded) return;
+    // Scene::Draw already applied this entity's world matrix, so we draw at the
+    // origin, unscaled. The rotation offset is folded into the model's own
+    // transform so an oddly-authored model can be turned to face -Z; a model
+    // that was already correct keeps offset {0,0,0} and is unchanged.
+    Matrix offset = MatrixRotateXYZ({rotationOffset.x * DEG2RAD,
+                                     rotationOffset.y * DEG2RAD,
+                                     rotationOffset.z * DEG2RAD});
+    m_model.transform = MatrixMultiply(m_baseTransform, offset);
+    DrawModel(m_model, {0, 0, 0}, 1.0f, tint);
 }
 
 void ModelComponent::OnInspector() {
@@ -171,6 +180,13 @@ void ModelComponent::OnInspector() {
     if (ImGui::ColorEdit4("Tint", col))
         tint = {(unsigned char)(col[0] * 255), (unsigned char)(col[1] * 255),
                 (unsigned char)(col[2] * 255), (unsigned char)(col[3] * 255)};
+
+    // A fixed rotation to align the model with -Z forward / +Y up. Use this when
+    // an imported model flies sideways or upside-down: a common fix is 90 or 180
+    // on Y (turn it about the vertical) or -90 on X (for a Z-up model).
+    float rot[3] = {rotationOffset.x, rotationOffset.y, rotationOffset.z};
+    if (ImGui::DragFloat3("Rot offset", rot, 1.0f))
+        rotationOffset = {rot[0], rot[1], rot[2]};
 }
 
 void HealthComponent::OnInspector() {
@@ -178,6 +194,12 @@ void HealthComponent::OnInspector() {
     // label, pointer to the value, drag speed, minimum, maximum.
     ImGui::DragFloat("HP",  &hp,  0.1f, 0.0f, 10000.0f);
     ImGui::DragFloat("Max", &max, 0.1f, 1.0f, 10000.0f);
+}
+
+void HitboxComponent::OnInspector() {
+    // The wireframe sphere in the viewport shows this radius; drag to fit it to
+    // the model.
+    ImGui::DragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f);
 }
 
 // ---- CameraComponent -------------------------------------------------------
@@ -397,6 +419,23 @@ void ScriptComponent::Load() {
         return Scene::Current()
                    ? Scene::Current()->FindNearestWithTag(tag, {x, y, z}, radius)
                    : nullptr;
+    };
+    // hit(tag, x,y,z, reach): like nearest, but each candidate is treated as a
+    // ball of its own hitRadius, so a shot lands anywhere inside a big model,
+    // not just near its origin. This is the projectile hit test.
+    scn["hit"] = [](const std::string& tag, float x, float y, float z,
+                    float reach) -> Entity* {
+        return Scene::Current()
+                   ? Scene::Current()->FindHitWithTag(tag, {x, y, z}, reach)
+                   : nullptr;
+    };
+    // set_hitbox(entity, radius): ensure the entity has a hitbox, using `radius`
+    // as the DEFAULT only when it has none (e.g. a freshly spawned enemy). If it
+    // already has a HitboxComponent -- one added and sized in the editor -- that
+    // authored radius is kept, so pressing Play doesn't reset it.
+    scn["set_hitbox"] = [](Entity& e, float radius) {
+        if (!e.GetComponent<HitboxComponent>())
+            e.AddComponent<HitboxComponent>().radius = radius;
     };
     // nearest_other(self, tag, radius): like nearest, but searches from the
     // `self` entity's position and never returns `self`. Used so a group of

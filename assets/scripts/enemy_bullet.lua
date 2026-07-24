@@ -27,7 +27,8 @@ function on_update(entity, dt)
     entity.transform:translate_local(0, 0, -P.speed * dt)
 
     local p = entity.transform.position
-    local target = scene.nearest("player", p.x, p.y, p.z, P.hit_radius)
+    -- scene.hit adds the player's hitRadius to our reach (sphere-vs-sphere).
+    local target = scene.hit("player", p.x, p.y, p.z, P.hit_radius)
     if target ~= nil then
         scene.damage(target, P.damage)
         scene.destroy(entity)

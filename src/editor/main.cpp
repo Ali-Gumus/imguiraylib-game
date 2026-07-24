@@ -60,12 +60,23 @@ public:
         // A second off-screen texture, separate from the engine's viewport
         // one, used to render the "Game" view through an in-scene camera.
         m_gameRT = LoadRenderTexture(1280, 720);
+
+        // A procedural gradient skybox: a unit cube drawn around the camera and
+        // colored by view direction in the shader (no texture needed). If the
+        // shader fails to compile we just skip drawing it.
+        m_skyShader = LoadShader("assets/shaders/skybox.vs", "assets/shaders/skybox.fs");
+        m_skyReady  = IsShaderValid(m_skyShader);
+        if (m_skyReady) {
+            m_sky = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
+            m_sky.materials[0].shader = m_skyShader;
+        }
     }
 
     // The destructor runs at shutdown. `override` documents that it replaces
     // the base class's virtual destructor.
     ~EditorApp() override {
         UnloadRenderTexture(m_gameRT);
+        if (m_skyReady) { UnloadModel(m_sky); UnloadShader(m_skyShader); }
         ed::DestroyEditor(m_nodeCtx);
     }
 
@@ -192,6 +203,7 @@ public:
             BeginTextureMode(m_gameRT);
             ClearBackground(Color{15, 15, 20, 255});
             BeginMode3D(cam);
+            DrawSky();                    // gradient sky behind the world
             m_scene.Draw();               // the player's view has no editor grid
             EndMode3D();
             // Draw the 2D HUD on top of the 3D view (after EndMode3D so it's
@@ -291,9 +303,22 @@ public:
                  Color{200, 200, 200, 255});
     }
 
+    // Draw the gradient sky as a backdrop. Call right after BeginMode3D, while
+    // the view/projection are active. Depth writes and back-face culling are off
+    // so the cube fills the background without occluding the scene.
+    void DrawSky() {
+        if (!m_skyReady) return;
+        rlDisableBackfaceCulling();
+        rlDisableDepthMask();
+        DrawModel(m_sky, {0, 0, 0}, 1.0f, WHITE);
+        rlEnableDepthMask();
+        rlEnableBackfaceCulling();
+    }
+
     // Called each frame to draw the 3D scene into the engine's viewport texture.
     void OnRenderScene() override {
         BeginMode3D(m_camera);            // view the world through the editor camera
+        DrawSky();                       // gradient sky behind the world
         DrawGrid(20, 1.0f);              // a 20x20 reference grid on the ground
         m_scene.Draw();
 
@@ -308,6 +333,19 @@ public:
             rlMultMatrixf(MatrixToFloat(m_scene.WorldMatrix(*sel, /*ignoreScale=*/true)));
             DrawCubeWires({0, 0, 0}, ws.x + pad, ws.y + pad, ws.z + pad, YELLOW);
             rlPopMatrix();
+        }
+
+        // Hitbox gizmos: a wireframe sphere for every entity that has a Hitbox
+        // component, so its collision radius can be sized against the model.
+        // Editor-only (this runs for the Viewport, not the Game view).
+        for (eng::Entity& ent : m_scene.Entities()) {
+            if (auto* box = ent.GetComponent<eng::HitboxComponent>()) {
+                Matrix  wm = m_scene.WorldMatrix(ent, /*ignoreScale=*/true);
+                Vector3 c  = {wm.m12, wm.m13, wm.m14};   // world position
+                Color   col = (ent.id == m_selected) ? Color{0, 240, 120, 200}
+                                                     : Color{0, 200, 110, 70};
+                DrawSphereWires(c, box->radius, 8, 12, col);
+            }
         }
         EndMode3D();
     }
@@ -622,6 +660,9 @@ private:
             bool hasHealth = e->GetComponent<eng::HealthComponent>() != nullptr;
             if (ImGui::MenuItem("Health", nullptr, false, !hasHealth))
                 e->AddComponent<eng::HealthComponent>();
+            bool hasHitbox = e->GetComponent<eng::HitboxComponent>() != nullptr;
+            if (ImGui::MenuItem("Hitbox", nullptr, false, !hasHitbox))
+                e->AddComponent<eng::HitboxComponent>();
             bool hasModel = e->GetComponent<eng::ModelComponent>() != nullptr;
             if (ImGui::MenuItem("Model", nullptr, false, !hasModel))
                 e->AddComponent<eng::ModelComponent>();
@@ -669,6 +710,10 @@ private:
     edtr::ScriptGraph  m_graph;                         // the graph being edited
     std::string        m_graphPath;                     // its file ("" if unsaved)
     RenderTexture2D    m_gameRT{};                       // the Game view's texture
+
+    Shader m_skyShader{};      // procedural gradient skybox shader
+    Model  m_sky{};            // the unit cube it draws on
+    bool   m_skyReady = false; // false if the shader failed to compile
 
     // HUD state: the player's position last frame and its measured speed, used
     // to show airspeed without reading the flight script's internal velocity.

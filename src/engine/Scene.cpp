@@ -199,11 +199,44 @@ Entity* Scene::FindNearestWithTag(const std::string& tag, Vector3 pos, float max
     return best;
 }
 
+// Find the closest entity with `tag` whose ball (its hitRadius) is within
+// `reach` of `pos`. The hit threshold is (reach + hitRadius) per entity, so a
+// larger model is easier to hit than a point.
+Entity* Scene::FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
+                              EntityID exclude) {
+    Entity* best = nullptr;
+    float   bestDist = 0.0f;                          // squared dist of the best hit
+    for (Entity& e : m_entities) {
+        if (e.id == exclude) continue;
+        if (e.tag != tag) continue;
+        // Only entities that opted into a HitboxComponent can be hit.
+        HitboxComponent* box = e.GetComponent<HitboxComponent>();
+        if (!box) continue;
+        float dx = e.transform.position.x - pos.x;
+        float dy = e.transform.position.y - pos.y;
+        float dz = e.transform.position.z - pos.z;
+        float d2 = dx * dx + dy * dy + dz * dz;
+        float threshold = reach + box->radius;        // combined radii
+        if (d2 <= threshold * threshold &&            // overlapping
+            (best == nullptr || d2 < bestDist)) {     // and the nearest so far
+            bestDist = d2; best = &e;
+        }
+    }
+    return best;
+}
+
 // Fire OnStart on every component of every entity (called once at Play).
 void Scene::Start() {
-    for (Entity& e : m_entities)
-        for (auto& c : e.components)
-            c->OnStart(e);
+    for (Entity& e : m_entities) {
+        // Snapshot the component pointers first: a script's on_start may ADD a
+        // component (e.g. scene.set_hitbox), which can reallocate e.components
+        // and invalidate an iterator mid-loop. The Component objects themselves
+        // don't move, so the raw pointers stay valid.
+        std::vector<Component*> comps;
+        comps.reserve(e.components.size());
+        for (auto& c : e.components) comps.push_back(c.get());
+        for (Component* c : comps) c->OnStart(e);
+    }
 }
 
 // A file-scope pointer to whichever scene is currently running Update().
@@ -232,9 +265,14 @@ int Scene::CountWithTag(const std::string& tag) const {
 void Scene::Update(float dt) {
     // Mark this as the active scene so scripts' scene.* calls know where to go.
     s_current = this;
-    for (Entity& e : m_entities)
-        for (auto& c : e.components)
-            c->OnUpdate(dt, e);   // run every component's per-frame logic
+    for (Entity& e : m_entities) {
+        // Snapshot component pointers so a script that adds a component during
+        // its update can't invalidate this loop (see the note in Start()).
+        std::vector<Component*> comps;
+        comps.reserve(e.components.size());
+        for (auto& c : e.components) comps.push_back(c.get());
+        for (Component* c : comps) c->OnUpdate(dt, e);
+    }
     s_current = nullptr;
 
     // Now that the loop above is finished, it is safe to change the entity

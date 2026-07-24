@@ -904,7 +904,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
                 char buf[400];
                 snprintf(buf, sizeof(buf),
-                    "    local hit%d = scene.nearest(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
+                    "    local hit%d = scene.hit(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
                     "    if hit%d ~= nil then scene.damage(hit%d, %.7g); scene.destroy(entity) end\n",
                     n->id, esc.c_str(),
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str(),

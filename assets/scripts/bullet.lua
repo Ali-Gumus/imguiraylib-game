@@ -29,7 +29,9 @@ function on_update(entity, dt)
 
     -- Hit test: any enemy within hit_radius of the bullet?
     local p = entity.transform.position
-    local target = scene.nearest("enemy", p.x, p.y, p.z, P.hit_radius)
+    -- scene.hit adds the enemy's own hitRadius to our reach, so a shot counts
+    -- anywhere inside a large model, not only near its origin point.
+    local target = scene.hit("enemy", p.x, p.y, p.z, P.hit_radius)
     if target ~= nil then
         -- Deal damage; the enemy awards score itself when it dies (enemy.lua's
         -- on_destroy), so the bullet stays a pure projectile.

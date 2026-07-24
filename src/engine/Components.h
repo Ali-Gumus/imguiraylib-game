@@ -178,6 +178,24 @@ public:
     float max = 3.0f;   // starting / maximum hit points
 };
 
+// A spherical hitbox for the distance-based collision (scene.hit). Add it only
+// to entities that should be shootable (an enemy, the player); an entity with
+// no HitboxComponent is ignored by scene.hit. The editor draws the radius as a
+// wireframe sphere so it can be sized against the model.
+class HitboxComponent : public Component {
+public:
+    const char* Name() const override { return "Hitbox"; }
+    std::unique_ptr<Component> Clone() const override {
+        return std::make_unique<HitboxComponent>(*this);
+    }
+    void OnInspector() override;
+
+    void Serialize(nlohmann::json& out) const override { out["radius"] = radius; }
+    void Deserialize(const nlohmann::json& in) override { radius = in.value("radius", radius); }
+
+    float radius = 1.0f;   // radius of the hittable ball, in world units
+};
+
 // Draws the entity as a loaded 3D MODEL (an .obj or .glb file) instead of a
 // simple primitive. The model file is loaded lazily the first time it's drawn,
 // and freed when the component is destroyed.
@@ -197,8 +215,9 @@ public:
     // of the model on its first draw.
     std::unique_ptr<Component> Clone() const override {
         auto c = std::make_unique<ModelComponent>();
-        c->path = path;
-        c->tint = tint;
+        c->path           = path;
+        c->tint           = tint;
+        c->rotationOffset = rotationOffset;
         return c;
     }
 
@@ -208,11 +227,14 @@ public:
     void Serialize(nlohmann::json& out) const override {
         out["path"] = path;
         out["tint"] = {tint.r, tint.g, tint.b, tint.a};
+        out["rotationOffset"] = {rotationOffset.x, rotationOffset.y, rotationOffset.z};
     }
     void Deserialize(const nlohmann::json& in) override {
         SetPath(in.value("path", path));
         if (in.contains("tint"))
             tint = {in["tint"][0], in["tint"][1], in["tint"][2], in["tint"][3]};
+        if (in.contains("rotationOffset"))
+            rotationOffset = {in["rotationOffset"][0], in["rotationOffset"][1], in["rotationOffset"][2]};
     }
 
     // Change which file to draw (unloads any current model so the new one loads
@@ -221,12 +243,17 @@ public:
 
     std::string path;             // the model file, e.g. "assets/models/jet.obj"
     Color       tint = WHITE;     // multiplied over the model's own colors
+    // A fixed rotation (euler degrees) applied to the mesh when drawing, so a
+    // model authored facing a different axis can be aligned to the engine's
+    // -Z forward / +Y up convention without rotating the gameplay transform.
+    Vector3     rotationOffset{0, 0, 0};
 
 private:
     void EnsureLoaded();          // load the file the first time we need it
-    Model m_model{};              // the loaded model (raylib type)
-    bool  m_loaded = false;       // did it load successfully?
-    bool  m_tried  = false;       // have we already attempted to load `path`?
+    Model  m_model{};             // the loaded model (raylib type)
+    Matrix m_baseTransform{};     // the model's own transform, captured at load
+    bool   m_loaded = false;      // did it load successfully?
+    bool   m_tried  = false;      // have we already attempted to load `path`?
 };
 
 // Procedurally generates and draws a 3D terrain mesh with rolling hills. The

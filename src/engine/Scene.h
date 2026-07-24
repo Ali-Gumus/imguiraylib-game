@@ -145,6 +145,13 @@ public:
     Entity* FindNearestWithTag(const std::string& tag, Vector3 pos, float maxDist,
                                EntityID exclude = kInvalidEntity);
 
+    // Like FindNearestWithTag, but treats each candidate as a ball of its own
+    // hitRadius: it hits when the distance is within `reach` PLUS that entity's
+    // hitRadius. This is the sphere-vs-sphere test a projectile uses so a shot
+    // registers anywhere inside a large model, not just near its origin point.
+    Entity* FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
+                           EntityID exclude = kInvalidEntity);
+
     // Save the whole scene to a JSON file, or load one back. Save returns
     // false if the file can't be written; Load returns false on a missing or
     // corrupt file and leaves the current scene untouched in that case.
