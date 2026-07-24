@@ -61,6 +61,11 @@ enum class NodeKind {
     // one entry to a generated `properties` table (name = default) and reads
     // back as properties.<name>, so it is live-editable in the Inspector.
     Param,                   // value: a named, Inspector-tunable float
+    // Stage 10: counting loops and the pieces that make them useful.
+    For,                     // action: run a body once per step from..to, with
+                             //         a loop-variable "i" output for the body
+    Sin, Cos, Floor,         // value: more unary math (radians)
+    SpawnCube,               // action: scene.spawn_cube(name, x, y, z)
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the

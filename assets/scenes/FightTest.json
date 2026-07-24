@@ -189,130 +189,27 @@
     {
       "components": [
         {
-          "kind": 0,
-          "tint": [
-            255,
-            0,
-            0,
-            255
-          ],
-          "type": "Shape",
-          "wireframe": true
-        },
-        {
-          "hp": 3.0,
-          "max": 3.0,
-          "type": "Health"
-        },
-        {
-          "path": "assets/scripts/enemy.lua",
-          "props": {},
+          "path": "assets/scripts/gamemanager.lua",
+          "props": {
+            "base_count": 2.0,
+            "enemy_hp": 3.0,
+            "per_wave": 1.0,
+            "respawn_delay": 2.0,
+            "spawn_height": 20.0,
+            "spawn_radius": 60.0
+          },
           "type": "Script"
         }
       ],
-      "id": 713,
-      "name": "Enemy (copy)",
+      "id": 798,
+      "name": "Game Manager",
       "parent": 0,
-      "tag": "enemy",
+      "tag": "",
       "transform": {
         "position": [
           0.0,
-          62.5,
-          -40.0
-        ],
-        "rotation": [
           0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "scale": [
-          1.0,
-          1.0,
-          1.0
-        ]
-      }
-    },
-    {
-      "components": [
-        {
-          "kind": 0,
-          "tint": [
-            255,
-            0,
-            0,
-            255
-          ],
-          "type": "Shape",
-          "wireframe": true
-        },
-        {
-          "hp": 3.0,
-          "max": 3.0,
-          "type": "Health"
-        },
-        {
-          "path": "assets/scripts/enemy.lua",
-          "props": {},
-          "type": "Script"
-        }
-      ],
-      "id": 714,
-      "name": "Enemy (copy)",
-      "parent": 0,
-      "tag": "enemy",
-      "transform": {
-        "position": [
-          1.899999976158142,
-          60.79999923706055,
-          -40.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "scale": [
-          1.0,
-          1.0,
-          1.0
-        ]
-      }
-    },
-    {
-      "components": [
-        {
-          "kind": 0,
-          "tint": [
-            255,
-            0,
-            0,
-            255
-          ],
-          "type": "Shape",
-          "wireframe": true
-        },
-        {
-          "hp": 3.0,
-          "max": 3.0,
-          "type": "Health"
-        },
-        {
-          "path": "assets/scripts/enemy.lua",
-          "props": {},
-          "type": "Script"
-        }
-      ],
-      "id": 715,
-      "name": "Enemy (copy)",
-      "parent": 0,
-      "tag": "enemy",
-      "transform": {
-        "position": [
-          -1.7999999523162842,
-          60.79999923706055,
-          -40.0
+          0.0
         ],
         "rotation": [
           0.0,
@@ -328,5 +225,5 @@
       }
     }
   ],
-  "nextID": 798
+  "nextID": 799
 }

@@ -67,6 +67,11 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::LessEqual:    return "A <= B";
         case NodeKind::GreaterEqual: return "A >= B";
         case NodeKind::Param:        return "Param";
+        case NodeKind::For:          return "For";
+        case NodeKind::Sin:          return "Sin";
+        case NodeKind::Cos:          return "Cos";
+        case NodeKind::Floor:        return "Floor";
+        case NodeKind::SpawnCube:    return "Spawn Cube";
     }
     return "?";
 }
@@ -93,6 +98,7 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::And: case NodeKind::Or:
         case NodeKind::LessEqual: case NodeKind::GreaterEqual:
         case NodeKind::Param:
+        case NodeKind::Sin: case NodeKind::Cos: case NodeKind::Floor:
             return true;
         default:
             return false;
@@ -171,8 +177,26 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
             return {{SlotDataOut, PinType::Float, false, "value"}};
         // Unary math: one number in, one out.
         case NodeKind::Sqrt: case NodeKind::Exp:
+        case NodeKind::Sin:  case NodeKind::Cos: case NodeKind::Floor:
             return {{SlotDataIn,  PinType::Float, true,  "x"},
                     {SlotDataOut, PinType::Float, false, "result"}};
+
+        // Counting loop: run "body" once per step from..to; "i" is the current
+        // value, readable by nodes in the body. "done" runs after the loop.
+        case NodeKind::For:
+            return {{SlotExecIn,     PinType::Exec,  true,  "in"},
+                    {SlotExecOut,    PinType::Exec,  false, "body"},
+                    {SlotExecOut2,   PinType::Exec,  false, "done"},
+                    {SlotDataIn,     PinType::Float, true,  "from"},
+                    {SlotDataIn + 1, PinType::Float, true,  "to"},
+                    {SlotDataOut,    PinType::Float, false, "i"}};
+        // Spawn a plain cube at a position; the name is a node field.
+        case NodeKind::SpawnCube:
+            return {{SlotExecIn,     PinType::Exec,  true,  "in"},
+                    {SlotExecOut,    PinType::Exec,  false, "out"},
+                    {SlotDataIn,     PinType::Float, true,  "x"},
+                    {SlotDataIn + 1, PinType::Float, true,  "y"},
+                    {SlotDataIn + 2, PinType::Float, true,  "z"}};
         // Is a player within range? number in, bool out.
         case NodeKind::IsPlayerNear:
             return {{SlotDataIn,  PinType::Float, true,  "range"},
@@ -330,6 +354,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     }
     else if (n.kind == NodeKind::ChaseTarget)
         ImGui::InputText("##target", n.text, sizeof(n.text)); // the target entity name
+    else if (n.kind == NodeKind::SpawnCube)
+        ImGui::InputText("##cubename", n.text, sizeof(n.text)); // the spawned cube's name
     ImGui::PopItemWidth();
 
     ImGui::PopID();
@@ -435,6 +461,7 @@ void ScriptGraph::HandleContextMenu() {
         }
         if (ImGui::BeginMenu("Flow")) {
             item("Branch (If)", NodeKind::Branch);
+            item("For Loop", NodeKind::For);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Variables")) {
@@ -451,10 +478,14 @@ void ScriptGraph::HandleContextMenu() {
         if (ImGui::BeginMenu("Math")) {
             item("Sqrt", NodeKind::Sqrt);
             item("Exp", NodeKind::Exp);
+            item("Sin", NodeKind::Sin);
+            item("Cos", NodeKind::Cos);
+            item("Floor", NodeKind::Floor);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Engine")) {
             item("Set Pos X", NodeKind::SetPosX); item("Set Pos Y", NodeKind::SetPosY); item("Set Pos Z", NodeKind::SetPosZ);
+            item("Spawn Cube", NodeKind::SpawnCube);
             item("Turn To Player", NodeKind::TurnToPlayer);
             item("Fire", NodeKind::Fire);
             item("If Player Near", NodeKind::IsPlayerNear);
@@ -493,6 +524,9 @@ void ScriptGraph::HandleContextMenu() {
             }
             if (picked == NodeKind::ChaseTarget)
                 std::strncpy(n.text, "Jet", sizeof(n.text) - 1);     // default target name
+            if (picked == NodeKind::For) { n.value = 0; }            // (from/to are inputs)
+            if (picked == NodeKind::SpawnCube)
+                std::strncpy(n.text, "Cube", sizeof(n.text) - 1);    // default cube name
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -648,6 +682,16 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             return "math.sqrt(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
         case NodeKind::Exp:
             return "math.exp(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
+        case NodeKind::Sin:
+            return "math.sin(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
+        case NodeKind::Cos:
+            return "math.cos(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
+        case NodeKind::Floor:
+            return "math.floor(" + ExprForInput(PinId(n.id, SlotDataIn)) + ")";
+        case NodeKind::For:
+            // The loop variable, referenced by nodes inside the body. Its name
+            // is unique per For node so nested loops don't collide.
+            return "i" + std::to_string(n.id);
         case NodeKind::IsPlayerNear:
             return "(scene.nearest(\"player\", entity.transform.position.x, "
                    "entity.transform.position.y, entity.transform.position.z, " +
@@ -868,6 +912,28 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
                 lua += "    hud.set(\"" + esc + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::For: {
+                // Numeric for: run the body once per step, then the "done" chain.
+                // The loop variable is i<id>, matched by ExprForNode above.
+                std::string i    = std::to_string(n->id);
+                std::string from = ExprForInput(PinId(n->id, SlotDataIn));
+                std::string to   = ExprForInput(PinId(n->id, SlotDataIn + 1));
+                lua += "    for i" + i + " = " + from + ", " + to + " do\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);   // body
+                lua += "    end\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut2), depth + 1);  // done
+                break;
+            }
+            case NodeKind::SpawnCube: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                lua += "    scene.spawn_cube(\"" + esc + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 2)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
