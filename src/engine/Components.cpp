@@ -23,6 +23,7 @@ float GetHudValue(const std::string& key, float fallback) {
     auto it = HudValues().find(key);
     return it != HudValues().end() ? it->second : fallback;
 }
+void ClearHudValues() { HudValues().clear(); }
 
 // A single on/off flag shared by this file. `static` at file scope means it is
 // private to this .cpp (other files can't see the variable directly). The two
@@ -369,15 +370,25 @@ void ScriptComponent::Load() {
     // spawn(name, x,y,z, dx,dy,dz, script): create an entity at a position,
     // oriented so its forward faces the direction (dx,dy,dz), running `script`.
     // Firing a bullet spawns it facing the shot direction.
+    // The last two arguments are optional: a tag (e.g. "enemy") and starting
+    // health. Bullets omit them; a wave spawner passes them so the new enemy is
+    // tagged and killable.
     scn["spawn"] = [](const std::string& name, float x, float y, float z,
-                      float dx, float dy, float dz, const std::string& script) {
+                      float dx, float dy, float dz, const std::string& script,
+                      sol::optional<std::string> tag, sol::optional<float> hp) {
         if (!Scene::Current()) return;
         Quaternion rot = QuaternionIdentity();       // default: unrotated
         if (dx * dx + dy * dy + dz * dz > 1e-4f) {   // if a real direction was given
             Matrix view = MatrixLookAt({0, 0, 0}, {dx, dy, dz}, {0, 1, 0});
             rot = QuaternionFromMatrix(MatrixInvert(view));   // face that direction
         }
-        Scene::Current()->QueueSpawn(name, {x, y, z}, rot, script);
+        Scene::Current()->QueueSpawn(name, {x, y, z}, rot, script,
+                                     tag.value_or(std::string()), hp.value_or(0.0f));
+    };
+    // count(tag): how many live entities carry `tag`. A wave is cleared when
+    // scene.count("enemy") reaches zero.
+    scn["count"] = [](const std::string& tag) -> int {
+        return Scene::Current() ? Scene::Current()->CountWithTag(tag) : 0;
     };
     // nearest(tag, x,y,z, radius): the closest entity carrying `tag` within
     // `radius`, or nil. This is the bullet's simple hit test.

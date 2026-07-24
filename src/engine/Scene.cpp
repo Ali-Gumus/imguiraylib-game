@@ -217,8 +217,16 @@ void Scene::QueueSpawnCube(const std::string& name, Vector3 position) {
     m_spawnQueue.push_back({name, position, QuaternionIdentity(), ""});
 }
 void Scene::QueueSpawn(const std::string& name, Vector3 position,
-                       Quaternion rotation, const std::string& script) {
-    m_spawnQueue.push_back({name, position, rotation, script});
+                       Quaternion rotation, const std::string& script,
+                       const std::string& tag, float hp) {
+    m_spawnQueue.push_back({name, position, rotation, script, tag, hp});
+}
+
+int Scene::CountWithTag(const std::string& tag) const {
+    int n = 0;
+    for (const Entity& e : m_entities)
+        if (e.tag == tag) ++n;
+    return n;
 }
 
 void Scene::Update(float dt) {
@@ -240,7 +248,13 @@ void Scene::Update(float dt) {
         Entity* e = Find(CreateEntity(req.name));
         e->transform.position = req.position;
         e->transform.rotation = req.rotation;
+        e->tag = req.tag;                           // label it (e.g. "enemy")
         e->AddComponent<ShapeComponent>();          // spawned things are visible cubes
+        if (req.hp > 0.0f) {                        // give it health so it can be killed
+            auto& hc = e->AddComponent<HealthComponent>();
+            hc.hp = req.hp;
+            hc.max = req.hp;
+        }
         if (!req.script.empty()) {                  // and may run a script
             auto& sc = e->AddComponent<ScriptComponent>();
             sc.path = req.script;

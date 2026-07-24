@@ -212,9 +212,20 @@ public:
         DrawLine(cx, cy + 5, cx, cy + 16, hud);
         DrawCircleLines(cx, cy, 3, hud);
 
-        // Score across the top center. Scripts publish it via hud.add("score",n).
-        const char* sc = TextFormat("SCORE %d", (int)eng::GetHudValue("score", 0.0f));
-        DrawText(sc, cx - MeasureText(sc, 24) / 2, 18, 24, hud);
+        // Score across the top center, wave number just below it. Scripts
+        // publish these via hud.add("score",n) / hud.set("wave",n). Each is only
+        // drawn once it has actually been set (fallback -1 means "never set"),
+        // so a plain scene without a game manager isn't cluttered with them.
+        float score = eng::GetHudValue("score", -1.0f);
+        if (score >= 0.0f) {
+            const char* sc = TextFormat("SCORE %d", (int)score);
+            DrawText(sc, cx - MeasureText(sc, 24) / 2, 18, 24, hud);
+        }
+        float wavev = eng::GetHudValue("wave", -1.0f);
+        if (wavev >= 0.0f) {
+            const char* wv = TextFormat("WAVE %d", (int)wavev);
+            DrawText(wv, cx - MeasureText(wv, 18) / 2, 44, 18, hud);
+        }
 
         // Airspeed (units per second) on the left, vertically centered.
         DrawText(TextFormat("SPD %3.0f", m_playerSpeed), 24, cy - 10, 20, hud);
@@ -304,6 +315,7 @@ private:
         m_backup.clear();
         for (const auto& e : m_scene.Entities())
             m_backup.push_back(e.Clone());
+        eng::ClearHudValues();        // start each run fresh (score 0, no stale values)
         m_scene.Start();              // run every script's on_start
         m_playing = true;
     }

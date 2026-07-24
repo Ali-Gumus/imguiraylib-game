@@ -20,6 +20,7 @@ properties = {
     muzzle      = 2.0,   -- spawn bullets this far ahead of the enemy
     sep_range   = 8,     -- start avoiding other enemies within this distance
     sep_force   = 12,    -- how strongly to push apart from a crowding neighbor
+    points      = 1,     -- score awarded to the player when this enemy dies
 }
 
 local cooldown = 0       -- seconds until the enemy can fire again (runtime state)
@@ -80,4 +81,11 @@ function on_update(entity, dt)
             f.x, f.y, f.z,
             "assets/scripts/enemy_bullet.lua")
     end
+end
+
+-- Runs when this enemy is destroyed (its health reached zero). The enemy grants
+-- its own point value, so scoring stays a property of the target rather than of
+-- whatever weapon killed it.
+function on_destroy(entity)
+    hud.add("score", properties.points)
 end

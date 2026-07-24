@@ -302,6 +302,9 @@ std::unique_ptr<Component> MakeComponent(const std::string& name);
 // a value that lives inside a Lua script (like throttle) reaches the C++ HUD.
 void  SetHudValue(const std::string& key, float value);
 float GetHudValue(const std::string& key, float fallback = 0.0f);
+// Forget every published HUD value. Called when play starts so each run begins
+// fresh (score back to 0, no stale throttle/speed left from the last run).
+void  ClearHudValues();
 
 // Global on/off switch for the scripting `input` API. The editor turns it OFF
 // while you are typing in a text box or flying the editor's own camera, so the

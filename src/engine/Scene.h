@@ -161,9 +161,15 @@ public:
     void QueueSpawnCube(const std::string& name, Vector3 position);
     // Spawn a cube facing a given orientation and optionally running a script.
     // Projectiles use this: a bullet spawns aimed along the shot and carrying
-    // its own flight/hit script.
+    // its own flight/hit script. `tag` and `hp` are optional: a non-empty tag
+    // labels the entity (e.g. "enemy" so bullets can hit it), and hp > 0 gives
+    // it a Health component so it can be damaged and killed.
     void QueueSpawn(const std::string& name, Vector3 position,
-                    Quaternion rotation, const std::string& script);
+                    Quaternion rotation, const std::string& script,
+                    const std::string& tag = "", float hp = 0.0f);
+
+    // How many live entities carry `tag`. Used to tell when a wave is cleared.
+    int CountWithTag(const std::string& tag) const;
 
     // The scene that is currently running Update(), or nullptr otherwise.
     // `static` means it belongs to the class, not one instance; script
@@ -214,6 +220,8 @@ private:
         Vector3     position;
         Quaternion  rotation{0, 0, 0, 1};   // identity = unrotated
         std::string script;                 // "" means no script attached
+        std::string tag;                    // "" means untagged
+        float       hp = 0.0f;              // > 0 adds a Health component
     };
     std::vector<EntityID>     m_destroyQueue;   // entities to remove after the loop
     std::vector<SpawnRequest> m_spawnQueue;     // entities to create after the loop
