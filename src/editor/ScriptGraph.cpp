@@ -329,20 +329,44 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     ImGui::PushID(n.id);
     ImGui::TextUnformatted(Title(n.kind));
 
-    // Draw all the node's pins. Inputs are labelled ">- name", outputs
-    // "name -<". Exec pins and data pins use the same drawing here; the wire
-    // color the library gives them differs by which we accept when linking.
-    for (const Pin& p : Signature(n.kind)) {
-        int pinId = PinId(n.id, p.slot);
-        if (p.input) {
-            ed::BeginPin(pinId, ed::PinKind::Input);
+    // Pins in two columns, Blueprints-style: inputs down the left edge (">- name")
+    // and outputs down the right edge ("name -<"). Exec and data pins draw the
+    // same here; the library colors the wire by which pin types linking accepts.
+    std::vector<Pin> sig = Signature(n.kind);
+    bool  hasIn = false, hasOut = false;
+    float outW  = 0.0f;   // widest output label, so the column can right-align
+    for (const Pin& p : sig) {
+        if (p.input) { hasIn = true; continue; }
+        hasOut = true;
+        char lbl[64];
+        snprintf(lbl, sizeof(lbl), "%s -<", p.name);
+        outW = (std::max)(outW, ImGui::CalcTextSize(lbl).x);
+    }
+
+    if (hasIn) {
+        ImGui::BeginGroup();
+        for (const Pin& p : sig) {
+            if (!p.input) continue;
+            ed::BeginPin(PinId(n.id, p.slot), ed::PinKind::Input);
             ImGui::Text(">- %s", p.name);
             ed::EndPin();
-        } else {
-            ed::BeginPin(pinId, ed::PinKind::Output);
-            ImGui::Text("%s -<", p.name);
+        }
+        ImGui::EndGroup();
+    }
+    if (hasIn && hasOut) ImGui::SameLine(0.0f, 24.0f);   // gap between the columns
+    if (hasOut) {
+        ImGui::BeginGroup();
+        for (const Pin& p : sig) {
+            if (p.input) continue;
+            char lbl[64];
+            snprintf(lbl, sizeof(lbl), "%s -<", p.name);
+            float pad = outW - ImGui::CalcTextSize(lbl).x;   // right-align in the column
+            if (pad > 0.0f) { ImGui::Dummy(ImVec2(pad, 0)); ImGui::SameLine(0.0f, 0.0f); }
+            ed::BeginPin(PinId(n.id, p.slot), ed::PinKind::Output);
+            ImGui::TextUnformatted(lbl);
             ed::EndPin();
         }
+        ImGui::EndGroup();
     }
 
     // Editable fields for the nodes that carry a constant.
