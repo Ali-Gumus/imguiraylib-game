@@ -670,7 +670,7 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
     char buf[64];
     switch (n.kind) {
         case NodeKind::Number:
-            snprintf(buf, sizeof(buf), "%.4g", n.value);
+            snprintf(buf, sizeof(buf), "%.7g", n.value);
             return buf;
         case NodeKind::EventUpdate:
             return "dt";   // the update event's dt output
@@ -881,7 +881,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 char buf[400];
                 snprintf(buf, sizeof(buf),
                     "    local hit%d = scene.nearest(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
-                    "    if hit%d ~= nil then scene.damage(hit%d, %.4g); scene.destroy(entity) end\n",
+                    "    if hit%d ~= nil then scene.damage(hit%d, %.7g); scene.destroy(entity) end\n",
                     n->id, esc.c_str(),
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str(),
                     n->id, n->id, n->value);
@@ -897,7 +897,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string tag(n->text), esc;
                 for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
                 std::string rng = ExprForInput(PinId(n->id, SlotDataIn));
-                char fbuf[32]; snprintf(fbuf, sizeof(fbuf), "%.4g", n->value);
+                char fbuf[32]; snprintf(fbuf, sizeof(fbuf), "%.7g", n->value);
                 std::string force = fbuf;
                 lua +=
                   "    local rng" + i + " = " + rng + "\n"
@@ -984,7 +984,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 for (char c : script) { if (c == '"' || c == '\\') es1 += '\\'; es1 += c; }
                 std::string tag(n->text2), es2;
                 for (char c : tag) { if (c == '"' || c == '\\') es2 += '\\'; es2 += c; }
-                char hp[32]; snprintf(hp, sizeof(hp), "%.4g", n->value);
+                char hp[32]; snprintf(hp, sizeof(hp), "%.7g", n->value);
                 lua += "    scene.spawn(\"" + es2 + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
@@ -1054,7 +1054,7 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
         lua += "properties = {\n";
         for (const auto& p : props) {
             char buf[160];
-            snprintf(buf, sizeof(buf), "    %s = %.4g,\n", p.first.c_str(), p.second);
+            snprintf(buf, sizeof(buf), "    %s = %.7g,\n", p.first.c_str(), p.second);
             lua += buf;
         }
         lua += "}\n\n";
@@ -1064,7 +1064,7 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
     // value between frames.
     for (const GraphVar& v : m_vars) {
         char buf[128];
-        snprintf(buf, sizeof(buf), "local %s = %.4g\n", v.name.c_str(), v.init);
+        snprintf(buf, sizeof(buf), "local %s = %.7g\n", v.name.c_str(), v.init);
         lua += buf;
     }
     if (!m_vars.empty()) lua += "\n";
