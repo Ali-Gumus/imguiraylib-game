@@ -212,6 +212,10 @@ public:
         DrawLine(cx, cy + 5, cx, cy + 16, hud);
         DrawCircleLines(cx, cy, 3, hud);
 
+        // Score across the top center. Scripts publish it via hud.add("score",n).
+        const char* sc = TextFormat("SCORE %d", (int)eng::GetHudValue("score", 0.0f));
+        DrawText(sc, cx - MeasureText(sc, 24) / 2, 18, 24, hud);
+
         // Airspeed (units per second) on the left, vertically centered.
         DrawText(TextFormat("SPD %3.0f", m_playerSpeed), 24, cy - 10, 20, hud);
 

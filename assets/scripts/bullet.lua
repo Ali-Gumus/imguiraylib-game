@@ -31,7 +31,11 @@ function on_update(entity, dt)
     local p = entity.transform.position
     local target = scene.nearest("enemy", p.x, p.y, p.z, P.hit_radius)
     if target ~= nil then
-        scene.damage(target, P.damage)
+        -- scene.damage returns true when this hit destroyed the enemy; award a
+        -- point for the kill (published to the shared HUD store as "score").
+        if scene.damage(target, P.damage) then
+            hud.add("score", 1)
+        end
         scene.destroy(entity)
         return
     end

@@ -340,6 +340,15 @@ void ScriptComponent::Load() {
     // (e.g. hud.set("throttle", throttle) from the flight script).
     sol::table hud = m_lua.create_named_table("hud");
     hud["set"] = [](const std::string& k, float v) { SetHudValue(k, v); };
+    // hud.get(name[, fallback]): read a published value back (0 if never set).
+    // This makes the HUD store double as shared game state a script can read.
+    hud["get"] = [](const std::string& k, sol::optional<float> fb) {
+        return GetHudValue(k, fb.value_or(0.0f));
+    };
+    // hud.add(name, delta): add to a value (e.g. hud.add("score", 1)).
+    hud["add"] = [](const std::string& k, float d) {
+        SetHudValue(k, GetHudValue(k, 0.0f) + d);
+    };
 
     // The `scene` table lets scripts change the world. Creating and destroying
     // entities only ENQUEUES the request; the scene carries it out after the
@@ -389,12 +398,17 @@ void ScriptComponent::Load() {
     };
     // damage(entity, amount): reduce an entity's Health; if it drops to zero
     // the entity is destroyed (queued). No Health component means no effect.
-    scn["damage"] = [](Entity& e, float amount) {
+    // Returns true if this hit destroyed the entity, so a script can react to
+    // a kill (e.g. award score). No Health component means no effect (false).
+    scn["damage"] = [](Entity& e, float amount) -> bool {
         if (auto* h = e.GetComponent<HealthComponent>()) {
             h->hp -= amount;
-            if (h->hp <= 0.0f && Scene::Current())
+            if (h->hp <= 0.0f && Scene::Current()) {
                 Scene::Current()->QueueDestroy(e.id);
+                return true;
+            }
         }
+        return false;
     };
 
     // --- Actually run the file --------------------------------------------
