@@ -2,7 +2,6 @@ build/
 out/
 .vs/
 .claude/
-imgui.ini
 HANDOVER.md
 
 # Large model assets are kept local, not in the repo. The small hand-written
