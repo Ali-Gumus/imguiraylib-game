@@ -4,24 +4,12 @@
       "components": [
         {
           "path": "assets/scripts/flight_sim.lua",
-          "props": {
-            "align": 0.10000000149011612,
-            "cruise": 20.0,
-            "drag": 0.019999999552965164,
-            "gravity": 13.0,
-            "pitch_rate": 50.0,
-            "roll_rate": 110.0,
-            "thrust": 200.0,
-            "yaw_rate": 35.0
-          },
+          "props": {},
           "type": "Script"
         },
         {
           "path": "assets/scripts/gun.lua",
-          "props": {
-            "fire_rate": 0.11999999731779099,
-            "muzzle": 3.0
-          },
+          "props": {},
           "type": "Script"
         },
         {
@@ -98,18 +86,7 @@
         },
         {
           "path": "assets/scripts/enemy.lua",
-          "props": {
-            "fire_angle": 12.0,
-            "fire_range": 45.0,
-            "fire_rate": 1.0,
-            "hitbox": 1.5,
-            "muzzle": 2.0,
-            "points": 1.0,
-            "sep_force": 12.0,
-            "sep_range": 8.0,
-            "speed": 11.0,
-            "turn_rate": 65.0
-          },
+          "props": {},
           "type": "Script"
         },
         {
