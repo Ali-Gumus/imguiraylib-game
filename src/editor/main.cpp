@@ -252,7 +252,10 @@ public:
         // --- Render the Game view -------------------------------------------
         // If some entity is a camera, render the scene from its point of view
         // into m_gameRT. (Render textures can be drawn to before BeginDrawing.)
-        if (eng::Entity* camEnt = FindCameraEntity()) {
+        // Only when the Game panel is actually on screen: rendering the whole
+        // scene a second time into a texture nobody can see is the single
+        // easiest frame to give back.
+        if (eng::Entity* camEnt = m_gameVisible ? FindCameraEntity() : nullptr) {
             // Pass ignoreScale = true so a scaled parent can't stretch or shove
             // the camera; only its position and rotation should matter.
             Camera3D cam = camEnt->GetComponent<eng::CameraComponent>()
@@ -578,7 +581,64 @@ private:
                     m_selected = eng::kInvalidEntity;   // the loaded scene has different ids
             }
         }
+
+        DrawStats();
         ImGui::End();                                // end the panel
+    }
+
+    // A performance readout. Guessing why a frame is slow is unreliable, so
+    // the editor shows the things that actually drive the cost:
+    //
+    //  * FPS and MS - milliseconds per frame is the honest number. FPS is
+    //    non-linear (60 to 55 fps is a far smaller change than 20 to 15), while
+    //    milliseconds add up the way work does. The frame budget is 16.7 ms for
+    //    60 frames per second.
+    //  * TRIS - triangles in the scene, counted once. The scene is drawn once
+    //    per visible view, so the real load is this times the number of views.
+    //  * VIEWS - how many times the whole scene is being drawn this frame: the
+    //    Viewport, plus the Game view when that panel is actually on screen.
+    //  * ENTS - how many entities exist, which drives the per-frame script and
+    //    transform work rather than the drawing.
+    void DrawStats() {
+        // Count triangles across the scene. Loaded models and terrain dominate;
+        // the simple primitives are a dozen triangles each and are counted as a
+        // separate number so a big mesh cannot hide behind them.
+        int meshTris = 0, primitives = 0;
+        for (const eng::Entity& e : m_scene.Entities()) {
+            for (const auto& c : e.components) {
+                if (auto* m = dynamic_cast<eng::ModelComponent*>(c.get()))
+                    meshTris += m->TriangleCount();
+                else if (auto* t = dynamic_cast<eng::TerrainComponent*>(c.get()))
+                    meshTris += t->TriangleCount();
+                else if (dynamic_cast<eng::ShapeComponent*>(c.get()))
+                    primitives++;
+            }
+        }
+
+        const float ms    = GetFrameTime() * 1000.0f;
+        const int   views = 1 + (m_gameVisible && FindCameraEntity() ? 1 : 0);
+
+        // Drawn on the same row as the toolbar buttons: the panel is often
+        // docked only one row tall, and anything below the buttons would be
+        // clipped away where it helps nobody.
+        ImGui::SameLine();
+        // Colour the frame time by the 60 fps budget: green inside it, amber
+        // when it slips, red once a frame costs more than twice the budget.
+        ImVec4 tone = (ms <= 16.7f) ? ImVec4(0.5f, 1.0f, 0.5f, 1.0f)
+                    : (ms <= 33.3f) ? ImVec4(1.0f, 0.85f, 0.4f, 1.0f)
+                                    : ImVec4(1.0f, 0.5f, 0.4f, 1.0f);
+        ImGui::TextColored(tone, "%dfps %.1fms", GetFPS(), ms);
+        ImGui::SameLine();
+        ImGui::TextDisabled("%dtri x%d %dent", meshTris, views,
+                            (int)m_scene.Entities().size());
+        // The full breakdown on hover, where there is room for words.
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%d mesh triangles, drawn %d time(s) per frame\n"
+                              "%d primitive shapes\n%d entities\n\n"
+                              "Views = Viewport, plus the Game panel when visible.\n"
+                              "16.7 ms is the budget for 60 fps.",
+                              meshTris, views, primitives,
+                              (int)m_scene.Entities().size());
     }
 
     // Save the node graph. If we already know its file (or forceDialog is
@@ -641,8 +701,20 @@ private:
     // The Game view panel: what the player sees, rendered through the scene's
     // camera entity. Also tracks whether the game "owns" the keyboard.
     void DrawGamePanel() {
-        ImGui::Begin("Game");
-        m_gameActive = ImGui::IsWindowFocused() || ImGui::IsWindowHovered();
+        // ImGui::Begin returns false when the panel cannot be seen at all -
+        // collapsed, or sitting behind another tab in the same dock. Recording
+        // that lets the next frame skip rendering the game view entirely: the
+        // scene is expensive to draw, and drawing it into a texture nobody is
+        // looking at is pure waste.
+        m_gameVisible = ImGui::Begin("Game");
+        m_gameActive  = ImGui::IsWindowFocused() || ImGui::IsWindowHovered();
+        // Skip the contents when the panel is hidden. End() below is still
+        // called either way: ImGui requires every Begin to be matched.
+        if (!m_gameVisible) {
+            ImGui::End();
+            return;
+        }
+
         if (FindCameraEntity()) {
             ImVec2 avail = ImGui::GetContentRegionAvail();
             ResizeRenderTexture(m_gameRT, (int)avail.x, (int)avail.y);
@@ -877,6 +949,10 @@ private:
     bool          m_viewportHovered = false;            // mouse over the viewport panel?
     bool          m_flyLock   = false;                  // right-drag fly in progress?
     bool          m_gameActive = false;                 // Game panel focused/hovered?
+    // Is the Game panel actually on screen? Set while drawing the UI and read
+    // by the next frame's render, which skips the game view when it is hidden.
+    // Starts true so the first frame renders before any UI has been drawn.
+    bool          m_gameVisible = true;
 
     // The euler-angle edit buffer for the Inspector's Rotation field, and the
     // id of the entity it currently reflects.

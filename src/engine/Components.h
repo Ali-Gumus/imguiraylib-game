@@ -379,6 +379,11 @@ public:
     // on the next draw).
     void SetPath(const std::string& p);
 
+    // How many triangles this model draws, summed over all its meshes. Zero
+    // until the file has actually loaded. The editor totals these to show what
+    // a scene costs to render.
+    int TriangleCount() const;
+
     std::string path;             // the model file, e.g. "assets/models/jet.obj"
     Color       tint = WHITE;     // multiplied over the model's own colors
     // A fixed rotation (euler degrees) applied to the mesh when drawing, so a
@@ -448,6 +453,17 @@ public:
     bool  wire       = true;        // overlay contour lines so the hills read clearly
 
     void Rebuild();                 // discard the mesh so it regenerates next draw
+
+    // How many triangles the terrain mesh is made of. The heightmap is turned
+    // into a grid of quads - one per group of four neighbouring pixels - and
+    // each quad is two triangles, so the count grows with the SQUARE of the
+    // resolution: doubling it makes four times the geometry. This is computed
+    // from the settings, so it answers "what would this cost?" even before the
+    // mesh has been built.
+    int TriangleCount() const {
+        int cells = (resolution > 1) ? (resolution - 1) : 0;
+        return cells * cells * 2;
+    }
 
 private:
     void EnsureBuilt();

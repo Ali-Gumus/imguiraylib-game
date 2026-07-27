@@ -113,9 +113,24 @@ void TerrainComponent::OnDraw(const Entity& owner) {
 void TerrainComponent::OnInspector() {
     ImGui::DragFloat("World size", &worldSize, 5.0f, 20.0f, 4000.0f);
     ImGui::DragFloat("Max height", &maxHeight, 0.5f, 0.0f, 500.0f);
-    ImGui::DragInt("Resolution", &resolution, 1.0f, 8, 400);
+    ImGui::DragInt("Resolution", &resolution, 1.0f, 8, 1000);
     ImGui::DragFloat("Hill scale", &noiseScale, 0.1f, 0.5f, 40.0f);
     ImGui::DragInt("Seed", &seed);
+
+    // Show what the current resolution actually costs. Terrain is usually the
+    // heaviest thing in a scene, and the cost is not obvious from the number:
+    // resolution 500 is not "a bit more" than 250, it is four times as much.
+    // Worse, the mesh is not indexed - every triangle carries its own three
+    // vertices - so the vertex count is three times the triangle count.
+    int tris = TriangleCount();
+    if (tris >= 200000)
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f),
+                           "%d triangles - very heavy", tris);
+    else if (tris >= 60000)
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f),
+                           "%d triangles", tris);
+    else
+        ImGui::TextDisabled("%d triangles", tris);
 
     float col[4] = {tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f};
     if (ImGui::ColorEdit4("Tint", col))
@@ -165,6 +180,14 @@ void ModelComponent::OnDraw(const Entity& owner) {
                                      rotationOffset.z * DEG2RAD});
     m_model.transform = MatrixMultiply(m_baseTransform, offset);
     DrawModel(m_model, {0, 0, 0}, 1.0f, tint);
+}
+
+int ModelComponent::TriangleCount() const {
+    if (!m_loaded) return 0;
+    int total = 0;
+    for (int i = 0; i < m_model.meshCount; i++)
+        total += m_model.meshes[i].triangleCount;
+    return total;
 }
 
 void ModelComponent::OnInspector() {
