@@ -8,6 +8,7 @@
 #include "engine/FileDialog.h"    // native open/save dialogs
 #include "engine/Lighting.h"      // the directional light and its shader
 #include "engine/Particles.h"     // explosion / spark / muzzle-flash effects
+#include "engine/Audio.h"         // sound playback and the mute toggle
 
 #include "imgui.h"      // the UI library
 #include "raylib.h"     // window, input, drawing, camera
@@ -88,6 +89,10 @@ public:
         // created here for the same reason.
         eng::InitParticles();
 
+        // Open the audio device and read the sound definitions. Failure here is
+        // not fatal: the game plays silently and says so in the toolbar.
+        eng::InitAudio();
+
         m_skyShader = LoadShader("assets/shaders/skybox.vs", "assets/shaders/skybox.fs");
         m_skyReady  = IsShaderValid(m_skyShader);
         if (m_skyReady) {
@@ -103,6 +108,7 @@ public:
         if (m_skyReady) { UnloadModel(m_sky); UnloadShader(m_skyShader); }
         eng::ShutdownLighting();
         eng::ShutdownParticles();
+        eng::ShutdownAudio();
         ed::DestroyEditor(m_nodeCtx);
     }
 
@@ -150,6 +156,11 @@ public:
         // a burst fired on the last frame before Stop should still finish
         // gracefully rather than freeze in mid-air.
         eng::UpdateParticles(dt);
+
+        // Looping sounds decode as they play and hold only a small buffer, so
+        // they must be topped up every frame or they stutter and stop.
+        eng::UpdateAudio();
+
 
         // --- Editor camera control ------------------------------------------
         // Holding the right mouse button over the viewport enters "fly" mode:
@@ -564,9 +575,11 @@ private:
             m_backup.push_back(e.Clone());
         eng::ClearHudValues();        // start each run fresh (score 0, no stale values)
         eng::ClearParticles();        // and with no effects left over from before
-        // Re-read assets/scripts/effects.lua, so retuning an explosion is a
-        // matter of editing that file and pressing Play again.
+        eng::StopAllAudio();          // nor any sound still ringing from before
+        // Re-read the effect and sound definitions, so retuning either is a
+        // matter of editing its file and pressing Play again.
         eng::ReloadEffectPresets();
+        eng::ReloadSoundDefs();
         m_scene.Start();              // run every script's on_start
         m_playing = true;
     }
@@ -574,6 +587,8 @@ private:
     void StopPlay() {
         m_scene.Entities() = std::move(m_backup);   // restore the saved scene
         eng::ClearParticles();        // effects are runtime state, like the HUD
+        // A looping engine note must not outlive the run that started it.
+        eng::StopAllAudio();
         m_playing = false;
         // The selection still works because Clone kept the same entity ids.
     }
@@ -601,6 +616,13 @@ private:
                     m_selected = eng::kInvalidEntity;   // the loaded scene has different ids
             }
         }
+
+        // Mute. The editor is launched dozens of times an hour, and an engine
+        // note every single time is unbearable, so this earns its place in the
+        // toolbar rather than hiding in a settings panel.
+        ImGui::SameLine();
+        bool muted = eng::IsMuted();
+        if (ImGui::Button(muted ? "Unmute" : "Mute")) eng::SetMuted(!muted);
 
         DrawStats();
         ImGui::End();                                // end the panel
@@ -647,24 +669,24 @@ private:
         ImVec4 tone = (ms <= 16.7f) ? ImVec4(0.5f, 1.0f, 0.5f, 1.0f)
                     : (ms <= 33.3f) ? ImVec4(1.0f, 0.85f, 0.4f, 1.0f)
                                     : ImVec4(1.0f, 0.5f, 0.4f, 1.0f);
+        // Only the frame time goes on the row itself. The toolbar is often docked
+        // narrow, and a long line of counts is simply clipped away where it helps
+        // nobody; the detail lives on the tooltip instead.
         ImGui::TextColored(tone, "%dfps %.1fms", GetFPS(), ms);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%dtri x%d %dent %dfx", meshTris, views,
-                            (int)m_scene.Entities().size(),
-                            eng::AliveParticleCount());
         // The full breakdown on hover, where there is room for words. This must
-        // follow the counts immediately: IsItemHovered always refers to the
+        // follow the frame time immediately: IsItemHovered always refers to the
         // widget drawn just before it, so anything inserted between the two
         // would quietly steal the tooltip.
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%d mesh triangles, drawn %d time(s) per frame\n"
                               "%d primitive shapes\n%d entities\n"
-                              "%d live effect particles\n\n"
+                              "%d live effect particles\n%d sounds playing\n\n"
                               "Views = Viewport, plus the Game panel when visible.\n"
                               "16.7 ms is the budget for 60 fps.",
                               meshTris, views, primitives,
                               (int)m_scene.Entities().size(),
-                              eng::AliveParticleCount());
+                              eng::AliveParticleCount(),
+                              eng::PlayingVoiceCount());
 
         // If effects.lua could not be read, say so rather than silently falling
         // back to the built-in effects and leaving the developer wondering why
@@ -676,6 +698,30 @@ private:
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("effects.lua: %s\n\nUsing the built-in effects.",
                                   fxErr);
+        }
+
+        // The same for audio. A missing sound file is silent by design, and
+        // unexplained silence is the kind of thing that costs an hour of
+        // hunting, so the names are listed here instead.
+        const char* sndErr  = eng::SoundDefError();
+        const auto& missing = eng::MissingSoundFiles();
+        if ((sndErr && sndErr[0] != '\0') || !missing.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "snd?");
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                if (sndErr && sndErr[0] != '\0')
+                    ImGui::Text("sounds.lua: %s", sndErr);
+                if (!missing.empty()) {
+                    ImGui::Text("Defined but the file is missing (so silent):");
+                    for (const std::string& m : missing)
+                        ImGui::BulletText("%s", m.c_str());
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Drop the files into assets/sounds/ and");
+                    ImGui::TextDisabled("press Play; no code change is needed.");
+                }
+                ImGui::EndTooltip();
+            }
         }
     }
 

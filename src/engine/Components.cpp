@@ -1,5 +1,6 @@
 #include "engine/Components.h"
 #include "engine/FileDialog.h"   // native "open file" dialog for the Browse button
+#include "engine/Audio.h"        // sound playback, exposed to scripts as audio.*
 #include "engine/Lighting.h"     // the shared lighting shader, applied to materials
 #include "engine/Particles.h"    // visual effect bursts, exposed to scripts as fx.*
 #include "engine/Scene.h"        // the full Entity/Scene definitions
@@ -496,6 +497,28 @@ void ScriptComponent::Load() {
                      sol::optional<float> vz) {
         BurstNamed(preset.c_str(), {x, y, z}, scale.value_or(1.0f),
                    {vx.value_or(0.0f), vy.value_or(0.0f), vz.value_or(0.0f)});
+    };
+
+    // The `audio` table plays sounds. Like fx, these are pure output: they never
+    // touch the world, so they are safe to call from anywhere.
+    sol::table au = m_lua.create_named_table("audio");
+    // audio.play(name [, volume [, pitch]]): fire a one-shot sound. The names
+    // come from assets/scripts/sounds.lua. `volume` scales the level set there;
+    // `pitch` defaults to the definition's random range, which is what keeps
+    // repeated gunfire from sounding like one stuttering sample.
+    au["play"] = [](const std::string& name, sol::optional<float> volume,
+                    sol::optional<float> pitch) {
+        PlaySoundNamed(name.c_str(), volume.value_or(1.0f), pitch.value_or(0.0f));
+    };
+    // Looping sounds, for anything continuous like an engine note. Starting one
+    // that is already running does nothing, so a script may call loop_start
+    // every frame without stacking up copies.
+    au["loop_start"] = [](const std::string& name) { LoopStart(name.c_str()); };
+    au["loop_stop"]  = [](const std::string& name) { LoopStop(name.c_str()); };
+    // audio.loop_set(name, volume, pitch): change a running loop. Called every
+    // frame to tie an engine note to the throttle.
+    au["loop_set"] = [](const std::string& name, float volume, float pitch) {
+        LoopSet(name.c_str(), volume, pitch);
     };
 
     // The `light` table lets scripts change the sun while the game runs: dimming

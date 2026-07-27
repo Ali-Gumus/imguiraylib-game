@@ -77,6 +77,7 @@ enum class NodeKind {
     FxBurst,                 // action: fire a named particle effect at this
                              //         entity (fx.burst)
     SetLightIntensity,       // action: set the scene light's brightness
+    PlaySound,               // action: play a named sound (audio.play)
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
@@ -189,6 +190,10 @@ private:
     // (an FX Burst node's effect), 1 = `text2` (a Hit Nearest node's optional
     // impact effect). One picker serves both rather than duplicating the list.
     int   m_fxPickerField = 0;
+    // Which list the picker is showing: false = the particle effects from
+    // effects.lua, true = the sounds from sounds.lua. One picker serves both,
+    // since the job is identical - choose a name the engine knows about.
+    bool  m_fxPickerSounds = false;
     // Where to put the list, in SCREEN coordinates, so it drops directly under
     // the button like an ordinary combo box. Captured while drawing the node,
     // because that is the only place the button's position is known, and

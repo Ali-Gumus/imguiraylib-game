@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "engine/Particles.h"   // the list of effects an FX Burst node can pick
+#include "engine/Audio.h"       // the list of sounds a Play Sound node can pick
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -62,6 +63,7 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::HudSet:       return "HUD Set";
         case NodeKind::FxBurst:      return "FX Burst";
         case NodeKind::SetLightIntensity: return "Set Light";
+        case NodeKind::PlaySound:    return "Play Sound";
         case NodeKind::AvoidCrowd:   return "Avoid Crowd";
         case NodeKind::AimedAtPlayer:return "Aimed At Player";
         case NodeKind::ChaseTarget:  return "Chase Target";
@@ -263,6 +265,12 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
                     {SlotExecOut, PinType::Exec,  false, "out"},
                     {SlotDataIn,  PinType::Float, true,  "brightness"}};
+        // The sound is a node field; only the loudness is worth wiring, so it
+        // can follow something (a distance, a damage amount).
+        case NodeKind::PlaySound:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "volume"}};
         // Separation: the neighbour tag and push strength are node fields; the
         // reach is the "range" data input.
         case NodeKind::AvoidCrowd:
@@ -406,9 +414,10 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         // It belongs on this node rather than as a separate one downstream,
         // because only this node knows whether the strike landed.
         if (ImGui::Button(n.text2[0] ? n.text2 : "(no effect)", ImVec2(140.0f, 0.0f))) {
-            m_fxPickerNode  = n.id;
-            m_fxPickerField = 1;        // this node's effect lives in `text2`
-            m_fxPickerOpen  = true;
+            m_fxPickerNode   = n.id;
+            m_fxPickerField  = 1;       // this node's effect lives in `text2`
+            m_fxPickerSounds = false;
+            m_fxPickerOpen   = true;
             ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
             ImVec2 screen = ed::CanvasToScreen(bl);
             m_fxPickerX = screen.x;
@@ -433,9 +442,10 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         // screen coordinates apply again.
         ImGui::SetNextItemWidth(140.0f);
         if (ImGui::Button(n.text[0] ? n.text : "(pick effect)", ImVec2(140.0f, 0.0f))) {
-            m_fxPickerNode  = n.id;
-            m_fxPickerField = 0;        // this node's effect lives in `text`
-            m_fxPickerOpen  = true;     // one frame only; see the member's comment
+            m_fxPickerNode   = n.id;
+            m_fxPickerField  = 0;       // this node's effect lives in `text`
+            m_fxPickerSounds = false;   // and it is choosing from the effects
+            m_fxPickerOpen   = true;    // one frame only; see the member's comment
             // Remember where to drop the list: directly under the button, the
             // way a combo box opens. The button's rectangle is in CANVAS
             // coordinates, which pan and zoom, so it is converted to screen
@@ -451,6 +461,22 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::DragFloat("##fxahead", &n.value, 0.1f);   // how far ahead to place it
     }
     else if (n.kind == NodeKind::SetLightIntensity) { /* brightness is a wired input */ }
+    else if (n.kind == NodeKind::PlaySound) {
+        // Same deferred-popup dance as FX Burst, for the same reason: a list
+        // opened from inside a node lands where it cannot be clicked.
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Button(n.text[0] ? n.text : "(pick sound)", ImVec2(140.0f, 0.0f))) {
+            m_fxPickerNode   = n.id;
+            m_fxPickerField  = 0;
+            m_fxPickerSounds = true;    // choose from the sounds, not the effects
+            m_fxPickerOpen   = true;
+            ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
+            ImVec2 screen = ed::CanvasToScreen(bl);
+            m_fxPickerX = screen.x;
+            m_fxPickerY = screen.y;
+            m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
+        }
+    }
     else if (n.kind == NodeKind::AvoidCrowd) {
         ImGui::InputText("##ctag", n.text, sizeof(n.text));   // the neighbour tag
         ImGui::DragFloat("##force", &n.value, 0.1f);          // push strength
@@ -549,14 +575,21 @@ void ScriptGraph::HandleFxPicker() {
     }
 
     if (ImGui::BeginPopup("FxPicker")) {
-        const auto& names = eng::EffectPresetNames();
+        // The same picker serves both lists; only the source differs.
+        const auto& names = m_fxPickerSounds ? eng::SoundNames()
+                                             : eng::EffectPresetNames();
         if (names.empty()) {
-            // The graph can still name an effect that no longer exists, if the
-            // file was edited. Say so rather than showing an empty menu that
-            // just looks broken.
-            ImGui::TextDisabled("No effects defined.");
-            ImGui::TextDisabled("Add one with fx.define in");
-            ImGui::TextDisabled("assets/scripts/effects.lua");
+            // Say why the list is empty rather than showing a blank menu that
+            // simply looks broken.
+            if (m_fxPickerSounds) {
+                ImGui::TextDisabled("No sounds defined.");
+                ImGui::TextDisabled("Add one with sound.define in");
+                ImGui::TextDisabled("assets/scripts/sounds.lua");
+            } else {
+                ImGui::TextDisabled("No effects defined.");
+                ImGui::TextDisabled("Add one with fx.define in");
+                ImGui::TextDisabled("assets/scripts/effects.lua");
+            }
         }
         // Writes the picked name into whichever of the node's two text fields
         // asked for it, and closes the list.
@@ -682,6 +715,7 @@ void ScriptGraph::HandleContextMenu() {
         // Presentation: the parts of the engine that make the world look alive.
         if (ImGui::BeginMenu("Effects")) {
             item("FX Burst", NodeKind::FxBurst);
+            item("Play Sound", NodeKind::PlaySound);
             item("Set Light", NodeKind::SetLightIntensity);
             ImGui::EndMenu();
         }
@@ -731,6 +765,13 @@ void ScriptGraph::HandleContextMenu() {
                 n.value = 0.0f;    // forward offset: at the entity itself
             }
             if (picked == NodeKind::SetLightIntensity) n.value = 1.0f;
+            if (picked == NodeKind::PlaySound) {
+                // Default to the first sound defined, so a fresh node is usable
+                // straight away instead of pointing at nothing.
+                const auto& snames = eng::SoundNames();
+                if (!snames.empty())
+                    std::strncpy(n.text, snames[0].c_str(), sizeof(n.text) - 1);
+            }
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -1167,6 +1208,18 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                     n->id, n->id, n->value,
                     scale.c_str());
                 lua += buf;
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::PlaySound: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                // An unwired volume means "as defined in sounds.lua", which is 1,
+                // not the 0 an unconnected input would otherwise read as.
+                std::string vol = SourceOf(PinId(n->id, SlotDataIn))
+                                      ? ExprForInput(PinId(n->id, SlotDataIn))
+                                      : std::string("1");
+                lua += "    audio.play(\"" + esc + "\", " + vol + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }

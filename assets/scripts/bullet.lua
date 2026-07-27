@@ -39,6 +39,7 @@ function on_update(entity, dt)
         -- Sparks where the shot connected. This fires on every hit, including
         -- the ones a target survives, so there is always a sign the shot landed.
         fx.burst("spark", p.x, p.y, p.z)
+        audio.play("impact")
         scene.destroy(entity)
         return
     end

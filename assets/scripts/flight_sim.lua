@@ -42,6 +42,10 @@ function on_start(entity)
     local f = entity.transform:forward()
     local c = properties.cruise
     vx, vy, vz = f.x * c, f.y * c, f.z * c
+
+    -- Start the engine note. It runs for as long as the jet exists; the volume
+    -- and pitch are set every frame below from the throttle.
+    audio.loop_start("engine")
 end
 
 function on_update(entity, dt)
@@ -100,4 +104,10 @@ function on_update(entity, dt)
     -- Publish flight values for the HUD to display.
     hud.set("throttle", throttle)   -- 0..1 engine power
     hud.set("speed", speed)         -- current airspeed
+
+    -- Tie the engine note to the throttle. Both volume and pitch rise with
+    -- power, which is what makes opening the throttle *feel* like acceleration
+    -- rather than just changing a number on the HUD. The ranges are deliberately
+    -- narrow: an engine at idle is quieter and lower, not silent and inaudible.
+    audio.loop_set("engine", 0.55 + throttle * 0.45, 0.8 + throttle * 0.5)
 end

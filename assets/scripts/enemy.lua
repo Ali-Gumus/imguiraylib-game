@@ -101,4 +101,5 @@ function on_destroy(entity)
     -- enemy that crashes explodes exactly like one that was shot down.
     local p = entity.transform.position
     fx.burst("explosion", p.x, p.y, p.z)
+    audio.play("explosion")
 end

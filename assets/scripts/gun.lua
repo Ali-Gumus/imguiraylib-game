@@ -51,5 +51,8 @@ function on_update(entity, dt)
         -- itself is created, carrying the jet's velocity so it stays at the
         -- nose instead of falling behind.
         fx.burst("muzzle", mx, my, mz, 1.0, vx, vy, vz)
+        -- The report. Its pitch varies slightly per shot (set in sounds.lua), so
+        -- sustained fire sounds like a gun rather than one repeated sample.
+        audio.play("shot")
     end
 end

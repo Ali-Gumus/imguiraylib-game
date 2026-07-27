@@ -34,6 +34,9 @@ function on_update(entity, dt)
         -- Sparks on the player, so being hit is visible and not just a number
         -- dropping on the health bar.
         fx.burst("spark", p.x, p.y, p.z)
+        -- A distinct sound from the player's own hits: being shot has to be
+        -- unmistakable, not something to work out from the health bar.
+        audio.play("hit_taken")
         scene.destroy(entity)
         return
     end
