@@ -7,7 +7,7 @@
 
 -- Tunable values, shown as editable fields in the Inspector.
 properties = {
-    speed      = 70,    -- travel speed in world units per second
+    speed      = 200,    -- travel speed in world units per second
     life       = 2.0,   -- seconds before it self-destructs
     damage     = 1,     -- hit points removed from an enemy on impact
     hit_radius = 1.0,   -- how near an enemy must be to count as a hit

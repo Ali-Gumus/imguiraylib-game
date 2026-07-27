@@ -11,7 +11,7 @@
             "gravity": 13.0,
             "pitch_rate": 50.0,
             "roll_rate": 110.0,
-            "thrust": 32.0,
+            "thrust": 200.0,
             "yaw_rate": 35.0
           },
           "type": "Script"
@@ -30,7 +30,12 @@
           "type": "Health"
         },
         {
-          "path": "assets/models/jet.obj",
+          "path": "assets/models/Jet2.glb",
+          "rotationOffset": [
+            0.0,
+            -90.0,
+            0.0
+          ],
           "tint": [
             37,
             150,
@@ -38,6 +43,27 @@
             255
           ],
           "type": "Model"
+        },
+        {
+          "halfExtents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "height": 8.449999809265137,
+          "offset": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "radius": 2.1500000953674316,
+          "rotation": [
+            90.0,
+            0.0,
+            0.0
+          ],
+          "shape": 2,
+          "type": "Collider"
         }
       ],
       "id": 1,
@@ -47,7 +73,7 @@
       "transform": {
         "position": [
           0.0,
-          59.79999923706055,
+          20.0,
           0.0
         ],
         "rotation": [
@@ -57,25 +83,14 @@
           1.0
         ],
         "scale": [
-          1.0,
-          1.0,
-          1.0
+          5.0,
+          5.0,
+          5.0
         ]
       }
     },
     {
       "components": [
-        {
-          "kind": 0,
-          "tint": [
-            255,
-            0,
-            0,
-            255
-          ],
-          "type": "Shape",
-          "wireframe": true
-        },
         {
           "hp": 3.0,
           "max": 3.0,
@@ -85,6 +100,42 @@
           "path": "assets/scripts/enemy.lua",
           "props": {},
           "type": "Script"
+        },
+        {
+          "path": "assets/models/Heli.glb",
+          "rotationOffset": [
+            0.0,
+            180.0,
+            0.0
+          ],
+          "tint": [
+            193,
+            0,
+            0,
+            255
+          ],
+          "type": "Model"
+        },
+        {
+          "halfExtents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "height": 14.75,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "radius": 4.300000190734863,
+          "rotation": [
+            90.0,
+            0.0,
+            0.0
+          ],
+          "shape": 2,
+          "type": "Collider"
         }
       ],
       "id": 2,
@@ -94,8 +145,8 @@
       "transform": {
         "position": [
           0.0,
-          60.79999923706055,
-          -40.0
+          20.0,
+          -100.0
         ],
         "rotation": [
           0.0,
@@ -104,9 +155,9 @@
           1.0
         ],
         "scale": [
-          1.0,
-          1.0,
-          1.0
+          5.0,
+          5.0,
+          5.0
         ]
       }
     },
@@ -129,14 +180,14 @@
       "transform": {
         "position": [
           0.0,
-          61.599998474121094,
-          5.0
+          26.100000381469727,
+          15.899999618530273
         ],
         "rotation": [
-          -0.06975647062063217,
+          -0.13917310535907745,
           0.0,
           0.0,
-          0.9975640773773193
+          0.9902680516242981
         ],
         "scale": [
           1.0,
@@ -170,7 +221,7 @@
       "transform": {
         "position": [
           0.0,
-          0.0,
+          -10.0,
           0.0
         ],
         "rotation": [
@@ -190,14 +241,7 @@
       "components": [
         {
           "path": "assets/scripts/gamemanager.lua",
-          "props": {
-            "base_count": 2.0,
-            "enemy_hp": 3.0,
-            "per_wave": 1.0,
-            "respawn_delay": 2.0,
-            "spawn_height": 20.0,
-            "spawn_radius": 60.0
-          },
+          "props": {},
           "type": "Script"
         }
       ],
@@ -225,5 +269,5 @@
       }
     }
   ],
-  "nextID": 799
+  "nextID": 1134
 }
