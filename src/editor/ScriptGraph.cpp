@@ -402,6 +402,19 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     else if (n.kind == NodeKind::HitNearest) {
         ImGui::InputText("##tag", n.text, sizeof(n.text));    // the tag to damage
         ImGui::DragFloat("##dmg", &n.value, 0.1f);            // hit points removed
+        // An optional impact effect, fired only when something is actually hit.
+        // It belongs on this node rather than as a separate one downstream,
+        // because only this node knows whether the strike landed.
+        if (ImGui::Button(n.text2[0] ? n.text2 : "(no effect)", ImVec2(140.0f, 0.0f))) {
+            m_fxPickerNode  = n.id;
+            m_fxPickerField = 1;        // this node's effect lives in `text2`
+            m_fxPickerOpen  = true;
+            ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
+            ImVec2 screen = ed::CanvasToScreen(bl);
+            m_fxPickerX = screen.x;
+            m_fxPickerY = screen.y;
+            m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
+        }
     }
     else if (n.kind == NodeKind::HudSet)
         ImGui::InputText("##hud", n.text, sizeof(n.text));    // the HUD value name
@@ -410,20 +423,29 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         // assets/scripts/effects.lua defines, so inventing an effect there makes
         // it appear here by itself - which is the whole point: building a graph
         // should never require knowing what to type.
-        const auto& names = eng::EffectPresetNames();
+        //
+        // The list CANNOT be drawn here. Everything inside a node is positioned
+        // in the canvas's own coordinates, which pan and zoom with the view,
+        // while a popup is placed in screen coordinates - so a menu opened from
+        // inside a node lands somewhere else entirely and cannot be clicked.
+        // Instead this button only records which node was asked; the list is
+        // drawn later by HandleFxPicker, between Suspend and Resume, where
+        // screen coordinates apply again.
         ImGui::SetNextItemWidth(140.0f);
-        if (ImGui::BeginCombo("##fxname", n.text)) {
-            for (const std::string& name : names) {
-                bool selected = (name == n.text);
-                if (ImGui::Selectable(name.c_str(), selected))
-                    std::strncpy(n.text, name.c_str(), sizeof(n.text) - 1);
-            }
-            // A graph may name an effect that no longer exists, if it was
-            // renamed or removed from the file. Say so rather than showing an
-            // empty menu that looks broken.
-            if (names.empty())
-                ImGui::TextDisabled("no effects defined");
-            ImGui::EndCombo();
+        if (ImGui::Button(n.text[0] ? n.text : "(pick effect)", ImVec2(140.0f, 0.0f))) {
+            m_fxPickerNode  = n.id;
+            m_fxPickerField = 0;        // this node's effect lives in `text`
+            m_fxPickerOpen  = true;     // one frame only; see the member's comment
+            // Remember where to drop the list: directly under the button, the
+            // way a combo box opens. The button's rectangle is in CANVAS
+            // coordinates, which pan and zoom, so it is converted to screen
+            // coordinates here - before Suspend, because these conversions are
+            // not allowed once the canvas is suspended.
+            ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
+            ImVec2 screen = ed::CanvasToScreen(bl);
+            m_fxPickerX = screen.x;
+            m_fxPickerY = screen.y;
+            m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
         }
         ImGui::SetNextItemWidth(140.0f);
         ImGui::DragFloat("##fxahead", &n.value, 0.1f);   // how far ahead to place it
@@ -504,6 +526,76 @@ void ScriptGraph::HandleEdits() {
         }
     }
     ed::EndDelete();
+}
+
+// Draw the effect picker for an FX Burst node. This runs OUTSIDE the node
+// canvas's coordinate system - between Suspend and Resume - because that is the
+// only place a popup can be positioned and clicked correctly. A node body can
+// only ask for the picker (by setting m_fxPickerNode); it cannot show one.
+void ScriptGraph::HandleFxPicker() {
+    ed::Suspend();
+
+    // Open the list only on the frame the button was actually pressed. Asking
+    // every frame while a node is selected would fight the user: clicking away
+    // closes the popup, and the very same frame would open it again wherever
+    // the mouse now is.
+    if (m_fxPickerOpen) {
+        ImGui::OpenPopup("FxPicker");
+        m_fxPickerOpen = false;
+        // Place it under the button, at the button's width, so it reads as a
+        // dropdown rather than a menu that appeared out of nowhere.
+        ImGui::SetNextWindowPos(ImVec2(m_fxPickerX, m_fxPickerY));
+        ImGui::SetNextWindowSize(ImVec2(m_fxPickerW > 0 ? m_fxPickerW : 140.0f, 0.0f));
+    }
+
+    if (ImGui::BeginPopup("FxPicker")) {
+        const auto& names = eng::EffectPresetNames();
+        if (names.empty()) {
+            // The graph can still name an effect that no longer exists, if the
+            // file was edited. Say so rather than showing an empty menu that
+            // just looks broken.
+            ImGui::TextDisabled("No effects defined.");
+            ImGui::TextDisabled("Add one with fx.define in");
+            ImGui::TextDisabled("assets/scripts/effects.lua");
+        }
+        // Writes the picked name into whichever of the node's two text fields
+        // asked for it, and closes the list.
+        auto choose = [&](const char* picked) {
+            for (auto& n : m_nodes) {
+                if (n.id != m_fxPickerNode) continue;
+                char* field = (m_fxPickerField == 1) ? n.text2 : n.text;
+                size_t cap  = (m_fxPickerField == 1) ? sizeof(n.text2) : sizeof(n.text);
+                std::strncpy(field, picked, cap - 1);
+                field[cap - 1] = '\0';
+                break;
+            }
+            ImGui::CloseCurrentPopup();
+            m_fxPickerNode = -1;
+        };
+
+        // The impact effect on a Hit Nearest node is optional, so that one
+        // needs a way back to "no effect at all".
+        if (m_fxPickerField == 1) {
+            if (ImGui::Selectable("(no effect)")) choose("");
+            ImGui::Separator();
+        }
+
+        for (const std::string& name : names) {
+            // Selectable, not MenuItem: this is a value being chosen from a
+            // list, and the tick marks which one is currently set.
+            bool current = false;
+            for (const auto& n : m_nodes)
+                if (n.id == m_fxPickerNode) {
+                    current = (name == (m_fxPickerField == 1 ? n.text2 : n.text));
+                    break;
+                }
+
+            if (ImGui::Selectable(name.c_str(), current)) choose(name.c_str());
+        }
+        ImGui::EndPopup();
+    }
+
+    ed::Resume();
 }
 
 void ScriptGraph::HandleContextMenu() {
@@ -685,6 +777,7 @@ void ScriptGraph::Draw(ed::EditorContext* ctx) {
 
     HandleEdits();
     HandleContextMenu();
+    HandleFxPicker();
 
     ed::End();
     ed::SetCurrentEditor(nullptr);
@@ -957,13 +1050,27 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // A unique local (by node id) avoids clashes between two of these.
                 std::string tag(n->text), esc;
                 for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                char buf[400];
+
+                // The optional impact effect. It has to be emitted INSIDE the
+                // "did we hit something" test: an effect placed after this node
+                // instead would fire on every frame the entity existed, not on
+                // the one frame it actually struck.
+                std::string effect;
+                if (n->text2[0] != '\0') {
+                    std::string fxName(n->text2), esc2;
+                    for (char c : fxName) { if (c == '"' || c == '\\') esc2 += '\\'; esc2 += c; }
+                    effect = " fx.burst(\"" + esc2 +
+                             "\", entity.transform.position.x, entity.transform.position.y,"
+                             " entity.transform.position.z);";
+                }
+
+                char buf[600];
                 snprintf(buf, sizeof(buf),
                     "    local hit%d = scene.hit(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
-                    "    if hit%d ~= nil then scene.damage(hit%d, %.7g); scene.destroy(entity) end\n",
+                    "    if hit%d ~= nil then scene.damage(hit%d, %.7g);%s scene.destroy(entity) end\n",
                     n->id, esc.c_str(),
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str(),
-                    n->id, n->id, n->value);
+                    n->id, n->id, n->value, effect.c_str());
                 lua += buf;
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1041,6 +1148,15 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // named per node id so two bursts in one graph cannot collide.
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+
+                // An unwired data input reads as 0, which would mean "an effect
+                // at zero size". Full size is the sensible reading of "I did not
+                // connect anything here", and it keeps the generated Lua honest
+                // rather than relying on the engine to reinterpret a 0.
+                std::string scale = SourceOf(PinId(n->id, SlotDataIn))
+                                        ? ExprForInput(PinId(n->id, SlotDataIn))
+                                        : std::string("1");
+
                 char buf[420];
                 snprintf(buf, sizeof(buf),
                     "    local fxf%d = entity.transform:forward()\n"
@@ -1049,7 +1165,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                     n->id, n->id, esc.c_str(),
                     n->id, n->id, n->value, n->id, n->id, n->value,
                     n->id, n->id, n->value,
-                    ExprForInput(PinId(n->id, SlotDataIn)).c_str());
+                    scale.c_str());
                 lua += buf;
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;

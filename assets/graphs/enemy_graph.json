@@ -1,5 +1,5 @@
 ﻿{
-    "nextID":  122,
+    "nextID":  123,
     "nodes":  [
                   {
                       "id":  1,
@@ -200,6 +200,15 @@
                       "text":  "assets/scripts/enemy_bullet.lua",
                       "x":  1050,
                       "y":  1260
+                  },
+                  {
+                      "id":  122,
+                      "kind":  56,
+                      "value":  0,
+                      "text":  "explosion",
+                      "text2":  "",
+                      "x":  260,
+                      "y":  1200
                   }
               ],
     "links":  [
@@ -327,6 +336,11 @@
                       "id":  224,
                       "from":  1905,
                       "to":  1936
+                  },
+                  {
+                      "id":  225,
+                      "from":  49,
+                      "to":  1952
                   }
               ],
     "vars":  [

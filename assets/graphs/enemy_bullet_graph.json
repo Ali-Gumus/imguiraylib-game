@@ -79,7 +79,8 @@
                       "value":  1,
                       "text":  "player",
                       "x":  1020,
-                      "y":  300
+                      "y":  300,
+                      "text2":  "spark"
                   },
                   {
                       "id":  107,

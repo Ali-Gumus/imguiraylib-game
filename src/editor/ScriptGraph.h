@@ -156,6 +156,10 @@ private:
     void DrawNode(GraphNode& n);
     void HandleEdits();
     void HandleContextMenu();
+    // Draws the effect list for an FX Burst node. Kept separate from the node
+    // body because a popup can only be placed correctly outside the canvas's
+    // coordinate system (see the comment on the function).
+    void HandleFxPicker();
 
     // Codegen helpers.
     std::string ExprForInput(int inputPin) const;       // expression feeding a data input
@@ -172,6 +176,24 @@ private:
     int   m_nextID = 100;
     bool  m_restorePositions = false;
     float m_popupX = 0, m_popupY = 0;
+    // Which FX Burst node the effect list belongs to, or -1 for none. A node
+    // body records the request; HandleFxPicker shows the list and writes the
+    // choice back.
+    int   m_fxPickerNode = -1;
+    // Set for ONE frame when the button is pressed. Opening a popup must happen
+    // exactly once: if the request stayed set, then the frame the user clicked
+    // away - which closes the popup - would immediately reopen it, and the menu
+    // could never be dismissed.
+    bool  m_fxPickerOpen = false;
+    // Which of the node's two text fields the picker writes into: 0 = `text`
+    // (an FX Burst node's effect), 1 = `text2` (a Hit Nearest node's optional
+    // impact effect). One picker serves both rather than duplicating the list.
+    int   m_fxPickerField = 0;
+    // Where to put the list, in SCREEN coordinates, so it drops directly under
+    // the button like an ordinary combo box. Captured while drawing the node,
+    // because that is the only place the button's position is known, and
+    // converted out of canvas space there too.
+    float m_fxPickerX = 0, m_fxPickerY = 0, m_fxPickerW = 140.0f;
 };
 
 } // namespace edtr

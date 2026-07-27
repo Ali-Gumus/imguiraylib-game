@@ -1,5 +1,5 @@
 ﻿{
-    "nextID":  112,
+    "nextID":  113,
     "nodes":  [
                   {
                       "id":  1,
@@ -120,6 +120,15 @@
                       "text":  "assets/scripts/bullet.lua",
                       "x":  1500,
                       "y":  460
+                  },
+                  {
+                      "id":  112,
+                      "kind":  56,
+                      "value":  3,
+                      "text":  "muzzle",
+                      "text2":  "",
+                      "x":  1500,
+                      "y":  630
                   }
               ],
     "links":  [
@@ -187,6 +196,11 @@
                       "id":  212,
                       "from":  1761,
                       "to":  1776
+                  },
+                  {
+                      "id":  213,
+                      "from":  1777,
+                      "to":  1792
                   }
               ],
     "vars":  [
