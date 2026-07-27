@@ -98,7 +98,18 @@
         },
         {
           "path": "assets/scripts/enemy.lua",
-          "props": {},
+          "props": {
+            "fire_angle": 12.0,
+            "fire_range": 45.0,
+            "fire_rate": 1.0,
+            "hitbox": 1.5,
+            "muzzle": 2.0,
+            "points": 1.0,
+            "sep_force": 12.0,
+            "sep_range": 8.0,
+            "speed": 11.0,
+            "turn_rate": 65.0
+          },
           "type": "Script"
         },
         {
@@ -200,8 +211,8 @@
       "components": [
         {
           "maxHeight": 25.0,
-          "noiseScale": 30.0,
-          "resolution": 300,
+          "noiseScale": 20.0,
+          "resolution": 500,
           "seed": 0,
           "tint": [
             0,
@@ -210,8 +221,8 @@
             255
           ],
           "type": "Terrain",
-          "wire": true,
-          "worldSize": 2000.0
+          "wire": false,
+          "worldSize": 1000.0
         }
       ],
       "id": 29,
@@ -267,7 +278,57 @@
           1.0
         ]
       }
+    },
+    {
+      "components": [
+        {
+          "ambient": [
+            0.25,
+            0.25999999046325684,
+            0.30000001192092896
+          ],
+          "color": [
+            1.0,
+            0.9599999785423279,
+            0.8799999952316284
+          ],
+          "ground": [
+            0.07999999821186066,
+            0.05999999865889549,
+            0.03999999910593033
+          ],
+          "intensity": 1.100000023841858,
+          "sky": [
+            0.05000000074505806,
+            0.07000000029802322,
+            0.11999999731779099
+          ],
+          "type": "Light"
+        }
+      ],
+      "id": 1134,
+      "name": "Sun",
+      "parent": 0,
+      "tag": "",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          -0.2906363904476166,
+          0.2923842668533325,
+          -0.07904127985239029,
+          0.9076312184333801
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
     }
   ],
-  "nextID": 1134
+  "nextID": 1157
 }
