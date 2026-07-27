@@ -27,7 +27,7 @@ properties = {
 function on_start(entity)
     -- Ensure this enemy has a hitbox so bullets register on the whole body.
     -- This only sets a default for spawned enemies (which start with none); an
-    -- enemy given a Hitbox component in the editor keeps that authored radius.
+    -- enemy given a Collider component in the editor keeps that authored shape.
     scene.set_hitbox(entity, properties.hitbox)
 end
 

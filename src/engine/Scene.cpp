@@ -199,9 +199,88 @@ Entity* Scene::FindNearestWithTag(const std::string& tag, Vector3 pos, float max
     return best;
 }
 
-// Find the closest entity with `tag` whose ball (its hitRadius) is within
-// `reach` of `pos`. The hit threshold is (reach + hitRadius) per entity, so a
-// larger model is easier to hit than a point.
+// Clamp a single number into the range [-limit, +limit].
+static float ClampAbs(float v, float limit) {
+    if (v >  limit) return  limit;
+    if (v < -limit) return -limit;
+    return v;
+}
+
+// The point of a collider that lies closest to the world-space point `p`.
+//
+// The trick that makes this simple is a change of coordinates. A rotated box in
+// world space is awkward, but if we move `p` INTO the box's own frame - where
+// the box is centred on the origin with its faces square to the axes - the
+// answer is just "clamp each coordinate". So the routine always:
+//   1. transforms `p` into the collider's local space,
+//   2. solves the easy, axis-aligned version of the problem there,
+//   3. transforms the answer back out to world space.
+Vector3 Scene::ClosestPointOnCollider(const Entity& e, const ColliderComponent& c,
+                                      Vector3 p) const {
+    // The entity's placement in the world (position + rotation of it and all
+    // its parents). Scale is deliberately left out: a collider is authored in
+    // world units, so scaling the entity must not silently resize its volume.
+    Matrix world = WorldMatrix(e, /*ignoreScale=*/true);
+    // Combine that with the shape's own offset and rotation inside the entity,
+    // giving one matrix that maps the shape's private frame all the way out to
+    // the world.
+    Matrix shapeToWorld = MatrixMultiply(c.LocalMatrix(), world);
+    // The INVERSE matrix undoes that mapping: multiplying a world point by it
+    // gives the same point expressed in the shape's own frame, where the shape
+    // is centred on the origin and square to the axes.
+    Matrix inv = MatrixInvert(shapeToWorld);
+
+    // Step 1: world -> the shape's frame.
+    Vector3 local = Vector3Transform(p, inv);
+
+    // Step 2: the closest point on the origin-centred shape.
+    Vector3 closest{0.0f, 0.0f, 0.0f};
+    switch (c.shape) {
+        case ColliderShape::Sphere: {
+            // Everything within `radius` of the centre is inside, so a point
+            // farther out is pulled straight back along the same direction
+            // until its length equals the radius.
+            float len = Vector3Length(local);
+            closest = (len <= c.radius || len <= 0.0001f)
+                        ? local                                        // already inside
+                        : Vector3Scale(local, c.radius / len);         // pull to the surface
+            break;
+        }
+        case ColliderShape::Box: {
+            // A box is independent on each axis: the nearest point simply keeps
+            // each coordinate if it is within the half-extent, or snaps it to
+            // the nearest face if it is beyond.
+            closest = { ClampAbs(local.x, c.halfExtents.x),
+                        ClampAbs(local.y, c.halfExtents.y),
+                        ClampAbs(local.z, c.halfExtents.z) };
+            break;
+        }
+        case ColliderShape::Capsule: {
+            // A capsule is "every point within `radius` of a line segment". The
+            // segment runs along the local Y axis from -height/2 to +height/2
+            // (Y-up is the convention physics engines use for capsules).
+            // So: find the closest point on that segment, then treat the rest
+            // exactly like the sphere case around it.
+            float half = c.height * 0.5f;
+            Vector3 onAxis{0.0f, ClampAbs(local.y, half), 0.0f};
+            Vector3 toPoint = Vector3Subtract(local, onAxis);
+            float   len = Vector3Length(toPoint);
+            closest = (len <= c.radius || len <= 0.0001f)
+                        ? local
+                        : Vector3Add(onAxis, Vector3Scale(toPoint, c.radius / len));
+            break;
+        }
+    }
+
+    // Step 3: the shape's frame -> world.
+    return Vector3Transform(closest, shapeToWorld);
+}
+
+// Find the closest entity with `tag` whose collider comes within `reach` of the
+// point `pos`. `reach` is the querying object's own size (a bullet's radius),
+// so the test is "does a ball of radius `reach` centred at `pos` touch the
+// collider?" - which is true exactly when the collider's closest point to `pos`
+// is no farther away than `reach`.
 Entity* Scene::FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
                               EntityID exclude) {
     Entity* best = nullptr;
@@ -209,15 +288,18 @@ Entity* Scene::FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
     for (Entity& e : m_entities) {
         if (e.id == exclude) continue;
         if (e.tag != tag) continue;
-        // Only entities that opted into a HitboxComponent can be hit.
-        HitboxComponent* box = e.GetComponent<HitboxComponent>();
-        if (!box) continue;
-        float dx = e.transform.position.x - pos.x;
-        float dy = e.transform.position.y - pos.y;
-        float dz = e.transform.position.z - pos.z;
+        // Only entities that opted into a ColliderComponent can be hit.
+        ColliderComponent* col = e.GetComponent<ColliderComponent>();
+        if (!col) continue;
+
+        Vector3 nearest = ClosestPointOnCollider(e, *col, pos);
+        // Compare SQUARED distances so we never need the (slower) square root:
+        // if a^2 <= b^2 then a <= b for non-negative distances.
+        float dx = nearest.x - pos.x;
+        float dy = nearest.y - pos.y;
+        float dz = nearest.z - pos.z;
         float d2 = dx * dx + dy * dy + dz * dz;
-        float threshold = reach + box->radius;        // combined radii
-        if (d2 <= threshold * threshold &&            // overlapping
+        if (d2 <= reach * reach &&                    // touching
             (best == nullptr || d2 < bestDist)) {     // and the nearest so far
             bestDist = d2; best = &e;
         }

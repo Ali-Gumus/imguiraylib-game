@@ -13,6 +13,12 @@
 
 namespace eng {
 
+// A "forward declaration": it promises the compiler that a class with this name
+// exists somewhere, which is all that is needed to mention it in a function
+// signature below. The full definition lives in Components.h; declaring it this
+// way keeps Scene.h from having to include that (much larger) header.
+class ColliderComponent;
+
 // A Transform3D is where an object sits in 3D space, made of three parts.
 struct Transform3D {
     // Location in space. The `{...}` gives each field a default value, so a
@@ -145,12 +151,21 @@ public:
     Entity* FindNearestWithTag(const std::string& tag, Vector3 pos, float maxDist,
                                EntityID exclude = kInvalidEntity);
 
-    // Like FindNearestWithTag, but treats each candidate as a ball of its own
-    // hitRadius: it hits when the distance is within `reach` PLUS that entity's
-    // hitRadius. This is the sphere-vs-sphere test a projectile uses so a shot
-    // registers anywhere inside a large model, not just near its origin point.
+    // Like FindNearestWithTag, but tests against each candidate's COLLIDER
+    // shape instead of its origin point: it hits when the point `pos` comes
+    // within `reach` of the collider's volume. This is what a projectile uses,
+    // so a shot registers anywhere on a large model - including out at a
+    // wingtip - and not only near the model's pivot.
     Entity* FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
                            EntityID exclude = kInvalidEntity);
+
+    // The point of `e`'s collider that lies closest to the world-space point
+    // `p`. If `p` is inside the volume, `p` itself is returned (distance zero).
+    // Every collision test in the engine is built on this one function: the
+    // distance from a point to a shape is the distance from the point to its
+    // closest point on that shape.
+    Vector3 ClosestPointOnCollider(const Entity& e, const ColliderComponent& c,
+                                   Vector3 p) const;
 
     // Save the whole scene to a JSON file, or load one back. Save returns
     // false if the file can't be written; Load returns false on a missing or

@@ -335,16 +335,56 @@ public:
             rlPopMatrix();
         }
 
-        // Hitbox gizmos: a wireframe sphere for every entity that has a Hitbox
-        // component, so its collision radius can be sized against the model.
-        // Editor-only (this runs for the Viewport, not the Game view).
+        // Collider gizmos: a green wireframe of the collision volume of every
+        // entity that has a Collider component, so the shape can be sized
+        // against the model it is meant to cover. Editor-only (this runs for
+        // the Viewport, not the Game view).
         for (eng::Entity& ent : m_scene.Entities()) {
-            if (auto* box = ent.GetComponent<eng::HitboxComponent>()) {
-                Matrix  wm = m_scene.WorldMatrix(ent, /*ignoreScale=*/true);
-                Vector3 c  = {wm.m12, wm.m13, wm.m14};   // world position
-                Color   col = (ent.id == m_selected) ? Color{0, 240, 120, 200}
-                                                     : Color{0, 200, 110, 70};
-                DrawSphereWires(c, box->radius, 8, 12, col);
+            if (auto* col = ent.GetComponent<eng::ColliderComponent>()) {
+                Color tone = (ent.id == m_selected) ? Color{0, 240, 120, 200}
+                                                    : Color{0, 200, 110, 70};
+                // Draw inside the entity's world matrix so the wireframe
+                // inherits its position and rotation - a box collider must lean
+                // over with the jet, not stay axis-aligned. Scale is excluded,
+                // matching the collision maths, which treats collider sizes as
+                // world units regardless of the entity's scale.
+                rlPushMatrix();
+                rlMultMatrixf(MatrixToFloat(m_scene.WorldMatrix(ent, /*ignoreScale=*/true)));
+                // A second matrix for the collider's own offset and rotation
+                // inside the entity. Each rlMultMatrixf applies INSIDE the ones
+                // pushed before it, so this nests correctly: the shape is
+                // placed within the entity, and the entity within the world.
+                // It is the same matrix the collision test uses, so the
+                // wireframe always shows exactly what can be hit.
+                rlMultMatrixf(MatrixToFloat(col->LocalMatrix()));
+                // Everything below is drawn at the shape's own origin, because
+                // the matrix above has already moved and turned the frame.
+                const Vector3 o = {0.0f, 0.0f, 0.0f};
+                switch (col->shape) {
+                    case eng::ColliderShape::Sphere:
+                        // (slices, rings) = how many wire lines: enough to read
+                        // the shape without cluttering the viewport.
+                        DrawSphereWires(o, col->radius, 8, 12, tone);
+                        break;
+                    case eng::ColliderShape::Box:
+                        // DrawCubeWires takes FULL side lengths, while the
+                        // collider stores half-extents, hence the doubling.
+                        DrawCubeWires(o, col->halfExtents.x * 2.0f,
+                                         col->halfExtents.y * 2.0f,
+                                         col->halfExtents.z * 2.0f, tone);
+                        break;
+                    case eng::ColliderShape::Capsule: {
+                        // A capsule is defined by the two CENTRES of its end
+                        // caps; they sit half the straight height above and
+                        // below the shape's centre, along its own Y axis.
+                        float   half = col->height * 0.5f;
+                        Vector3 top    = {0.0f,  half, 0.0f};
+                        Vector3 bottom = {0.0f, -half, 0.0f};
+                        DrawCapsuleWires(bottom, top, col->radius, 8, 6, tone);
+                        break;
+                    }
+                }
+                rlPopMatrix();
             }
         }
         EndMode3D();
@@ -660,9 +700,9 @@ private:
             bool hasHealth = e->GetComponent<eng::HealthComponent>() != nullptr;
             if (ImGui::MenuItem("Health", nullptr, false, !hasHealth))
                 e->AddComponent<eng::HealthComponent>();
-            bool hasHitbox = e->GetComponent<eng::HitboxComponent>() != nullptr;
-            if (ImGui::MenuItem("Hitbox", nullptr, false, !hasHitbox))
-                e->AddComponent<eng::HitboxComponent>();
+            bool hasCollider = e->GetComponent<eng::ColliderComponent>() != nullptr;
+            if (ImGui::MenuItem("Collider", nullptr, false, !hasCollider))
+                e->AddComponent<eng::ColliderComponent>();
             bool hasModel = e->GetComponent<eng::ModelComponent>() != nullptr;
             if (ImGui::MenuItem("Model", nullptr, false, !hasModel))
                 e->AddComponent<eng::ModelComponent>();

@@ -60,7 +60,12 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
     if (name == "Script") return std::make_unique<ScriptComponent>();
     if (name == "Camera") return std::make_unique<CameraComponent>();
     if (name == "Health") return std::make_unique<HealthComponent>();
-    if (name == "Hitbox") return std::make_unique<HitboxComponent>();
+    if (name == "Collider") return std::make_unique<ColliderComponent>();
+    // "Hitbox" is the name an older scene format used for a sphere-only
+    // collision volume. A Collider set to Sphere is exactly that shape, and its
+    // Deserialize reads the same "radius" key, so old files keep working; the
+    // next save rewrites them under the new name.
+    if (name == "Hitbox") return std::make_unique<ColliderComponent>();
     if (name == "Model")  return std::make_unique<ModelComponent>();
     if (name == "Terrain") return std::make_unique<TerrainComponent>();
     return nullptr;   // unknown type: caller skips it
@@ -196,10 +201,63 @@ void HealthComponent::OnInspector() {
     ImGui::DragFloat("Max", &max, 0.1f, 1.0f, 10000.0f);
 }
 
-void HitboxComponent::OnInspector() {
-    // The wireframe sphere in the viewport shows this radius; drag to fit it to
-    // the model.
-    ImGui::DragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f);
+Matrix ColliderComponent::LocalMatrix() const {
+    // Degrees are friendly to type in the Inspector; the maths needs radians.
+    Matrix rot = MatrixRotateXYZ({rotation.x * DEG2RAD,
+                                  rotation.y * DEG2RAD,
+                                  rotation.z * DEG2RAD});
+    Matrix move = MatrixTranslate(offset.x, offset.y, offset.z);
+    // MatrixMultiply(A, B) means "apply A, then B" for the way raylib
+    // transforms points. Rotating first and moving second spins the shape
+    // about its OWN centre and then puts it in place; doing it the other way
+    // round would swing the shape around the entity's origin instead.
+    return MatrixMultiply(rot, move);
+}
+
+void ColliderComponent::OnInspector() {
+    // The order of these strings must match the ColliderShape enum, because
+    // ImGui::Combo works on the INDEX of the selected item.
+    static const char* kShapeNames[] = { "Sphere", "Box", "Capsule" };
+
+    // ImGui::Combo wants an int it can write into, so convert to and from the
+    // enum around the call.
+    int current = static_cast<int>(shape);
+    if (ImGui::Combo("Shape", &current, kShapeNames, IM_ARRAYSIZE(kShapeNames)))
+        shape = static_cast<ColliderShape>(current);
+
+    // Only show the fields the chosen shape actually uses, so the panel never
+    // presents a number that does nothing.
+    switch (shape) {
+        case ColliderShape::Sphere:
+            ImGui::DragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f);
+            break;
+        case ColliderShape::Box:
+            // DragFloat3 edits three floats at once; &halfExtents.x points at
+            // the first of the three, which sit next to each other in memory.
+            ImGui::DragFloat3("Half Extents", &halfExtents.x, 0.05f, 0.0f, 1000.0f);
+            break;
+        case ColliderShape::Capsule:
+            ImGui::DragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f);
+            // The straight part between the two round caps; the pill's total
+            // length is this plus twice the radius.
+            ImGui::DragFloat("Height", &height, 0.05f, 0.0f, 1000.0f);
+            break;
+    }
+
+    // Applies to every shape: shifts the volume away from the entity's origin.
+    ImGui::DragFloat3("Offset", &offset.x, 0.05f, -1000.0f, 1000.0f);
+
+    // A sphere is the same shape whichever way you turn it, so only offer the
+    // rotation where it can actually change something.
+    if (shape != ColliderShape::Sphere) {
+        // Drag speed 1.0 = one degree per pixel dragged, matching the other
+        // rotation fields in the editor.
+        ImGui::DragFloat3("Rotation", &rotation.x, 1.0f);
+        // A capsule stands along its own Y axis. Aircraft in this engine face
+        // local -Z, so the common case of a nose-to-tail capsule is X = 90.
+        if (shape == ColliderShape::Capsule && ImGui::Button("Lay Along Forward"))
+            rotation = {90.0f, 0.0f, 0.0f};
+    }
 }
 
 // ---- CameraComponent -------------------------------------------------------
@@ -420,22 +478,53 @@ void ScriptComponent::Load() {
                    ? Scene::Current()->FindNearestWithTag(tag, {x, y, z}, radius)
                    : nullptr;
     };
-    // hit(tag, x,y,z, reach): like nearest, but each candidate is treated as a
-    // ball of its own hitRadius, so a shot lands anywhere inside a big model,
-    // not just near its origin. This is the projectile hit test.
+    // hit(tag, x,y,z, reach): like nearest, but tests the candidate's collider
+    // VOLUME rather than its origin point, so a shot lands anywhere on a big
+    // model - out at a wingtip included. This is the projectile hit test.
     scn["hit"] = [](const std::string& tag, float x, float y, float z,
                     float reach) -> Entity* {
         return Scene::Current()
                    ? Scene::Current()->FindHitWithTag(tag, {x, y, z}, reach)
                    : nullptr;
     };
-    // set_hitbox(entity, radius): ensure the entity has a hitbox, using `radius`
-    // as the DEFAULT only when it has none (e.g. a freshly spawned enemy). If it
-    // already has a HitboxComponent -- one added and sized in the editor -- that
-    // authored radius is kept, so pressing Play doesn't reset it.
+    // set_hitbox(entity, radius): ensure the entity is hittable, giving it a
+    // SPHERE collider of `radius` only when it has no collider at all (e.g. a
+    // freshly spawned enemy). If one already exists -- added and sized in the
+    // editor -- it is left alone, so pressing Play never resets authored values.
     scn["set_hitbox"] = [](Entity& e, float radius) {
-        if (!e.GetComponent<HitboxComponent>())
-            e.AddComponent<HitboxComponent>().radius = radius;
+        if (!e.GetComponent<ColliderComponent>()) {
+            ColliderComponent& c = e.AddComponent<ColliderComponent>();
+            c.shape  = ColliderShape::Sphere;
+            c.radius = radius;
+        }
+    };
+    // set_collider(entity, shape, a, b, c): the full version of set_hitbox for
+    // shapes other than a sphere. `shape` is "sphere", "box" or "capsule"; the
+    // three numbers mean different things per shape:
+    //   sphere  -> a = radius              (b, c unused)
+    //   box     -> a, b, c = half extents  (half the size on X, Y, Z)
+    //   capsule -> a = radius, b = height  (c unused)
+    // Like set_hitbox it only ADDS: an authored collider is never overwritten.
+    // `b` and `c` are sol::optional, meaning the script may leave them out:
+    // scene.set_collider(e, "sphere", 2) is valid.
+    scn["set_collider"] = [](Entity& e, const std::string& shape, float a,
+                             sol::optional<float> b, sol::optional<float> c) {
+        if (e.GetComponent<ColliderComponent>()) return;
+        // value_or(x) reads the number the script passed, or x if it passed none.
+        float bv = b.value_or(a);
+        float cv = c.value_or(a);
+        ColliderComponent& col = e.AddComponent<ColliderComponent>();
+        if (shape == "box") {
+            col.shape       = ColliderShape::Box;
+            col.halfExtents = {a, bv, cv};
+        } else if (shape == "capsule") {
+            col.shape  = ColliderShape::Capsule;
+            col.radius = a;
+            col.height = bv;
+        } else {                       // anything else is treated as a sphere
+            col.shape  = ColliderShape::Sphere;
+            col.radius = a;
+        }
     };
     // nearest_other(self, tag, radius): like nearest, but searches from the
     // `self` entity's position and never returns `self`. Used so a group of
