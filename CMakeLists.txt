@@ -133,6 +133,7 @@ add_library(engine STATIC
     src/engine/Scene.cpp
     src/engine/Components.cpp
     src/engine/FileDialog.cpp
+    src/engine/Lighting.cpp
 )
 # PUBLIC: anything linking engine can #include "engine/Application.h".
 target_include_directories(engine PUBLIC src)

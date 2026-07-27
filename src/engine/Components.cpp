@@ -1,5 +1,6 @@
 #include "engine/Components.h"
 #include "engine/FileDialog.h"   // native "open file" dialog for the Browse button
+#include "engine/Lighting.h"     // the shared lighting shader, applied to materials
 #include "engine/Scene.h"        // the full Entity/Scene definitions
 
 #include "imgui.h"        // Dear ImGui: the immediate-mode UI used by the editor
@@ -66,6 +67,7 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
     // Deserialize reads the same "radius" key, so old files keep working; the
     // next save rewrites them under the new name.
     if (name == "Hitbox") return std::make_unique<ColliderComponent>();
+    if (name == "Light")  return std::make_unique<LightComponent>();
     if (name == "Model")  return std::make_unique<ModelComponent>();
     if (name == "Terrain") return std::make_unique<TerrainComponent>();
     return nullptr;   // unknown type: caller skips it
@@ -92,6 +94,7 @@ void TerrainComponent::EnsureBuilt() {
     Mesh mesh = GenMeshHeightmap(img, {worldSize, maxHeight, worldSize});
     UnloadImage(img);                       // the image isn't needed once the mesh exists
     m_model = LoadModelFromMesh(mesh);       // wrap the mesh in a drawable model
+    ApplyLightingShader(m_model);            // shade the hills instead of flat green
     m_built = true;
 }
 
@@ -147,6 +150,7 @@ void ModelComponent::EnsureLoaded() {
     // invalid; treat that as "not loaded" so we don't try to draw nothing.
     m_loaded = (m_model.meshCount > 0);
     m_baseTransform = m_model.transform;   // remember the file's own transform
+    ApplyLightingShader(m_model);          // shade it like everything else
 }
 
 void ModelComponent::OnDraw(const Entity& owner) {
@@ -199,6 +203,23 @@ void HealthComponent::OnInspector() {
     // label, pointer to the value, drag speed, minimum, maximum.
     ImGui::DragFloat("HP",  &hp,  0.1f, 0.0f, 10000.0f);
     ImGui::DragFloat("Max", &max, 0.1f, 1.0f, 10000.0f);
+}
+
+void LightComponent::OnInspector() {
+    // ColorEdit3 shows a colour swatch that opens a picker. It works on three
+    // floats in 0..1 order R, G, B - the same layout as a Vector3 - so the
+    // address of the first field can be handed to it directly.
+    ImGui::ColorEdit3("Color", &color.x);
+    // Brightness is separate from hue so the sun can be dimmed for a dusk look
+    // without turning it a different colour.
+    ImGui::DragFloat("Intensity", &intensity, 0.02f, 0.0f, 8.0f);
+    ImGui::ColorEdit3("Ambient", &ambient.x);
+    ImGui::ColorEdit3("Sky Fill", &sky.x);
+    ImGui::ColorEdit3("Ground Fill", &ground.x);
+    // The direction is not edited here: it comes from the entity's rotation, so
+    // the light is aimed with the same Rotation fields as any other object.
+    ImGui::TextDisabled("Direction = the entity's forward axis");
+    ImGui::TextDisabled("Rotate the entity to aim the sun.");
 }
 
 Matrix ColliderComponent::LocalMatrix() const {

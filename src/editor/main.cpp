@@ -6,6 +6,7 @@
 #include "engine/Scene.h"         // the world of entities
 #include "engine/Components.h"    // ShapeComponent, CameraComponent, ...
 #include "engine/FileDialog.h"    // native open/save dialogs
+#include "engine/Lighting.h"      // the directional light and its shader
 
 #include "imgui.h"      // the UI library
 #include "raylib.h"     // window, input, drawing, camera
@@ -51,6 +52,18 @@ public:
         e->transform.position = {3.0f, 0.5f, -2.0f};
         e->AddComponent<eng::ShapeComponent>().tint = DARKGREEN;
 
+        // The sun. A directional light is aimed by rotating its entity, so the
+        // entity is turned until its forward axis (local -Z) points the way the
+        // light should travel: downward and off to one side, like afternoon
+        // sun. QuaternionFromVector3ToVector3 builds exactly the rotation that
+        // carries the first vector onto the second.
+        id = m_scene.CreateEntity("Sun");
+        e = m_scene.Find(id);
+        e->transform.position = {0.0f, 3.0f, 0.0f};   // only for the gizmo's sake
+        e->transform.rotation = QuaternionFromVector3ToVector3(
+            {0.0f, 0.0f, -1.0f}, Vector3Normalize({0.35f, -0.85f, -0.4f}));
+        e->AddComponent<eng::LightComponent>();
+
         // The node editor library keeps its own per-canvas state (pan, zoom,
         // where nodes sit) inside a context object that we create and own.
         ed::Config cfg;
@@ -64,6 +77,12 @@ public:
         // A procedural gradient skybox: a unit cube drawn around the camera and
         // colored by view direction in the shader (no texture needed). If the
         // shader fails to compile we just skip drawing it.
+        // Load the shader that shades everything in the world by its angle to
+        // the sun. It must happen after the window exists, because a shader is
+        // a GPU object. If it fails the engine renders unlit, as it did before
+        // lighting existed, so there is nothing to handle here.
+        eng::InitLighting();
+
         m_skyShader = LoadShader("assets/shaders/skybox.vs", "assets/shaders/skybox.fs");
         m_skyReady  = IsShaderValid(m_skyShader);
         if (m_skyReady) {
@@ -77,12 +96,50 @@ public:
     ~EditorApp() override {
         UnloadRenderTexture(m_gameRT);
         if (m_skyReady) { UnloadModel(m_sky); UnloadShader(m_skyShader); }
+        eng::ShutdownLighting();
         ed::DestroyEditor(m_nodeCtx);
+    }
+
+    // Find the scene's light entity and push its settings to the lighting
+    // shader. Only the first Light in the scene is used: this engine supports
+    // one directional light, the way an outdoor scene has one sun. With no
+    // light entity at all, the shader's built-in defaults are restored, so a
+    // scene authored before lighting existed still looks sensible.
+    void ApplySceneLight() {
+        for (eng::Entity& e : m_scene.Entities()) {
+            auto* light = e.GetComponent<eng::LightComponent>();
+            if (!light) continue;
+
+            eng::SunSettings sun;
+            // The light travels along the entity's forward axis. In a world
+            // matrix the three basis vectors sit in known slots: (m8,m9,m10)
+            // is the entity's local +Z in world space, and this engine's
+            // convention is that forward is local -Z, hence the minus signs.
+            Matrix wm = m_scene.WorldMatrix(e, /*ignoreScale=*/true);
+            sun.direction = {-wm.m8, -wm.m9, -wm.m10};
+
+            // Intensity scales the colour rather than being its own uniform,
+            // which keeps the shader simpler: brightness and hue arrive as one
+            // number per channel.
+            sun.color   = {light->color.x * light->intensity,
+                           light->color.y * light->intensity,
+                           light->color.z * light->intensity};
+            sun.ambient = light->ambient;
+            sun.sky     = light->sky;
+            sun.ground  = light->ground;
+            eng::SetSun(sun);
+            return;                       // first light wins; stop looking
+        }
+        eng::SetSun(eng::SunSettings{});   // no light in the scene: use defaults
     }
 
     // Called once per frame BEFORE anything is drawn. Handles input and,
     // during play, advances the world. `dt` is the frame time in seconds.
     void OnUpdate(float dt) override {
+        // Refresh the sun before anything is rendered this frame, so moving the
+        // light entity updates the shading immediately.
+        ApplySceneLight();
+
         // --- Editor camera control ------------------------------------------
         // Holding the right mouse button over the viewport enters "fly" mode:
         // DisableCursor hides and locks the mouse pointer (so it can't leave
@@ -334,6 +391,70 @@ public:
             DrawCubeWires({0, 0, 0}, ws.x + pad, ws.y + pad, ws.z + pad, YELLOW);
             rlPopMatrix();
         }
+
+        // Light gizmo: a sun icon plus an arrow showing which way its rays
+        // travel. A directional light has no real position - only a direction
+        // matters - so the icon is just a handle you can find and click.
+        //
+        // Two things make it reliably visible. First, DEPTH TESTING IS TURNED
+        // OFF while drawing it, so the icon shows through anything in front of
+        // it; an editor handle you cannot see is useless, and a light dropped
+        // at the origin would otherwise be buried in the ground grid. Second,
+        // the icon is SCALED BY ITS DISTANCE from the camera, so it keeps
+        // roughly the same size on screen whether you are next to it or zoomed
+        // far out.
+        //
+        // Note the two flush calls. raylib does not draw simple shapes the
+        // moment you ask: it collects them into a batch and sends them to the
+        // GPU later, all at once. A depth-test switch, by contrast, takes
+        // effect immediately. Without forcing the batch out first, the switch
+        // would apply to everything queued rather than to this gizmo alone -
+        // and would have been undone again before the gizmo was ever drawn.
+        rlDrawRenderBatchActive();   // send everything queued so far, depth on
+        rlDisableDepthTest();
+        for (eng::Entity& ent : m_scene.Entities()) {
+            if (!ent.GetComponent<eng::LightComponent>()) continue;
+            Matrix  wm  = m_scene.WorldMatrix(ent, /*ignoreScale=*/true);
+            Vector3 pos = {wm.m12, wm.m13, wm.m14};                 // where it sits
+            Vector3 dir = Vector3Normalize({-wm.m8, -wm.m9, -wm.m10});  // forward = -Z
+
+            // Keep the icon a readable size at any zoom: grow it with distance,
+            // but never smaller than 0.5 units or larger than 6.
+            float s = std::clamp(Vector3Distance(pos, m_camera.position) * 0.06f,
+                                 0.5f, 6.0f);
+
+            Color col = (ent.id == m_selected) ? Color{255, 240, 150, 255}
+                                               : Color{255, 205, 60, 220};
+
+            // The disc of the sun.
+            DrawSphereWires(pos, s * 0.35f, 6, 8, col);
+            // Eight rays around it, in the plane facing the camera, so it reads
+            // as a sun rather than a ball. Each ray runs from just outside the
+            // disc to a little further out.
+            Vector3 toCam = Vector3Normalize(Vector3Subtract(m_camera.position, pos));
+            // Any two vectors perpendicular to toCam span that plane. Crossing
+            // with world up gives the first; crossing again gives the second.
+            Vector3 axisA = Vector3Normalize(Vector3CrossProduct(toCam, {0, 1, 0}));
+            if (Vector3LengthSqr(axisA) < 0.001f)      // looking straight down
+                axisA = {1, 0, 0};
+            Vector3 axisB = Vector3CrossProduct(toCam, axisA);
+            for (int i = 0; i < 8; i++) {
+                float a  = (float)i * (PI * 2.0f / 8.0f);
+                Vector3 d = Vector3Add(Vector3Scale(axisA, cosf(a)),
+                                       Vector3Scale(axisB, sinf(a)));
+                DrawLine3D(Vector3Add(pos, Vector3Scale(d, s * 0.5f)),
+                           Vector3Add(pos, Vector3Scale(d, s * 0.85f)), col);
+            }
+
+            // The direction arrow: a shaft along the light's travel direction
+            // with a cone on the end.
+            Vector3 tip = Vector3Add(pos, Vector3Scale(dir, s * 3.0f));
+            DrawLine3D(pos, tip, col);
+            DrawCylinderEx(tip, Vector3Add(tip, Vector3Scale(dir, s * 0.7f)),
+                           s * 0.22f, 0.0f, 8, col);
+        }
+        rlDrawRenderBatchActive();   // send the gizmo out while depth is still off
+        rlEnableDepthTest();
 
         // Collider gizmos: a green wireframe of the collision volume of every
         // entity that has a Collider component, so the shape can be sized
@@ -703,6 +824,22 @@ private:
             bool hasCollider = e->GetComponent<eng::ColliderComponent>() != nullptr;
             if (ImGui::MenuItem("Collider", nullptr, false, !hasCollider))
                 e->AddComponent<eng::ColliderComponent>();
+            bool hasLight = e->GetComponent<eng::LightComponent>() != nullptr;
+            if (ImGui::MenuItem("Light", nullptr, false, !hasLight)) {
+                e->AddComponent<eng::LightComponent>();
+                // A light points along its entity's forward axis, and a brand
+                // new entity is unrotated - which aims the sun horizontally,
+                // straight along -Z, lighting the world from the side and
+                // leaving the ground unlit. An unrotated light is almost never
+                // what anyone wants, so tilt it down to a natural afternoon
+                // angle. An entity that has already been rotated deliberately
+                // is left exactly as the user aimed it.
+                Quaternion identity{0.0f, 0.0f, 0.0f, 1.0f};
+                if (Vector4Equals(e->transform.rotation, identity))
+                    e->transform.rotation = QuaternionFromVector3ToVector3(
+                        {0.0f, 0.0f, -1.0f},
+                        Vector3Normalize({0.35f, -0.85f, -0.4f}));
+            }
             bool hasModel = e->GetComponent<eng::ModelComponent>() != nullptr;
             if (ImGui::MenuItem("Model", nullptr, false, !hasModel))
                 e->AddComponent<eng::ModelComponent>();

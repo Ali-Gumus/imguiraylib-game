@@ -1,5 +1,6 @@
 #include "engine/Scene.h"
 #include "engine/Components.h"   // MakeComponent, used when loading a scene file
+#include "engine/Lighting.h"     // the shared lighting shader applied while drawing
 
 #include "raymath.h"   // matrix and quaternion math
 #include "rlgl.h"      // raylib's lower-level matrix stack (rlPushMatrix, ...)
@@ -437,6 +438,15 @@ bool Scene::WouldCycle(EntityID child, EntityID newParent) const {
 }
 
 void Scene::Draw() const {
+    // Switch the lighting shader on for the whole scene. raylib's simple
+    // primitives (cubes, spheres) are drawn straight into a shared batch that
+    // uses whichever shader is currently active, so wrapping the loop is what
+    // gets them shaded. Loaded models ignore this: they carry their own
+    // material, which is pointed at the same shader when the model loads.
+    // If the shader failed to compile, this is skipped and everything renders
+    // unlit exactly as before.
+    if (IsLightingReady()) BeginShaderMode(GetLightingShader());
+
     // For each entity, put its world matrix on raylib's matrix stack, draw its
     // components (which just draw a unit shape at the origin), then pop the
     // matrix off. This is what makes every component appear at the right
@@ -449,6 +459,8 @@ void Scene::Draw() const {
             c->OnDraw(e);
         rlPopMatrix();                          // restore for the next entity
     }
+
+    if (IsLightingReady()) EndShaderMode();     // back to the default shader
 }
 
 } // namespace eng
