@@ -7,6 +7,7 @@
 #include "engine/Components.h"    // ShapeComponent, CameraComponent, ...
 #include "engine/FileDialog.h"    // native open/save dialogs
 #include "engine/Lighting.h"      // the directional light and its shader
+#include "engine/Particles.h"     // explosion / spark / muzzle-flash effects
 
 #include "imgui.h"      // the UI library
 #include "raylib.h"     // window, input, drawing, camera
@@ -83,6 +84,10 @@ public:
         // lighting existed, so there is nothing to handle here.
         eng::InitLighting();
 
+        // The particle system's dot texture also lives on the GPU, so it is
+        // created here for the same reason.
+        eng::InitParticles();
+
         m_skyShader = LoadShader("assets/shaders/skybox.vs", "assets/shaders/skybox.fs");
         m_skyReady  = IsShaderValid(m_skyShader);
         if (m_skyReady) {
@@ -97,6 +102,7 @@ public:
         UnloadRenderTexture(m_gameRT);
         if (m_skyReady) { UnloadModel(m_sky); UnloadShader(m_skyShader); }
         eng::ShutdownLighting();
+        eng::ShutdownParticles();
         ed::DestroyEditor(m_nodeCtx);
     }
 
@@ -139,6 +145,11 @@ public:
         // Refresh the sun before anything is rendered this frame, so moving the
         // light entity updates the shading immediately.
         ApplySceneLight();
+
+        // Age the visual effects. This runs whether or not the game is playing:
+        // a burst fired on the last frame before Stop should still finish
+        // gracefully rather than freeze in mid-air.
+        eng::UpdateParticles(dt);
 
         // --- Editor camera control ------------------------------------------
         // Holding the right mouse button over the viewport enters "fly" mode:
@@ -265,6 +276,9 @@ public:
             BeginMode3D(cam);
             DrawSky();                    // gradient sky behind the world
             m_scene.Draw();               // the player's view has no editor grid
+            // Effects draw after the world, so they are never shaded by the
+            // sun: fire and sparks give off their own light.
+            eng::DrawParticles(cam);
             EndMode3D();
             // Draw the 2D HUD on top of the 3D view (after EndMode3D so it's
             // flat screen-space, not in the world).
@@ -381,6 +395,7 @@ public:
         DrawSky();                       // gradient sky behind the world
         DrawGrid(20, 1.0f);              // a 20x20 reference grid on the ground
         m_scene.Draw();
+        eng::DrawParticles(m_camera);    // effects, unlit and after the world
 
         // Draw a yellow wireframe box around the selected entity so you can see
         // what's selected. It's drawn in a scale-free frame (position+rotation
@@ -548,12 +563,17 @@ private:
         for (const auto& e : m_scene.Entities())
             m_backup.push_back(e.Clone());
         eng::ClearHudValues();        // start each run fresh (score 0, no stale values)
+        eng::ClearParticles();        // and with no effects left over from before
+        // Re-read assets/scripts/effects.lua, so retuning an explosion is a
+        // matter of editing that file and pressing Play again.
+        eng::ReloadEffectPresets();
         m_scene.Start();              // run every script's on_start
         m_playing = true;
     }
 
     void StopPlay() {
         m_scene.Entities() = std::move(m_backup);   // restore the saved scene
+        eng::ClearParticles();        // effects are runtime state, like the HUD
         m_playing = false;
         // The selection still works because Clone kept the same entity ids.
     }
@@ -629,16 +649,34 @@ private:
                                     : ImVec4(1.0f, 0.5f, 0.4f, 1.0f);
         ImGui::TextColored(tone, "%dfps %.1fms", GetFPS(), ms);
         ImGui::SameLine();
-        ImGui::TextDisabled("%dtri x%d %dent", meshTris, views,
-                            (int)m_scene.Entities().size());
-        // The full breakdown on hover, where there is room for words.
+        ImGui::TextDisabled("%dtri x%d %dent %dfx", meshTris, views,
+                            (int)m_scene.Entities().size(),
+                            eng::AliveParticleCount());
+        // The full breakdown on hover, where there is room for words. This must
+        // follow the counts immediately: IsItemHovered always refers to the
+        // widget drawn just before it, so anything inserted between the two
+        // would quietly steal the tooltip.
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%d mesh triangles, drawn %d time(s) per frame\n"
-                              "%d primitive shapes\n%d entities\n\n"
+                              "%d primitive shapes\n%d entities\n"
+                              "%d live effect particles\n\n"
                               "Views = Viewport, plus the Game panel when visible.\n"
                               "16.7 ms is the budget for 60 fps.",
                               meshTris, views, primitives,
-                              (int)m_scene.Entities().size());
+                              (int)m_scene.Entities().size(),
+                              eng::AliveParticleCount());
+
+        // If effects.lua could not be read, say so rather than silently falling
+        // back to the built-in effects and leaving the developer wondering why
+        // an edit had no result.
+        const char* fxErr = eng::EffectPresetError();
+        if (fxErr && fxErr[0] != '\0') {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "fx?");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("effects.lua: %s\n\nUsing the built-in effects.",
+                                  fxErr);
+        }
     }
 
     // Save the node graph. If we already know its file (or forceDialog is

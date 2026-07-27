@@ -69,6 +69,14 @@ enum class NodeKind {
     // Stage 11: general entity spawning and tag counting.
     Spawn,                   // action: scene.spawn with a script, tag and health
     CountTag,                // value: scene.count(tag) -> Float
+    // Stage 12: presentation. These reach the parts of the engine that make the
+    // game look alive, so a graph is not limited to moving things about.
+    // NOTE: always APPEND to this list. Saved graphs store each node's kind as
+    // the number it has here, so inserting a value in the middle would silently
+    // turn every later node in every saved graph into a different node.
+    FxBurst,                 // action: fire a named particle effect at this
+                             //         entity (fx.burst)
+    SetLightIntensity,       // action: set the scene light's brightness
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the

@@ -1,6 +1,7 @@
 #include "engine/Components.h"
 #include "engine/FileDialog.h"   // native "open file" dialog for the Browse button
 #include "engine/Lighting.h"     // the shared lighting shader, applied to materials
+#include "engine/Particles.h"    // visual effect bursts, exposed to scripts as fx.*
 #include "engine/Scene.h"        // the full Entity/Scene definitions
 
 #include "imgui.h"        // Dear ImGui: the immediate-mode UI used by the editor
@@ -475,6 +476,79 @@ void ScriptComponent::Load() {
         SetHudValue(k, GetHudValue(k, 0.0f) + d);
     };
 
+    // The `fx` table fires visual effects. These are pure decoration: they
+    // never touch the world, so a script can call one from anywhere without
+    // worrying about what it might disturb.
+    sol::table fx = m_lua.create_named_table("fx");
+    // fx.burst(preset, x, y, z [, scale [, vx, vy, vz]]): throw a burst of
+    // particles at a point. `preset` is any effect named in
+    // assets/scripts/effects.lua; `scale` sizes the whole effect and defaults
+    // to 1.
+    //
+    // vx,vy,vz are the velocity of whatever fired the effect, in world units
+    // per second. Pass them when the emitter is moving: without them the burst
+    // stays where it was born while the emitter flies on, so a muzzle flash
+    // trails visibly behind a fast jet. A script can measure its own velocity
+    // by remembering its position from the previous frame - see gun.lua.
+    fx["burst"] = [](const std::string& preset, float x, float y, float z,
+                     sol::optional<float> scale,
+                     sol::optional<float> vx, sol::optional<float> vy,
+                     sol::optional<float> vz) {
+        BurstNamed(preset.c_str(), {x, y, z}, scale.value_or(1.0f),
+                   {vx.value_or(0.0f), vy.value_or(0.0f), vz.value_or(0.0f)});
+    };
+
+    // The `light` table lets scripts change the sun while the game runs: dimming
+    // it towards dusk, flashing it red when the player is hit, and so on.
+    //
+    // Every one of these writes into the scene's first Light COMPONENT rather
+    // than into the shader. That is deliberate. The editor pushes the light
+    // component to the shader at the start of every frame, so a value written
+    // straight to the shader would be wiped before anything was drawn with it.
+    // Writing to the component also means the Inspector keeps showing the truth.
+    //
+    // The sun's DIRECTION has no function here because it needs none: the light
+    // travels along its entity's forward axis, so a script aims it by rotating
+    // that entity like any other object.
+    sol::table lt = m_lua.create_named_table("light");
+
+    // Find the scene's light, or nullptr when the scene has none. Every
+    // function below goes through this, so a scene without a light simply does
+    // nothing instead of failing.
+    auto findLight = []() -> LightComponent* {
+        Scene* s = Scene::Current();
+        if (!s) return nullptr;
+        for (Entity& e : s->Entities())
+            if (auto* l = e.GetComponent<LightComponent>()) return l;
+        return nullptr;
+    };
+
+    // light.set_color(r, g, b): channels are 0..255, matching the numbers the
+    // Inspector's colour picker shows, and are converted to the 0..1 the shader
+    // works in.
+    lt["set_color"] = [findLight](float r, float g, float b) {
+        if (auto* l = findLight())
+            l->color = {r / 255.0f, g / 255.0f, b / 255.0f};
+    };
+    // light.set_intensity(v): brightness, separate from colour. 1 is normal,
+    // 0 is night, above 1 is brighter than the surface's own colour.
+    lt["set_intensity"] = [findLight](float v) {
+        if (auto* l = findLight()) l->intensity = v;
+    };
+    // light.set_ambient(r, g, b): the light reaching surfaces the sun cannot
+    // see. Lower it for harsh, high-contrast shadows; raise it for a flat,
+    // overcast look.
+    lt["set_ambient"] = [findLight](float r, float g, float b) {
+        if (auto* l = findLight())
+            l->ambient = {r / 255.0f, g / 255.0f, b / 255.0f};
+    };
+    // light.get_intensity(): read it back, so a script can fade from wherever
+    // the light currently is rather than from a number it assumed.
+    lt["get_intensity"] = [findLight]() -> float {
+        auto* l = findLight();
+        return l ? l->intensity : 0.0f;
+    };
+
     // The `scene` table lets scripts change the world. Creating and destroying
     // entities only ENQUEUES the request; the scene carries it out after the
     // update loop, so it is safe even to destroy the very entity that asked.
@@ -615,24 +689,35 @@ void ScriptComponent::Load() {
     // an editable field in the Inspector. We keep any value the user already
     // tuned (stored in m_props) instead of resetting it to the script default,
     // and write the effective value back into the table so the script uses it.
-    std::vector<std::pair<std::string, float>> merged;
+    std::vector<ScriptProp> merged;
     sol::object propObj = m_lua["properties"];
     if (propObj.is<sol::table>()) {
         sol::table pt = propObj.as<sol::table>();
         for (auto& kv : pt) {
             if (kv.first.is<std::string>() && kv.second.is<double>()) {
                 std::string name  = kv.first.as<std::string>();
-                float       value = kv.second.as<float>();
-                for (const auto& pr : m_props)      // keep a prior tuned value
-                    if (pr.first == name) { value = pr.second; break; }
+                float       value = kv.second.as<float>();   // the script's default
+                bool        over  = false;
+
+                // An OVERRIDDEN property keeps the value this entity was given.
+                // Anything else takes the script's current default, so editing
+                // the .lua actually shows up the next time the script loads.
+                for (const auto& pr : m_props) {
+                    if (pr.name == name && pr.overridden) {
+                        value = pr.value;
+                        over  = true;
+                        break;
+                    }
+                }
+
                 pt[name] = value;                    // the script reads this back
-                merged.push_back({name, value});
+                merged.push_back({name, value, over});
             }
         }
         // Sort by name so the fields keep a stable order in the Inspector
         // (a Lua table has no defined iteration order).
         std::sort(merged.begin(), merged.end(),
-                  [](const auto& a, const auto& b) { return a.first < b.first; });
+                  [](const ScriptProp& a, const ScriptProp& b) { return a.name < b.name; });
     }
     m_props = std::move(merged);
 
@@ -709,9 +794,57 @@ void ScriptComponent::OnInspector() {
     // changes take effect immediately (including mid-play).
     if (m_loaded && !m_props.empty()) {
         ImGui::SeparatorText("Properties");
-        for (auto& pr : m_props) {
-            if (ImGui::DragFloat(pr.first.c_str(), &pr.second, 0.05f))
-                m_lua["properties"][pr.first] = pr.second;
+        // Any property this entity has overridden shows a revert arrow and an
+        // orange name. Without that mark there is no way to tell a value that
+        // came from the script from one this entity is holding on to - which is
+        // exactly the confusion of editing a .lua and seeing nothing change.
+        bool anyOverride = false;
+
+        for (int i = 0; i < (int)m_props.size(); i++) {
+            ScriptProp& pr = m_props[i];
+            // Two widgets share a row and would collide as ImGui identities,
+            // since ImGui names widgets by their label. PushID makes this row's
+            // widgets unique regardless of the property's name.
+            ImGui::PushID(i);
+
+            // The revert button, drawn first so the numbers still line up.
+            if (pr.overridden) {
+                anyOverride = true;
+                if (ImGui::SmallButton("<")) {
+                    // Drop the override and take the script's value again. The
+                    // script is reloaded so the default is re-read from the
+                    // file rather than remembered from before.
+                    pr.overridden = false;
+                    Load();
+                    ImGui::PopID();
+                    break;         // Load() rebuilt m_props; stop walking it
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Revert to the value in the script file");
+                ImGui::SameLine();
+            }
+
+            if (ImGui::DragFloat(pr.name.c_str(), &pr.value, 0.05f)) {
+                // Editing a field is what makes it an override: from now on
+                // this entity keeps its own value and ignores the script's.
+                pr.overridden = true;
+                m_lua["properties"][pr.name] = pr.value;
+            }
+            // Colour the overridden ones so the difference is visible at a
+            // glance, the way a changed setting is marked anywhere else.
+            if (pr.overridden) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "*");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Overridden here; the script file is ignored\n"
+                                      "for this value until you revert it.");
+            }
+            ImGui::PopID();
+        }
+
+        if (anyOverride && ImGui::SmallButton("Revert all to script")) {
+            for (auto& pr : m_props) pr.overridden = false;
+            Load();
         }
     }
 }

@@ -31,6 +31,9 @@ function on_update(entity, dt)
     local target = scene.hit("player", p.x, p.y, p.z, P.hit_radius)
     if target ~= nil then
         scene.damage(target, P.damage)
+        -- Sparks on the player, so being hit is visible and not just a number
+        -- dropping on the health bar.
+        fx.burst("spark", p.x, p.y, p.z)
         scene.destroy(entity)
         return
     end

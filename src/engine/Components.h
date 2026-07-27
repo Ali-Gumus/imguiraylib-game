@@ -50,20 +50,29 @@ public:
     void OnDestroy(Entity& owner) override;
     void OnUpdate(float dt, Entity& owner) override;
 
-    // Save the script path AND any tuned property values, so per-entity tweaks
-    // survive saving and reloading.
+    // Save the script path, plus ONLY the properties this entity has actually
+    // overridden in the Inspector.
+    //
+    // Saving all of them would be a trap: the moment a scene was saved, every
+    // value in the script's `properties` table would be frozen into the scene
+    // file, and from then on editing the .lua would appear to do nothing -
+    // the stored copy always wins. Writing only real overrides means an
+    // untouched property keeps following whatever the script says.
     void Serialize(nlohmann::json& out) const override {
         out["path"] = path;
         nlohmann::json props = nlohmann::json::object();
-        for (const auto& pr : m_props) props[pr.first] = pr.second;
+        for (const auto& pr : m_props)
+            if (pr.overridden) props[pr.name] = pr.value;
         out["props"] = props;
     }
     void Deserialize(const nlohmann::json& in) override {
         path = in.value("path", path);
         m_props.clear();
+        // Anything stored in the file was written because it differed from the
+        // script, so it comes back as an override.
         if (in.contains("props") && in["props"].is_object())
             for (auto it = in["props"].begin(); it != in["props"].end(); ++it)
-                m_props.push_back({it.key(), it.value().get<float>()});
+                m_props.push_back({it.key(), it.value().get<float>(), true});
     }
 
     // Draws the path field + a Load/Reload button + any error text.
@@ -87,10 +96,20 @@ private:
     bool        m_loaded = false;           // did the file load without error?
     std::string m_error;                    // last error message, "" if none
 
-    // Tunable values the script exposed via a global `properties` table, as
-    // (name, value) pairs. Shown as editable fields in the Inspector; edited
-    // values are kept here so they survive a reload and are saved with scenes.
-    std::vector<std::pair<std::string, float>> m_props;
+    // One tunable value the script exposed via its global `properties` table.
+    struct ScriptProp {
+        std::string name;
+        float       value = 0.0f;
+        // Has this entity been given its own value for this property, replacing
+        // the script's? Only overrides are saved to the scene, and only
+        // overrides survive a reload - everything else re-reads the script, so
+        // editing a default in the .lua takes effect the next time it loads.
+        bool        overridden = false;
+    };
+
+    // The script's tunables, sorted by name. Shown as editable fields in the
+    // Inspector.
+    std::vector<ScriptProp> m_props;
 };
 
 // ============================================================================

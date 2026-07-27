@@ -7,24 +7,49 @@
 
 -- Tunable values, shown as editable fields in the Inspector.
 properties = {
-    fire_rate = 0.12,   -- seconds between shots (smaller = faster fire)
-    muzzle    = 3.0,    -- how far in front of the jet each bullet appears
+    fire_rate = 0.2,   -- seconds between shots (smaller = faster fire)
+    muzzle    = 8.0,    -- how far in front of the jet each bullet appears
 }
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)
 
+-- Where this entity was on the previous frame, and whether we have one yet.
+-- Comparing it with the current position gives the jet's velocity, which the
+-- muzzle flash needs: an effect is born standing still, so on a jet moving 200
+-- units a second a flash lasting a fifth of a second would be left 40 units
+-- behind the nose. Handing the flash the jet's own motion keeps it at the gun.
+local lx, ly, lz = 0, 0, 0
+local has_last = false
+
 function on_update(entity, dt)
     local P = properties
     cooldown = cooldown - dt
+
+    -- Velocity is the change in position divided by the time it took. On the
+    -- very first frame there is no previous position, so it counts as zero.
+    local pos = entity.transform.position
+    local vx, vy, vz = 0, 0, 0
+    if has_last and dt > 0 then
+        vx = (pos.x - lx) / dt
+        vy = (pos.y - ly) / dt
+        vz = (pos.z - lz) / dt
+    end
+    lx, ly, lz = pos.x, pos.y, pos.z
+    has_last = true
 
     if input.key_down("SPACE") and cooldown <= 0 then
         cooldown = P.fire_rate
         local t = entity.transform
         local f = t:forward()
         local p = t.position
-        scene.spawn("Bullet",
-            p.x + f.x * P.muzzle, p.y + f.y * P.muzzle, p.z + f.z * P.muzzle,
-            f.x, f.y, f.z,
+        local mx = p.x + f.x * P.muzzle
+        local my = p.y + f.y * P.muzzle
+        local mz = p.z + f.z * P.muzzle
+        scene.spawn("Bullet", mx, my, mz, f.x, f.y, f.z,
             "assets/scripts/bullet.lua")
+        -- A flash where the bullet leaves the gun, at the same point the bullet
+        -- itself is created, carrying the jet's velocity so it stays at the
+        -- nose instead of falling behind.
+        fx.burst("muzzle", mx, my, mz, 1.0, vx, vy, vz)
     end
 end

@@ -1,6 +1,7 @@
 #include "ScriptGraph.h"
 
 #include "imgui.h"
+#include "engine/Particles.h"   // the list of effects an FX Burst node can pick
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -59,6 +60,8 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::SetScale:     return "Set Scale";
         case NodeKind::HitNearest:   return "Hit Nearest";
         case NodeKind::HudSet:       return "HUD Set";
+        case NodeKind::FxBurst:      return "FX Burst";
+        case NodeKind::SetLightIntensity: return "Set Light";
         case NodeKind::AvoidCrowd:   return "Avoid Crowd";
         case NodeKind::AimedAtPlayer:return "Aimed At Player";
         case NodeKind::ChaseTarget:  return "Chase Target";
@@ -247,6 +250,19 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
                     {SlotExecOut, PinType::Exec,  false, "out"},
                     {SlotDataIn,  PinType::Float, true,  "value"}};
+        // The effect name and how far ahead of the entity to place it are node
+        // fields; only the size is worth wiring, so that it can be driven by
+        // something else (a bigger blast for a bigger enemy, say).
+        case NodeKind::FxBurst:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "scale"}};
+        // Brightness is a wired input, because the useful thing to do with it is
+        // drive it from something that changes: a timer, a health value.
+        case NodeKind::SetLightIntensity:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,  PinType::Float, true,  "brightness"}};
         // Separation: the neighbour tag and push strength are node fields; the
         // reach is the "range" data input.
         case NodeKind::AvoidCrowd:
@@ -389,6 +405,30 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     }
     else if (n.kind == NodeKind::HudSet)
         ImGui::InputText("##hud", n.text, sizeof(n.text));    // the HUD value name
+    else if (n.kind == NodeKind::FxBurst) {
+        // The effect is CHOSEN FROM A LIST, not typed. The list is whatever
+        // assets/scripts/effects.lua defines, so inventing an effect there makes
+        // it appear here by itself - which is the whole point: building a graph
+        // should never require knowing what to type.
+        const auto& names = eng::EffectPresetNames();
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::BeginCombo("##fxname", n.text)) {
+            for (const std::string& name : names) {
+                bool selected = (name == n.text);
+                if (ImGui::Selectable(name.c_str(), selected))
+                    std::strncpy(n.text, name.c_str(), sizeof(n.text) - 1);
+            }
+            // A graph may name an effect that no longer exists, if it was
+            // renamed or removed from the file. Say so rather than showing an
+            // empty menu that looks broken.
+            if (names.empty())
+                ImGui::TextDisabled("no effects defined");
+            ImGui::EndCombo();
+        }
+        ImGui::SetNextItemWidth(140.0f);
+        ImGui::DragFloat("##fxahead", &n.value, 0.1f);   // how far ahead to place it
+    }
+    else if (n.kind == NodeKind::SetLightIntensity) { /* brightness is a wired input */ }
     else if (n.kind == NodeKind::AvoidCrowd) {
         ImGui::InputText("##ctag", n.text, sizeof(n.text));   // the neighbour tag
         ImGui::DragFloat("##force", &n.value, 0.1f);          // push strength
@@ -547,6 +587,12 @@ void ScriptGraph::HandleContextMenu() {
             item("Chase Target", NodeKind::ChaseTarget);
             ImGui::EndMenu();
         }
+        // Presentation: the parts of the engine that make the world look alive.
+        if (ImGui::BeginMenu("Effects")) {
+            item("FX Burst", NodeKind::FxBurst);
+            item("Set Light", NodeKind::SetLightIntensity);
+            ImGui::EndMenu();
+        }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
@@ -584,6 +630,15 @@ void ScriptGraph::HandleContextMenu() {
             }
             if (picked == NodeKind::CountTag)
                 std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default tag to count
+            if (picked == NodeKind::FxBurst) {
+                // Default to the first effect defined in effects.lua, so a new
+                // node is immediately usable rather than pointing at nothing.
+                const auto& names = eng::EffectPresetNames();
+                std::strncpy(n.text, names.empty() ? "explosion" : names[0].c_str(),
+                             sizeof(n.text) - 1);
+                n.value = 0.0f;    // forward offset: at the entity itself
+            }
+            if (picked == NodeKind::SetLightIntensity) n.value = 1.0f;
             m_nodes.push_back(n);
             m_restorePositions = true;
         }
@@ -975,6 +1030,34 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
                 lua += "    hud.set(\"" + esc + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::FxBurst: {
+                // Fire a named particle effect. The position is this entity's,
+                // pushed forward by the node's offset field so a muzzle flash
+                // can sit at the nose rather than inside the model. Locals are
+                // named per node id so two bursts in one graph cannot collide.
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                char buf[420];
+                snprintf(buf, sizeof(buf),
+                    "    local fxf%d = entity.transform:forward()\n"
+                    "    local fxp%d = entity.transform.position\n"
+                    "    fx.burst(\"%s\", fxp%d.x+fxf%d.x*%.7g, fxp%d.y+fxf%d.y*%.7g, fxp%d.z+fxf%d.z*%.7g, %s)\n",
+                    n->id, n->id, esc.c_str(),
+                    n->id, n->id, n->value, n->id, n->id, n->value,
+                    n->id, n->id, n->value,
+                    ExprForInput(PinId(n->id, SlotDataIn)).c_str());
+                lua += buf;
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::SetLightIntensity: {
+                // Set the scene light's brightness. It writes to the light
+                // entity's component, so the change sticks frame to frame.
+                lua += "    light.set_intensity(" +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;

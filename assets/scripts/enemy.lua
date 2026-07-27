@@ -96,4 +96,9 @@ end
 -- whatever weapon killed it.
 function on_destroy(entity)
     hud.add("score", properties.points)
+
+    -- Blow up where the enemy was standing. This runs for any death, so an
+    -- enemy that crashes explodes exactly like one that was shot down.
+    local p = entity.transform.position
+    fx.burst("explosion", p.x, p.y, p.z)
 end

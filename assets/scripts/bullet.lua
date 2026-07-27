@@ -36,6 +36,9 @@ function on_update(entity, dt)
         -- Deal damage; the enemy awards score itself when it dies (enemy.lua's
         -- on_destroy), so the bullet stays a pure projectile.
         scene.damage(target, P.damage)
+        -- Sparks where the shot connected. This fires on every hit, including
+        -- the ones a target survives, so there is always a sign the shot landed.
+        fx.burst("spark", p.x, p.y, p.z)
         scene.destroy(entity)
         return
     end
