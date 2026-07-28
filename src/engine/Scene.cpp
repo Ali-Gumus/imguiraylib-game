@@ -271,6 +271,20 @@ Vector3 Scene::ClosestPointOnCollider(const Entity& e, const ColliderComponent& 
                         : Vector3Add(onAxis, Vector3Scale(toPoint, c.radius / len));
             break;
         }
+        case ColliderShape::Heightfield: {
+            // A landscape is deliberately invisible to these gameplay queries.
+            // They exist to answer "did this shot hit that aircraft?", and
+            // every one of them searches by TAG - so terrain, which carries no
+            // gameplay tag, is never a candidate in the first place. Answering
+            // with the shape's origin leaves it effectively unhittable rather
+            // than reporting a hit everywhere, which is what returning the
+            // query point itself would do.
+            //
+            // Ground collision is the physics engine's job instead: the
+            // heightfield is a real solid surface there, and things land on it.
+            closest = {0.0f, 0.0f, 0.0f};
+            break;
+        }
     }
 
     // Step 3: the shape's frame -> world.

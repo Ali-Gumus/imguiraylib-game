@@ -323,6 +323,21 @@ public:
 //               fuselage, a missile) because it has no sharp corners to snag on
 //               and is still cheap to test.
 //
+// And one that is a different kind of thing entirely:
+//   * Heightfield - the LANDSCAPE. Hills cannot be described by any of the
+//               three volumes above: a box under the terrain is a flat lid at
+//               one height, which is why an aircraft appears to fly straight
+//               through the scenery. A heightfield is instead a grid of height
+//               samples - a value for the ground level at each point - which
+//               is both the natural description of terrain and far cheaper to
+//               test against than the thousands of triangles that draw it.
+//               It carries no size fields of its own: it reads the
+//               TerrainComponent on the SAME ENTITY, so the collision surface
+//               and the visible hills can never disagree. An entity without a
+//               Terrain component gets nothing from it.
+//               A heightfield is hollow and one-sided, so it can only be
+//               STATIC scenery - it cannot itself be thrown around.
+//
 // Add a collider only to entities that should be hittable; an entity without
 // one is invisible to collision queries. The editor draws the shape as a green
 // wireframe in the viewport so it can be sized against the model.
@@ -330,7 +345,11 @@ public:
 
 // Which of the three volumes a ColliderComponent represents. The numbers are
 // written into scene files, so never renumber existing entries - only append.
-enum class ColliderShape { Sphere = 0, Box = 1, Capsule = 2 };
+// Heightfield is unlike the other three: it carries no dimensions of its own.
+// It means "collide against the TerrainComponent on this same entity", and
+// takes its shape from that component's hills. See the note on it in
+// ColliderComponent below.
+enum class ColliderShape { Sphere = 0, Box = 1, Capsule = 2, Heightfield = 3 };
 
 class ColliderComponent : public Component {
 public:
@@ -355,7 +374,7 @@ public:
         int s  = in.value("shape", static_cast<int>(shape));
         // Clamp to the valid range: a corrupt or future file must not produce
         // an enum value none of our switches handle.
-        if (s < 0 || s > 2) s = 0;
+        if (s < 0 || s > 3) s = 0;
         shape  = static_cast<ColliderShape>(s);
         radius = in.value("radius", radius);
         height = in.value("height", height);
@@ -673,6 +692,22 @@ public:
     bool  wire       = true;        // overlay contour lines so the hills read clearly
 
     void Rebuild();                 // discard the mesh so it regenerates next draw
+
+    // The terrain's height at each point of an n x n grid, as a value from 0
+    // (lowest) to 1 (the full maxHeight), laid out row by row so that the
+    // sample for grid position (x, z) is at index z * n + x.
+    //
+    // This exists so the physics engine can build a collision surface from the
+    // same landscape that is drawn, without needing to know anything about
+    // Perlin noise or raylib images. It re-derives the heights from the
+    // settings rather than reading the built mesh, so it works even before the
+    // terrain has ever been drawn - which matters because collision bodies are
+    // created when play starts, and the Game view may not have drawn yet.
+    //
+    // `n` need not match `resolution`: the grid is sampled smoothly, so the
+    // collision surface can be coarser than the visible mesh. It is a separate
+    // number because the physics engine constrains what sizes it will accept.
+    std::vector<float> SampleHeights(int n) const;
 
     // How many triangles the terrain mesh is made of. The heightmap is turned
     // into a grid of quads - one per group of four neighbouring pixels - and

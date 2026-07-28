@@ -572,6 +572,13 @@ public:
                         DrawCapsuleWires(bottom, top, col->radius, 8, 6, tone);
                         break;
                     }
+                    case eng::ColliderShape::Heightfield:
+                        // Nothing is drawn: the terrain mesh already shows
+                        // exactly where this collider is, and outlining a
+                        // whole landscape in wireframe would bury the scene.
+                        // Turn on the Terrain component's contour lines to see
+                        // the surface being collided against.
+                        break;
                 }
                 rlPopMatrix();
             }
@@ -1058,6 +1065,21 @@ private:
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
             bool removed = ImGui::SmallButton("X");
             if (open && !removed) c->OnInspector();   // let the component draw itself
+
+            // A component can only see itself, so anything that depends on
+            // ANOTHER component on the same entity has to be checked here,
+            // where the whole entity is in view. A Heightfield collider reads
+            // its shape from a Terrain component; without one it silently
+            // contributes no collision at all, which looks exactly like
+            // physics being broken. Say so instead.
+            if (open && !removed) {
+                auto* col = dynamic_cast<eng::ColliderComponent*>(c);
+                if (col && col->shape == eng::ColliderShape::Heightfield &&
+                    !e->GetComponent<eng::TerrainComponent>())
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f),
+                                       "No Terrain component on this entity,\n"
+                                       "so this collider has no shape.");
+            }
 
             ImGui::PopID();
 

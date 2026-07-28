@@ -19,6 +19,7 @@
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -329,6 +330,62 @@ inline Quaternion ToRay(JPH::Quat q)  { return {q.GetX(), q.GetY(), q.GetZ(), q.
 // SphereShape into one. Rather than silently producing the wrong volume, the
 // largest axis is used, so a non-uniformly scaled sphere comes out too big
 // rather than the wrong shape - too big is at least visible.
+// Build the collision surface of a landscape from a TerrainComponent.
+//
+// A heightfield is a grid of ground heights rather than a solid volume, which
+// is both the natural way to describe terrain and far cheaper to test than the
+// tens of thousands of triangles that draw it. Jolt stores it compressed and
+// can find the ground under a point almost immediately.
+//
+// The one constraint that shapes this function: Jolt requires the grid to be a
+// POWER OF TWO across (at least 4), because it subdivides the field in half
+// repeatedly to search it. The terrain's own `resolution` is a free number, so
+// the collision grid is snapped to a power of two and the heights re-sampled
+// smoothly onto it. Collision detail and visual detail are therefore allowed
+// to differ - which is normal and usually desirable, since a landscape needs
+// far less precision to stand on than to look at.
+JPH::ShapeRefC MakeHeightfieldShape(const TerrainComponent& t, Vector3 scale) {
+    // Snap to the largest power of two that does not exceed the visual
+    // resolution, so the collision surface is never finer (and so more
+    // expensive) than the mesh it approximates.
+    int n = 4;
+    while (n * 2 <= t.resolution && n < 512) n *= 2;
+
+    const std::vector<float> heights = t.SampleHeights(n);
+    if (heights.empty()) return nullptr;
+
+    const float sx = std::fabs(scale.x);
+    const float sy = std::fabs(scale.y);
+    const float sz = std::fabs(scale.z);
+
+    // The terrain mesh is drawn shifted by half its width so that it is
+    // CENTRED on its entity. The collision surface has to be shifted by
+    // exactly the same amount or the ground would sit half a landscape away
+    // from the hills you can see.
+    const float sizeX = t.worldSize * sx;
+    const float sizeZ = t.worldSize * sz;
+    const JPH::Vec3 offset(-sizeX * 0.5f, 0.0f, -sizeZ * 0.5f);
+
+    // Jolt reads a sample as: position = offset + scale * (column, sample, row).
+    // The samples run 0..1, so the Y scale is the terrain's full height, and
+    // the X/Z scales are the spacing between neighbouring grid points - the
+    // span divided by the number of GAPS, which is one less than the number of
+    // samples.
+    const JPH::Vec3 gridScale(sizeX / (float)(n - 1),
+                              t.maxHeight * sy,
+                              sizeZ / (float)(n - 1));
+
+    JPH::HeightFieldShapeSettings settings(heights.data(), offset, gridScale,
+                                           (JPH::uint32)n);
+    JPH::ShapeSettings::ShapeResult result = settings.Create();
+    // Unlike the primitive shapes, this one can genuinely fail (a bad sample
+    // count, an impossible scale), so the result is checked rather than
+    // assumed. A failure leaves the entity with no body at all, which is the
+    // safe outcome: no collision rather than wrong collision.
+    if (result.HasError()) return nullptr;
+    return result.Get();
+}
+
 JPH::ShapeRefC MakeShape(const ColliderComponent& c, Vector3 scale) {
     // Negative scale would mirror the shape, which collision maths cannot
     // express; magnitude is all that matters here.
@@ -359,6 +416,12 @@ JPH::ShapeRefC MakeShape(const ColliderComponent& c, Vector3 scale) {
             inner = new JPH::CapsuleShape(halfCyl, r);
             break;
         }
+        case ColliderShape::Heightfield:
+            // Handled before this function is reached, because a heightfield
+            // is built from a different component entirely. Refusing here
+            // rather than falling through means a mistake shows up as "no
+            // collision" instead of as a mysterious sphere.
+            return nullptr;
         case ColliderShape::Sphere:
         default: {
             const float r = std::max(c.radius * std::max({sx, sy, sz}), kMin);
@@ -527,10 +590,36 @@ void ReconcileBodies(Scene& scene) {
         Quaternion rot;
         WorldPose(scene, e, pos, rot);
 
-        JPH::BodyCreationSettings bcs(MakeShape(*col, scene.WorldScale(e)),
+        // A heightfield takes its shape from the Terrain component beside it,
+        // not from the collider's own numbers, so it is built separately.
+        JPH::ShapeRefC shape;
+        MotionType     motion = rb->motion;
+        if (col->shape == ColliderShape::Heightfield) {
+            auto* terrain = e.GetComponent<TerrainComponent>();
+            // No terrain on this entity means there is no landscape to stand
+            // on. Skipping leaves the entity unsimulated, which is the honest
+            // result; the Inspector warns about this arrangement directly.
+            if (!terrain) continue;
+            shape = MakeHeightfieldShape(*terrain, scene.WorldScale(e));
+
+            // A heightfield is a surface, not a solid: it has an inside and an
+            // outside but no volume, so it has no mass and cannot be thrown
+            // around. Jolt refuses to build a moving body from one. Forcing it
+            // static here means a scene that asks for a dynamic landscape gets
+            // a working solid landscape instead of no landscape at all.
+            motion = MotionType::Static;
+        } else {
+            shape = MakeShape(*col, scene.WorldScale(e));
+        }
+        // A shape that could not be built (bad terrain settings, an
+        // unbuildable size) leaves the entity out of the simulation rather
+        // than crashing or substituting something wrong.
+        if (shape == nullptr) continue;
+
+        JPH::BodyCreationSettings bcs(shape,
                                       ToJolt(pos), ToJolt(rot),
-                                      JoltMotion(rb->motion),
-                                      LayerFor(rb->motion));
+                                      JoltMotion(motion),
+                                      LayerFor(motion));
         bcs.mFriction       = rb->friction;
         bcs.mRestitution    = rb->restitution;
         bcs.mLinearDamping  = rb->linearDamping;
@@ -549,13 +638,13 @@ void ReconcileBodies(Scene& scene) {
 
         // A static body is created asleep: activating it would only cost work,
         // since it is never going to move.
-        const JPH::EActivation activation = (rb->motion == MotionType::Static)
+        const JPH::EActivation activation = (motion == MotionType::Static)
             ? JPH::EActivation::DontActivate
             : JPH::EActivation::Activate;
 
         const JPH::BodyID id = bi.CreateAndAddBody(bcs, activation);
         if (!id.IsInvalid())
-            g_world->bodies[e.id] = World::Tracked{id, rb->motion};
+            g_world->bodies[e.id] = World::Tracked{id, motion};
     }
 
     // Remove bodies whose entity is gone, or which no longer has the

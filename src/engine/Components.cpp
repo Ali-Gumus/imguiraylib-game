@@ -103,6 +103,56 @@ void TerrainComponent::EnsureBuilt() {
     m_built = true;
 }
 
+std::vector<float> TerrainComponent::SampleHeights(int n) const {
+    std::vector<float> out;
+    if (n < 2) return out;
+    out.resize((size_t)n * n, 0.0f);
+
+    // Regenerate the very same noise image the mesh is built from. Identical
+    // arguments give an identical image, which is what guarantees the
+    // collision surface matches the hills that are drawn.
+    const int res = (resolution > 1) ? resolution : 2;
+    Image img = GenImagePerlinNoise(res, res, seed, seed, noiseScale);
+    // LoadImageColors unpacks the image into a plain array of RGBA values,
+    // whatever internal format it was stored in.
+    Color* px = LoadImageColors(img);
+
+    for (int z = 0; z < n; ++z) {
+        for (int x = 0; x < n; ++x) {
+            // Where this grid point falls in the source image. Both grids
+            // cover the same square, so the mapping is a simple proportion:
+            // grid index 0 is image pixel 0 and grid index n-1 is pixel res-1.
+            const float fx = (float)x * (float)(res - 1) / (float)(n - 1);
+            const float fz = (float)z * (float)(res - 1) / (float)(n - 1);
+
+            // BILINEAR sampling: take the four surrounding pixels and blend
+            // them by how close the sample lies to each. Picking the single
+            // nearest pixel instead would produce a staircase of flat steps
+            // that an aircraft would visibly catch on.
+            const int x0 = (int)fx, z0 = (int)fz;
+            const int x1 = (x0 + 1 < res) ? x0 + 1 : x0;
+            const int z1 = (z0 + 1 < res) ? z0 + 1 : z0;
+            const float tx = fx - (float)x0;
+            const float tz = fz - (float)z0;
+
+            // The noise image is grey, so any channel carries the height; red
+            // is used, scaled from 0..255 down to 0..1.
+            const float h00 = px[z0 * res + x0].r / 255.0f;
+            const float h10 = px[z0 * res + x1].r / 255.0f;
+            const float h01 = px[z1 * res + x0].r / 255.0f;
+            const float h11 = px[z1 * res + x1].r / 255.0f;
+
+            const float top    = h00 + (h10 - h00) * tx;   // blend along x
+            const float bottom = h01 + (h11 - h01) * tx;
+            out[(size_t)z * n + x] = top + (bottom - top) * tz;   // then along z
+        }
+    }
+
+    UnloadImageColors(px);
+    UnloadImage(img);
+    return out;
+}
+
 void TerrainComponent::OnDraw(const Entity& owner) {
     EnsureBuilt();
     if (!m_built) return;
@@ -266,7 +316,7 @@ Matrix ColliderComponent::LocalMatrix() const {
 void ColliderComponent::OnInspector() {
     // The order of these strings must match the ColliderShape enum, because
     // ImGui::Combo works on the INDEX of the selected item.
-    static const char* kShapeNames[] = { "Sphere", "Box", "Capsule" };
+    static const char* kShapeNames[] = { "Sphere", "Box", "Capsule", "Heightfield" };
 
     // ImGui::Combo wants an int it can write into, so convert to and from the
     // enum around the call.
@@ -290,6 +340,13 @@ void ColliderComponent::OnInspector() {
             // The straight part between the two round caps; the pill's total
             // length is this plus twice the radius.
             ImGui::DragFloat("Height", &height, 0.05f, 0.0f, 1000.0f);
+            break;
+        case ColliderShape::Heightfield:
+            // Nothing to size: the shape IS the terrain on this entity, so
+            // say that rather than showing an empty panel. (Whether such a
+            // terrain actually exists is checked by the Inspector, which can
+            // see the whole entity; a component only sees itself.)
+            ImGui::TextDisabled("Shaped by the Terrain component\non this entity.");
             break;
     }
 
