@@ -3,6 +3,7 @@
 #include "engine/Audio.h"        // sound playback, exposed to scripts as audio.*
 #include "engine/Lighting.h"     // the shared lighting shader, applied to materials
 #include "engine/Particles.h"    // visual effect bursts, exposed to scripts as fx.*
+#include "engine/Physics.h"      // the rigid-body simulation, exposed as physics.*
 #include "engine/Scene.h"        // the full Entity/Scene definitions
 
 #include "imgui.h"        // Dear ImGui: the immediate-mode UI used by the editor
@@ -573,6 +574,91 @@ void ScriptComponent::Load() {
     au["loop_set"] = [](const std::string& name, float volume, float pitch) {
         LoopSet(name.c_str(), volume, pitch);
     };
+
+    // The `physics` table drives entities that the simulation owns - those
+    // carrying both a Collider and a RigidBody. It is the whole interface: a
+    // simulated object is never placed, only pushed, and where that puts it is
+    // the simulation's answer rather than the script's.
+    //
+    // Every function here does nothing at all when the entity has no simulated
+    // body, or when its body is Static or Kinematic (neither of which is moved
+    // by forces). That is deliberate - a script should not have to ask first,
+    // and a scene that has not been given rigid bodies yet must keep working
+    // exactly as it did.
+    //
+    // Force or impulse? A FORCE is a continuous push measured in newtons and
+    // only means something spread over time, so it must be applied EVERY FRAME
+    // for as long as it should act - thrust, lift, drag. An IMPULSE is an
+    // instant change of momentum, applied ONCE - a hit, a blast, a knockback.
+    // Applying a force once barely moves anything; applying an impulse every
+    // frame accelerates without limit.
+    sol::table phys = m_lua.create_named_table("physics");
+
+    // physics.apply_force(entity, x, y, z): push in WORLD space.
+    phys["apply_force"] = [](Entity& e, float x, float y, float z) {
+        ApplyForce(e.id, {x, y, z});
+    };
+    // physics.apply_local_force(entity, x, y, z): push in the entity's OWN
+    // frame, so {0,0,-1} is along its nose however it is pointing. This is the
+    // natural way to write thrust and aerodynamic forces, which are described
+    // relative to the aircraft rather than to the world.
+    phys["apply_local_force"] = [](Entity& e, float x, float y, float z) {
+        ApplyLocalForce(e.id, {x, y, z});
+    };
+    // physics.apply_force_at(entity, x, y, z, px, py, pz): push in world space
+    // at a world POINT. A force applied off-centre also turns the body, which
+    // is how a force at a wingtip rolls an aircraft instead of just sliding it.
+    phys["apply_force_at"] = [](Entity& e, float x, float y, float z,
+                                float px, float py, float pz) {
+        ApplyForceAtPoint(e.id, {x, y, z}, {px, py, pz});
+    };
+    // Turning forces, about the world axes and the entity's own axes. The
+    // local one is how roll, pitch and yaw controls are written.
+    phys["apply_torque"] = [](Entity& e, float x, float y, float z) {
+        ApplyTorque(e.id, {x, y, z});
+    };
+    phys["apply_local_torque"] = [](Entity& e, float x, float y, float z) {
+        ApplyLocalTorque(e.id, {x, y, z});
+    };
+    // The instantaneous pair. Apply once, not every frame.
+    phys["apply_impulse"] = [](Entity& e, float x, float y, float z) {
+        ApplyImpulse(e.id, {x, y, z});
+    };
+    phys["apply_angular_impulse"] = [](Entity& e, float x, float y, float z) {
+        ApplyAngularImpulse(e.id, {x, y, z});
+    };
+
+    // physics.velocity(entity) returns three numbers, which Lua takes as
+    // `local vx, vy, vz = physics.velocity(entity)`. Returning a tuple rather
+    // than a table avoids allocating a table every frame for something a
+    // flight model reads constantly.
+    phys["velocity"] = [](Entity& e) {
+        Vector3 v = GetLinearVelocity(e.id);
+        return std::make_tuple(v.x, v.y, v.z);
+    };
+    phys["angular_velocity"] = [](Entity& e) {
+        Vector3 v = GetAngularVelocity(e.id);
+        return std::make_tuple(v.x, v.y, v.z);
+    };
+    // Setting velocity overrules the simulation rather than negotiating with
+    // it: it throws away whatever forces and collisions had decided. Right for
+    // a deliberate discontinuity (launching a projectile at a fixed speed,
+    // stopping something dead), wrong for ordinary movement, which should go
+    // through forces so that collisions still have a say.
+    phys["set_velocity"] = [](Entity& e, float x, float y, float z) {
+        SetLinearVelocity(e.id, {x, y, z});
+    };
+    phys["set_angular_velocity"] = [](Entity& e, float x, float y, float z) {
+        SetAngularVelocity(e.id, {x, y, z});
+    };
+    // physics.speed(entity): the length of the velocity, which is what a HUD
+    // and a flight model both actually want most of the time.
+    phys["speed"] = [](Entity& e) {
+        return Vector3Length(GetLinearVelocity(e.id));
+    };
+    // physics.has_body(entity): true when the simulation owns this entity, so
+    // a script can offer both a physics path and a hand-moved fallback.
+    phys["has_body"] = [](Entity& e) { return HasBody(e.id); };
 
     // The `light` table lets scripts change the sun while the game runs: dimming
     // it towards dusk, flashing it red when the player is hit, and so on.

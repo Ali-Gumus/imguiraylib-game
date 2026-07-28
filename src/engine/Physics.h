@@ -45,13 +45,10 @@
 // particles: nothing it contains should survive the run that produced it.
 // ============================================================================
 
-#include "raylib.h"    // Vector3
+#include "raylib.h"      // Vector3
+#include "engine/Scene.h" // Scene, and EntityID - which every call below names
 
 namespace eng {
-
-// Declared, not included: UpdatePhysics only needs to take a reference, and
-// this keeps Scene.h out of every file that asks about physics.
-class Scene;
 
 // --- Lifetime ---------------------------------------------------------------
 
@@ -112,6 +109,65 @@ void UpdatePhysics(Scene& scene, float dt);
 // produces believable motion if the length unit agrees with them.
 void    SetPhysicsGravity(Vector3 g);
 Vector3 GetPhysicsGravity();
+
+// --- Driving a body ---------------------------------------------------------
+// This is the entire vocabulary for moving something the simulation owns. You
+// never set a simulated object's position: you push it, and the simulation
+// works out where that lands it. Everything here is addressed by EntityID and
+// does nothing at all if that entity has no simulated body, so a script may
+// call it on anything without checking first.
+//
+// FORCE vs IMPULSE is the distinction to get right, and the units make it
+// clear. A FORCE (newtons) is a continuous push that only means something
+// spread over time - a rocket motor, a wing's lift, gravity. Apply it every
+// frame for as long as it should act. An IMPULSE (newton-seconds) is an
+// instant change in momentum - a hit, an explosion, a jump. Apply it once.
+// Applying a force once does almost nothing; applying an impulse every frame
+// produces an object that accelerates absurdly.
+//
+// Only DYNAMIC bodies respond. A static or kinematic body is not moved by
+// forces by definition, so these are silently ignored for one - which is the
+// usual reason a push appears to do nothing.
+
+// Does this entity currently have a simulated body?
+bool HasBody(EntityID id);
+
+// Push in WORLD space, through the body's centre of mass, in newtons.
+void ApplyForce(EntityID id, Vector3 force);
+
+// Push in the entity's OWN space, so {0,0,-1} is along its nose whichever way
+// it is pointing. This is what a thrust or lift model wants: aerodynamic
+// forces are naturally described in the aircraft's frame, not the world's.
+void ApplyLocalForce(EntityID id, Vector3 force);
+
+// Push in world space at a particular world POINT rather than at the centre of
+// mass. Anything applied off-centre also rotates the body, which is how a
+// force at a wingtip rolls an aircraft rather than merely sliding it.
+void ApplyForceAtPoint(EntityID id, Vector3 force, Vector3 worldPoint);
+
+// Turning force ("moment"), in newton-metres, about the world axes and about
+// the entity's own axes respectively. Local torque is the natural way to
+// express roll, pitch and yaw control.
+void ApplyTorque(EntityID id, Vector3 torque);
+void ApplyLocalTorque(EntityID id, Vector3 torque);
+
+// Instantaneous changes in momentum. Use for hits, blasts and knockback.
+void ApplyImpulse(EntityID id, Vector3 impulse);
+void ApplyAngularImpulse(EntityID id, Vector3 impulse);
+
+// Read and write velocity directly, in world units per second (and radians per
+// second for the angular one).
+//
+// SETTING velocity overrules the simulation rather than negotiating with it,
+// which makes it the wrong tool for ordinary movement - it discards whatever
+// forces and collisions had decided. It is the right tool for a deliberate
+// discontinuity: launching a projectile at a fixed speed, or bringing a body
+// to a dead stop. Reading is always safe, and returns zeros for an entity with
+// no body.
+Vector3 GetLinearVelocity(EntityID id);
+void    SetLinearVelocity(EntityID id, Vector3 v);
+Vector3 GetAngularVelocity(EntityID id);
+void    SetAngularVelocity(EntityID id, Vector3 v);
 
 // --- Diagnostics ------------------------------------------------------------
 

@@ -260,6 +260,20 @@ struct World {
     struct Tracked {
         JPH::BodyID id;
         MotionType  motion = MotionType::Dynamic;
+
+        // The force and torque scripts have asked for this frame, held here
+        // rather than handed to Jolt immediately.
+        //
+        // The reason is the fixed timestep. Jolt clears a body's accumulated
+        // force after every step it takes, but a frame can run zero, one or
+        // several steps. Keeping the request on our side lets it be re-applied
+        // before EVERY step of the frame, so a continuous force acts for
+        // exactly as much simulated time as actually elapsed - which is what
+        // makes the result independent of frame rate. Handing it straight to
+        // Jolt would apply it to the first step of the frame only, quietly
+        // weakening every force as the frame rate rose.
+        JPH::Vec3 pendingForce  = JPH::Vec3::sZero();
+        JPH::Vec3 pendingTorque = JPH::Vec3::sZero();
     };
 
     // Which entity owns which simulated body.
@@ -665,9 +679,34 @@ void UpdatePhysics(Scene& scene, float dt) {
         g_world->accumulator -= kFixedStep;
         ++steps;
 
+        // Re-apply this frame's forces before each step, since Jolt clears
+        // them after every one. See the note on Tracked::pendingForce.
+        JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
+        for (const auto& [entityId, tracked] : g_world->bodies) {
+            if (tracked.motion != MotionType::Dynamic) continue;
+            if (!tracked.pendingForce.IsNearZero())
+                bi.AddForce(tracked.id, tracked.pendingForce,
+                            JPH::EActivation::Activate);
+            if (!tracked.pendingTorque.IsNearZero())
+                bi.AddTorque(tracked.id, tracked.pendingTorque,
+                             JPH::EActivation::Activate);
+        }
+
         g_world->system.Update(kFixedStep, kCollisionSteps,
                                &g_world->tempAllocator,
                                &g_world->jobSystem);
+    }
+
+    // Forces last one frame. A script that wants a continuous push must ask
+    // for it again next frame, exactly as it would in Unity - which is what
+    // makes "stop applying thrust" work by simply not calling apply_force.
+    //
+    // Discarding a frame's force when no step ran is correct, not a loss: no
+    // simulated time passed either, and a force only means anything multiplied
+    // by a duration.
+    for (auto& [entityId, tracked] : g_world->bodies) {
+        tracked.pendingForce  = JPH::Vec3::sZero();
+        tracked.pendingTorque = JPH::Vec3::sZero();
     }
 
     // If the loop hit its ceiling there is still a backlog in the account, and
@@ -692,6 +731,128 @@ Vector3 GetPhysicsGravity() {
     if (!g_world) return {0.0f, -9.81f, 0.0f};
     const JPH::Vec3 g = g_world->system.GetGravity();
     return {g.GetX(), g.GetY(), g.GetZ()};
+}
+
+// ============================================================================
+// Driving a body
+// ============================================================================
+
+namespace {
+
+// The one lookup every function below shares: find the entity's tracked body,
+// but only if it is DYNAMIC. A static or kinematic body is not moved by
+// forces, and Jolt asserts if you try, so this filters them out at the door.
+World::Tracked* FindDynamic(EntityID id) {
+    if (!g_world) return nullptr;
+    auto it = g_world->bodies.find(id);
+    if (it == g_world->bodies.end()) return nullptr;
+    if (it->second.motion != MotionType::Dynamic) return nullptr;
+    return &it->second;
+}
+
+// Any tracked body, dynamic or not - for the queries, which are meaningful
+// whatever the motion type.
+World::Tracked* FindAny(EntityID id) {
+    if (!g_world) return nullptr;
+    auto it = g_world->bodies.find(id);
+    return it == g_world->bodies.end() ? nullptr : &it->second;
+}
+
+// Turn a vector given in the entity's own frame into world space, by rotating
+// it by the body's current orientation.
+JPH::Vec3 LocalToWorldDir(const World::Tracked& t, Vector3 v) {
+    const JPH::Quat q = g_world->system.GetBodyInterface().GetRotation(t.id);
+    return q * ToJolt(v);
+}
+
+} // anonymous namespace
+
+bool HasBody(EntityID id) { return FindAny(id) != nullptr; }
+
+void ApplyForce(EntityID id, Vector3 force) {
+    if (World::Tracked* t = FindDynamic(id))
+        t->pendingForce += ToJolt(force);
+}
+
+void ApplyLocalForce(EntityID id, Vector3 force) {
+    if (World::Tracked* t = FindDynamic(id))
+        t->pendingForce += LocalToWorldDir(*t, force);
+}
+
+void ApplyForceAtPoint(EntityID id, Vector3 force, Vector3 worldPoint) {
+    World::Tracked* t = FindDynamic(id);
+    if (!t) return;
+
+    // A force applied away from the centre of mass both pushes and turns. The
+    // push is the force itself; the turn is the "moment", the cross product of
+    // the arm (centre to the point) with the force. Splitting it here rather
+    // than calling Jolt's AddForce-at-point keeps it going through the same
+    // pending-force path as everything else, so it survives the fixed timestep
+    // the same way.
+    JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
+    const JPH::Vec3 com = bi.GetCenterOfMassPosition(t->id);
+    const JPH::Vec3 f   = ToJolt(force);
+    const JPH::Vec3 arm = ToJolt(worldPoint) - com;
+
+    t->pendingForce  += f;
+    t->pendingTorque += arm.Cross(f);
+}
+
+void ApplyTorque(EntityID id, Vector3 torque) {
+    if (World::Tracked* t = FindDynamic(id))
+        t->pendingTorque += ToJolt(torque);
+}
+
+void ApplyLocalTorque(EntityID id, Vector3 torque) {
+    if (World::Tracked* t = FindDynamic(id))
+        t->pendingTorque += LocalToWorldDir(*t, torque);
+}
+
+void ApplyImpulse(EntityID id, Vector3 impulse) {
+    // An impulse is instantaneous, so unlike a force it goes straight to Jolt:
+    // there is nothing to spread across the frame's steps. Activate, because a
+    // body that has gone to sleep must wake up to feel it.
+    if (World::Tracked* t = FindDynamic(id)) {
+        JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
+        bi.ActivateBody(t->id);
+        bi.AddImpulse(t->id, ToJolt(impulse));
+    }
+}
+
+void ApplyAngularImpulse(EntityID id, Vector3 impulse) {
+    if (World::Tracked* t = FindDynamic(id)) {
+        JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
+        bi.ActivateBody(t->id);
+        bi.AddAngularImpulse(t->id, ToJolt(impulse));
+    }
+}
+
+Vector3 GetLinearVelocity(EntityID id) {
+    World::Tracked* t = FindAny(id);
+    if (!t) return {0.0f, 0.0f, 0.0f};
+    return ToRay(g_world->system.GetBodyInterface().GetLinearVelocity(t->id));
+}
+
+void SetLinearVelocity(EntityID id, Vector3 v) {
+    if (World::Tracked* t = FindDynamic(id)) {
+        JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
+        bi.ActivateBody(t->id);
+        bi.SetLinearVelocity(t->id, ToJolt(v));
+    }
+}
+
+Vector3 GetAngularVelocity(EntityID id) {
+    World::Tracked* t = FindAny(id);
+    if (!t) return {0.0f, 0.0f, 0.0f};
+    return ToRay(g_world->system.GetBodyInterface().GetAngularVelocity(t->id));
+}
+
+void SetAngularVelocity(EntityID id, Vector3 v) {
+    if (World::Tracked* t = FindDynamic(id)) {
+        JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
+        bi.ActivateBody(t->id);
+        bi.SetAngularVelocity(t->id, ToJolt(v));
+    }
 }
 
 int PhysicsBodyCount() {
