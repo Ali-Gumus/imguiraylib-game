@@ -1,6 +1,6 @@
 # imguiraylib-game
 
-A **Unity-like 3D game engine and editor**, written from scratch in C++20 — and a
+A **3D game engine and editor**, written from scratch in C++20 — and a
 **jet combat game** built with it.
 
 ![The editor](docs/editor.png)
@@ -153,16 +153,15 @@ assets/
 | Weapons, health and hit detection | ✅ |
 | Enemy AI and waves | ✅ |
 | Presentation — models, terrain, HUD, skybox, lighting, particles | ✅ |
-| Audio — engine and bindings done, sound files not included | 🔶 |
+| Audio — gunfire, explosions and a throttle-driven engine loop | ✅ |
 | Game loop — score, waves, game over, restart | ✅ |
 | Rigid-body physics (Jolt) — colliders done, bodies next | 🔶 |
 
 The full feature plan lives in `jetgame_plan.xlsx`.
 
-**Not in the repository:** sound files (`assets/sounds/` explains what is
-expected) and a few large model files, which are kept local. Both degrade
-gracefully — a missing sound is silent and reported in the toolbar; a missing
-model falls back to a primitive shape.
+**Not in the repository:** a few large model files, which are kept local. That
+degrades gracefully — a missing model falls back to a primitive shape, and a
+missing sound is silent and listed in the toolbar rather than crashing.
 
 ## Built with
 
