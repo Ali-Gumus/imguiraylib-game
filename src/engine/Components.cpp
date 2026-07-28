@@ -447,6 +447,7 @@ void ScriptComponent::Load() {
     m_onStart   = {};
     m_onUpdate  = {};
     m_onDestroy = {};
+    m_onCollision = {};
     m_lua       = sol::state{};   // a fresh, empty Lua interpreter
     m_loaded   = false;
     // Only clear a previous error when there is actually something to run. A
@@ -908,6 +909,7 @@ void ScriptComponent::Load() {
     m_onStart   = m_lua["on_start"];
     m_onUpdate  = m_lua["on_update"];
     m_onDestroy = m_lua["on_destroy"];
+    m_onCollision = m_lua["on_collision"];
 
     // Read the optional global `properties` table: each numeric entry becomes
     // an editable field in the Inspector. We keep any value the user already
@@ -975,6 +977,18 @@ void ScriptComponent::OnUpdate(float dt, Entity& owner) {
 
 void ScriptComponent::OnDestroy(Entity& owner) {
     CallHook(m_onDestroy, m_loaded, m_error, owner);
+}
+
+void ScriptComponent::OnCollision(Entity& owner, Entity& other, float speed,
+                                  Vector3 point) {
+    // The contact point is passed as three plain numbers rather than a Vector3
+    // usertype, matching how the rest of this API talks to Lua (fx.burst and
+    // scene.spawn both take loose x, y, z). A script signature therefore reads
+    //     function on_collision(entity, other, speed, x, y, z)
+    // and may ignore any trailing argument it does not need - Lua simply drops
+    // extra arguments, so an on_collision(entity, other, speed) works too.
+    CallHook(m_onCollision, m_loaded, m_error, owner, other, speed,
+             point.x, point.y, point.z);
 }
 
 void ScriptComponent::OnInspector() {

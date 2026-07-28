@@ -10,6 +10,10 @@
 // and automatically deletes it when the pointer goes away (no manual delete).
 #include <memory>
 
+// raylib's Vector3, used by the collision hook below to report where an
+// impact happened.
+#include "raylib.h"
+
 // Everything in this engine lives in the `eng` namespace so its names don't
 // clash with the game libraries (raylib, ImGui, ...).
 namespace eng {
@@ -76,6 +80,22 @@ public:
     // Called every frame while playing, before anything is drawn. Game
     // logic and movement go here. `dt` is the seconds since the last frame.
     virtual void OnUpdate(float dt, Entity& owner) {}
+
+    // Called when the physics simulation reports that this entity has STRUCK
+    // something - the moment two bodies begin touching, not every frame they
+    // remain in contact, so a landed object does not fire this continually.
+    //
+    // `other` is what was hit. `speed` is how fast the two were closing on
+    // each other along the direction of the impact, in world units per second,
+    // and is the number that separates a gentle landing from a crash. `point`
+    // is where on the surfaces they met, which is where an explosion or a
+    // shower of sparks belongs.
+    //
+    // The engine only REPORTS the impact; what counts as damage is a gameplay
+    // rule and belongs in scripts. Called after the simulation has finished
+    // stepping, so it is safe to spawn and destroy entities from here.
+    virtual void OnCollision(Entity& owner, Entity& other, float speed,
+                             Vector3 point) {}
 
     // Called every frame during 3D rendering. A visual component draws
     // itself here; `owner` is const because drawing must not change the

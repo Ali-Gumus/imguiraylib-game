@@ -49,6 +49,8 @@ public:
     void OnStart(Entity& owner) override;
     void OnDestroy(Entity& owner) override;
     void OnUpdate(float dt, Entity& owner) override;
+    void OnCollision(Entity& owner, Entity& other, float speed,
+                     Vector3 point) override;
 
     // Save the script path, plus ONLY the properties this entity has actually
     // overridden in the Inspector.
@@ -114,6 +116,7 @@ protected:
     sol::protected_function m_onStart;
     sol::protected_function m_onUpdate;
     sol::protected_function m_onDestroy;
+    sol::protected_function m_onCollision;
     bool        m_loaded = false;           // did the file load without error?
     std::string m_error;                    // last error message, "" if none
 

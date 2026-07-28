@@ -150,6 +150,66 @@ public:
 };
 
 // ============================================================================
+// Contact reporting
+// ============================================================================
+// One impact, as recorded during a simulation step and replayed afterwards.
+//
+// The two-stage arrangement is not optional. Jolt calls its contact listener
+// from INSIDE the simulation step, while the body list is locked and being
+// solved. Creating or destroying an entity there - which is exactly what a
+// gameplay script does on an impact - would corrupt the very structures being
+// walked. So the listener does nothing but write the facts down, and the
+// dispatch happens once the step has finished and the world is quiet again.
+struct ContactEvent {
+    EntityID  a = kInvalidEntity;
+    EntityID  b = kInvalidEntity;
+    float     speed = 0.0f;    // how fast they were closing, along the impact
+    JPH::Vec3 point = JPH::Vec3::sZero();
+};
+
+// Collects contacts during the step. Deliberately does no more than that.
+class ContactCollector final : public JPH::ContactListener {
+public:
+    void OnContactAdded(const JPH::Body& body1, const JPH::Body& body2,
+                        const JPH::ContactManifold& manifold,
+                        JPH::ContactSettings& settings) override {
+        // Which entities these bodies belong to. The id was stored on the body
+        // as "user data" when it was created, which saves searching a table
+        // from inside the step.
+        const EntityID a = (EntityID)body1.GetUserData();
+        const EntityID b = (EntityID)body2.GetUserData();
+        if (a == kInvalidEntity || b == kInvalidEntity) return;
+
+        // How hard the impact was. Not the speed of either object - a jet and
+        // a missile flying side by side at 300 are not colliding at 300 - but
+        // how fast they were CLOSING along the direction of the impact. That
+        // is the relative velocity at the contact point, projected onto the
+        // contact normal, and it is what separates a scrape from a crash.
+        const JPH::Vec3 p = manifold.GetWorldSpaceContactPointOn1(0);
+        const JPH::Vec3 relative = body1.GetPointVelocity(p) -
+                                   body2.GetPointVelocity(p);
+        // The manifold's normal points FROM body 1 TOWARDS body 2 - it is the
+        // direction body 2 must move to separate. So (v1 - v2) projected onto
+        // it is already the rate at which the gap is closing, and needs no
+        // negating. Getting this sign backwards is silent: every impact simply
+        // reads as zero, because the clamp below then discards them all.
+        const float closing = relative.Dot(manifold.mWorldSpaceNormal);
+
+        // A negative value means they are separating rather than approaching,
+        // which is not an impact; report zero instead of a phantom speed.
+
+        events.push_back(ContactEvent{a, b, closing > 0.0f ? closing : 0.0f, p});
+    }
+
+    // Only new contacts are reported. OnContactPersisted would fire every
+    // single step for as long as two things stayed touching, so an object
+    // resting on the ground would report a collision sixty times a second
+    // forever - which is noise, not an event.
+
+    std::vector<ContactEvent> events;
+};
+
+// ============================================================================
 // Jolt's diagnostic callbacks
 // ============================================================================
 // Jolt reports problems through two function pointers rather than by throwing,
@@ -242,6 +302,7 @@ struct World {
     BroadPhaseLayerMap      bpLayerMap;
     ObjectVsBroadPhaseFilter objVsBpFilter;
     ObjectLayerPairFilter    objPairFilter;
+    ContactCollector         contacts;
 
     JPH::PhysicsSystem      system;
     JPH::TempAllocatorImpl  tempAllocator{kTempAllocatorBytes};
@@ -517,6 +578,12 @@ bool InitPhysics() {
                          g_world->objVsBpFilter,
                          g_world->objPairFilter);
 
+    // Register the contact listener, so impacts are recorded as they happen.
+    // Like the layer filters, Jolt stores a pointer rather than a copy, which
+    // is why the collector is a member of this same struct and outlives the
+    // system it is handed to.
+    g_world->system.SetContactListener(&g_world->contacts);
+
     // Earth gravity, pointing down. See the note in Physics.h about units.
     g_world->system.SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
 
@@ -555,6 +622,8 @@ void ResetPhysics() {
         bi.DestroyBody(tracked.id);
     }
     g_world->bodies.clear();
+    // Impacts recorded but not yet delivered belong to the run that is ending.
+    g_world->contacts.events.clear();
 
     g_world->accumulator = 0.0f;
     g_world->lastStepMs  = 0.0f;
@@ -631,6 +700,13 @@ void ReconcileBodies(Scene& scene) {
             JPH::EOverrideMassProperties::CalculateInertia;
         bcs.mMassPropertiesOverride.mMass = std::max(rb->mass, 0.001f);
 
+        // Stamp the entity's id onto the body. The contact listener runs deep
+        // inside a simulation step and needs to name the two things that hit
+        // each other; reading a number off the body is immediate, where
+        // searching the entity table from in there would be both slow and
+        // awkward to do safely.
+        bcs.mUserData = (JPH::uint64)e.id;
+
         // A static body is created asleep: activating it would only cost work,
         // since it is never going to move.
         const JPH::EActivation activation = (motion == MotionType::Static)
@@ -685,6 +761,51 @@ void PushKinematicTargets(Scene& scene, float dt) {
         Quaternion rot;
         WorldPose(scene, *e, pos, rot);
         bi.MoveKinematic(tracked.id, ToJolt(pos), ToJolt(rot), dt);
+    }
+}
+
+// --- Step 2b: tell the game about the impacts that just happened ------------
+// Runs after the simulation has finished stepping, when it is safe for a
+// script to spawn an explosion or destroy the thing it just hit.
+void DispatchContacts(Scene& scene) {
+    // Take the list, leaving the collector empty for the next frame. Swapping
+    // rather than iterating in place matters: a script reached from in here
+    // may cause more contacts to be recorded later this frame, and those
+    // belong to the next dispatch, not this one.
+    std::vector<ContactEvent> events;
+    events.swap(g_world->contacts.events);
+
+    for (const ContactEvent& ev : events) {
+        Entity* a = scene.Find(ev.a);
+        Entity* b = scene.Find(ev.b);
+        // Either may already have been destroyed by an earlier event in this
+        // same batch - two bullets can strike the same target in one frame.
+        if (!a || !b) continue;
+
+        const Vector3 point = ToRay(ev.point);
+
+        // Both sides are told, each about the other, because either may want
+        // to react: the bullet destroys itself, the target takes damage.
+        //
+        // The component pointers are SNAPSHOT before any hook runs. A script
+        // that adds a component while being notified would otherwise reallocate
+        // the vector being walked and leave this loop holding freed memory -
+        // the same hazard Scene::Start and Scene::Update guard against.
+        std::vector<Component*> comps;
+        comps.reserve(a->components.size());
+        for (const auto& c : a->components) comps.push_back(c.get());
+        for (Component* c : comps) c->OnCollision(*a, *b, ev.speed, point);
+
+        // `a` may have been invalidated by the hooks above if a script caused
+        // the entity list to move, so both are looked up again.
+        a = scene.Find(ev.a);
+        b = scene.Find(ev.b);
+        if (!a || !b) continue;
+
+        comps.clear();
+        comps.reserve(b->components.size());
+        for (const auto& c : b->components) comps.push_back(c.get());
+        for (Component* c : comps) c->OnCollision(*b, *a, ev.speed, point);
     }
 }
 
@@ -800,6 +921,11 @@ void UpdatePhysics(Scene& scene, float dt) {
     if (steps == kMaxStepsPerFrame) g_world->accumulator = 0.0f;
 
     WriteBackTransforms(scene);
+
+    // Impacts are reported last, after the transforms are up to date, so that
+    // a script reacting to a crash sees the entity where it actually stopped
+    // rather than where it was before the collision resolved it.
+    DispatchContacts(scene);
 
     const auto end = std::chrono::steady_clock::now();
     g_world->lastStepMs =
