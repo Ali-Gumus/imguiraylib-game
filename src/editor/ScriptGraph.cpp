@@ -64,6 +64,9 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::FxBurst:      return "FX Burst";
         case NodeKind::SetLightIntensity: return "Set Light";
         case NodeKind::PlaySound:    return "Play Sound";
+        case NodeKind::LoopStart:    return "Loop Start";
+        case NodeKind::LoopSet:      return "Loop Set";
+        case NodeKind::LoopStop:     return "Loop Stop";
         case NodeKind::AvoidCrowd:   return "Avoid Crowd";
         case NodeKind::AimedAtPlayer:return "Aimed At Player";
         case NodeKind::ChaseTarget:  return "Chase Target";
@@ -243,10 +246,15 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotDataIn,  PinType::Float, true,  "value"}};
         // Impact test: the tag to hit and the hit points are node fields; the
         // reach is the "radius" data input.
+        // "on hit" is a second exec output that runs ONLY when something was
+        // actually struck, and runs inside that test. Anything chained to the
+        // ordinary "out" runs every frame, hit or not - which is why a sound or
+        // an effect placed there would fire constantly.
         case NodeKind::HitNearest:
-            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
-                    {SlotExecOut, PinType::Exec,  false, "out"},
-                    {SlotDataIn,  PinType::Float, true,  "radius"}};
+            return {{SlotExecIn,   PinType::Exec,  true,  "in"},
+                    {SlotExecOut,  PinType::Exec,  false, "out"},
+                    {SlotExecOut2, PinType::Exec,  false, "on hit"},
+                    {SlotDataIn,   PinType::Float, true,  "radius"}};
         // Publish one number to the HUD; the display name is a node field.
         case NodeKind::HudSet:
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
@@ -271,6 +279,18 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
                     {SlotExecOut, PinType::Exec,  false, "out"},
                     {SlotDataIn,  PinType::Float, true,  "volume"}};
+        // Starting and stopping a loop need only the sound, which is a field.
+        case NodeKind::LoopStart:
+        case NodeKind::LoopStop:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"}};
+        // Adjusting a running loop is the per-frame one, so both numbers are
+        // wired: an engine note follows the throttle.
+        case NodeKind::LoopSet:
+            return {{SlotExecIn,  PinType::Exec,  true,  "in"},
+                    {SlotExecOut, PinType::Exec,  false, "out"},
+                    {SlotDataIn,     PinType::Float, true, "volume"},
+                    {SlotDataIn + 1, PinType::Float, true, "pitch"}};
         // Separation: the neighbour tag and push strength are node fields; the
         // reach is the "range" data input.
         case NodeKind::AvoidCrowd:
@@ -461,7 +481,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::DragFloat("##fxahead", &n.value, 0.1f);   // how far ahead to place it
     }
     else if (n.kind == NodeKind::SetLightIntensity) { /* brightness is a wired input */ }
-    else if (n.kind == NodeKind::PlaySound) {
+    else if (n.kind == NodeKind::PlaySound || n.kind == NodeKind::LoopStart ||
+             n.kind == NodeKind::LoopSet   || n.kind == NodeKind::LoopStop) {
         // Same deferred-popup dance as FX Burst, for the same reason: a list
         // opened from inside a node lands where it cannot be clicked.
         ImGui::SetNextItemWidth(140.0f);
@@ -716,6 +737,9 @@ void ScriptGraph::HandleContextMenu() {
         if (ImGui::BeginMenu("Effects")) {
             item("FX Burst", NodeKind::FxBurst);
             item("Play Sound", NodeKind::PlaySound);
+            item("Loop Start", NodeKind::LoopStart);
+            item("Loop Set", NodeKind::LoopSet);
+            item("Loop Stop", NodeKind::LoopStop);
             item("Set Light", NodeKind::SetLightIntensity);
             ImGui::EndMenu();
         }
@@ -765,7 +789,8 @@ void ScriptGraph::HandleContextMenu() {
                 n.value = 0.0f;    // forward offset: at the entity itself
             }
             if (picked == NodeKind::SetLightIntensity) n.value = 1.0f;
-            if (picked == NodeKind::PlaySound) {
+            if (picked == NodeKind::PlaySound || picked == NodeKind::LoopStart ||
+                picked == NodeKind::LoopSet   || picked == NodeKind::LoopStop) {
                 // Default to the first sound defined, so a fresh node is usable
                 // straight away instead of pointing at nothing.
                 const auto& snames = eng::SoundNames();
@@ -1100,19 +1125,27 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 if (n->text2[0] != '\0') {
                     std::string fxName(n->text2), esc2;
                     for (char c : fxName) { if (c == '"' || c == '\\') esc2 += '\\'; esc2 += c; }
-                    effect = " fx.burst(\"" + esc2 +
+                    effect = "\n    fx.burst(\"" + esc2 +
                              "\", entity.transform.position.x, entity.transform.position.y,"
-                             " entity.transform.position.z);";
+                             " entity.transform.position.z)";
                 }
 
                 char buf[600];
                 snprintf(buf, sizeof(buf),
                     "    local hit%d = scene.hit(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
-                    "    if hit%d ~= nil then scene.damage(hit%d, %.7g);%s scene.destroy(entity) end\n",
+                    "    if hit%d ~= nil then\n"
+                    "    scene.damage(hit%d, %.7g)%s\n",
                     n->id, esc.c_str(),
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str(),
                     n->id, n->id, n->value, effect.c_str());
                 lua += buf;
+
+                // Whatever is wired to "on hit" belongs INSIDE the test, before
+                // this entity removes itself - a bullet that has already been
+                // destroyed should not still be doing things.
+                EmitExecChain(lua, PinId(n->id, SlotExecOut2), depth + 1);
+
+                lua += "    scene.destroy(entity)\n    end\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
@@ -1223,6 +1256,31 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
+            case NodeKind::LoopStart:
+            case NodeKind::LoopStop: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                const char* fn = (n->kind == NodeKind::LoopStart) ? "loop_start"
+                                                                  : "loop_stop";
+                lua += std::string("    audio.") + fn + "(\"" + esc + "\")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::LoopSet: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                // Unwired inputs mean "leave it as defined", which is 1 for both
+                // volume and pitch - not the 0 an unconnected input reads as.
+                std::string vol = SourceOf(PinId(n->id, SlotDataIn))
+                                      ? ExprForInput(PinId(n->id, SlotDataIn))
+                                      : std::string("1");
+                std::string pit = SourceOf(PinId(n->id, SlotDataIn + 1))
+                                      ? ExprForInput(PinId(n->id, SlotDataIn + 1))
+                                      : std::string("1");
+                lua += "    audio.loop_set(\"" + esc + "\", " + vol + ", " + pit + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
             case NodeKind::SetLightIntensity: {
                 // Set the scene light's brightness. It writes to the light
                 // entity's component, so the change sticks frame to frame.
@@ -1312,7 +1370,13 @@ void ScriptGraph::EmitEvent(std::string& lua, NodeKind ev,
     lua += "end\n\n";
 }
 
-bool ScriptGraph::GenerateLua(const std::string& path) const {
+// Build the Lua for this graph and return it as a string.
+//
+// This is the whole code generator. It is separate from writing a file because
+// a graph attached to an entity is compiled straight into memory and run - no
+// .lua is produced at all in that case - while the Generate Lua button still
+// wants one on disk.
+std::string ScriptGraph::GenerateLuaSource() const {
     std::string lua =
         "-- GENERATED from a node graph. Edit the GRAPH, not this file --\n\n";
 
@@ -1348,6 +1412,14 @@ bool ScriptGraph::GenerateLua(const std::string& path) const {
     EmitEvent(lua, NodeKind::EventCreate,  "function on_start(entity)\n",      false);
     EmitEvent(lua, NodeKind::EventUpdate,  "function on_update(entity, dt)\n", true);
     EmitEvent(lua, NodeKind::EventDestroy, "function on_destroy(entity)\n",    false);
+
+    return lua;
+}
+
+// Generate the Lua and write it to a file, for when a .lua on disk is what is
+// wanted (the Generate Lua button, or baking a graph for a build).
+bool ScriptGraph::GenerateLua(const std::string& path) const {
+    std::string lua = GenerateLuaSource();
 
     std::filesystem::create_directories(std::filesystem::path(path).parent_path());
     std::ofstream f(path);

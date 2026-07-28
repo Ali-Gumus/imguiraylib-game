@@ -33,6 +33,29 @@ public:
     // The constructor runs once at startup. ": eng::Application(...)" first
     // constructs the base class (creating the window), then this body runs.
     EditorApp(int w, int h, const char* title) : eng::Application(w, h, title) {
+        // Teach the engine how to turn a graph file into Lua, FIRST - before any
+        // entity or scene exists. The engine cannot do this itself: the code
+        // generator lives here in the editor, so the engine declares the seam
+        // and we fill it in. A Graph component then compiles through whatever is
+        // registered, without the engine ever including an editor header.
+        //
+        // Registering it before everything else matters: any graph compiled
+        // earlier in startup - a component created here, a scene loaded on the
+        // command line later - would otherwise find no compiler and fail.
+        eng::SetGraphCompiler([](const std::string& graphPath,
+                                 std::string& outLua, std::string& outError) -> bool {
+            // A throwaway graph object: it loads the file, generates, and is
+            // gone. Deliberately NOT the graph open in the panel, so compiling
+            // never disturbs what the developer is editing.
+            edtr::ScriptGraph g;
+            if (!g.Load(graphPath)) {
+                outError = "Could not read the graph file: " + graphPath;
+                return false;
+            }
+            outLua = g.GenerateLuaSource();
+            return true;
+        });
+
         // Set up the editor's own camera: an eye that orbits the scene so you
         // can look around while arranging objects.
         m_camera.position   = {8.0f, 8.0f, 8.0f};
@@ -542,6 +565,10 @@ public:
 
     // Called each frame to draw all the editor panels.
     void OnRenderUI() override {
+        // Handle any "new graph" / "edit graph" the Inspector recorded, before
+        // the Node Editor draws, so the change is visible this frame.
+        HandleGraphComponentRequests();
+
         DrawToolbarPanel();
         DrawViewportPanel();
         DrawGamePanel();
@@ -736,6 +763,48 @@ private:
         if (m_graph.Save(path)) m_graphPath = path;
     }
 
+    // Act on the buttons a Graph component's Inspector offers. The component
+    // cannot open the node editor or create a graph file itself - both live
+    // here - so it records that the user asked and this notices.
+    //
+    // Runs before the panels are drawn, so a request made last frame is handled
+    // before the Node Editor draws with the new graph.
+    void HandleGraphComponentRequests() {
+        for (eng::Entity& e : m_scene.Entities()) {
+            for (auto& comp : e.components) {
+                auto* gc = dynamic_cast<eng::GraphComponent*>(comp.get());
+                if (!gc) continue;
+
+                if (gc->newRequested) {
+                    gc->newRequested = false;
+                    // Ask where it goes straight away. A graph with no file
+                    // cannot be compiled on Play, so leaving it nameless would
+                    // only postpone the problem. The entity's name is a sensible
+                    // default filename.
+                    std::string suggested = e.name + "_graph.json";
+                    std::string p = eng::SaveFileDialog(kGraphFilter, "json",
+                                                        suggested.c_str());
+                    if (!p.empty()) {
+                        m_graph.Reset();            // an empty graph: just the events
+                        if (m_graph.Save(p)) {
+                            m_graphPath    = p;
+                            m_graphOwner   = e.id;
+                            gc->graphPath  = p;
+                        }
+                    }
+                }
+
+                if (gc->editRequested) {
+                    gc->editRequested = false;
+                    if (!gc->graphPath.empty() && m_graph.Load(gc->graphPath)) {
+                        m_graphPath  = gc->graphPath;
+                        m_graphOwner = e.id;
+                    }
+                }
+            }
+        }
+    }
+
     // The visual scripting panel: a small file toolbar plus the node canvas.
     void DrawNodeEditorPanel() {
         ImGui::Begin("Node Editor");
@@ -746,11 +815,15 @@ private:
         if (ImGui::Button("New")) {
             m_graph.Reset();
             m_graphPath.clear();
+            m_graphOwner = eng::kInvalidEntity;   // no longer any entity's graph
         }
         ImGui::SameLine();
         if (ImGui::Button("Open")) {
             std::string p = eng::OpenFileDialog(kGraphFilter, "json");
-            if (!p.empty() && m_graph.Load(p)) m_graphPath = p;
+            if (!p.empty() && m_graph.Load(p)) {
+                m_graphPath  = p;
+                m_graphOwner = eng::kInvalidEntity;
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("Save")) SaveGraph(/*forceDialog=*/false);
@@ -762,9 +835,19 @@ private:
             if (!p.empty()) m_graph.GenerateLua(p);
         }
         ImGui::SameLine();
-        // Show the open file's name, or a placeholder if unsaved.
+        // Show the open file's name, or a placeholder if unsaved - and say which
+        // entity's graph this is, so it is never a mystery whose behaviour is
+        // being edited.
         ImGui::TextDisabled("%s", m_graphPath.empty() ? "(unsaved graph)"
                                                       : m_graphPath.c_str());
+        if (const eng::Entity* owner = m_scene.FindConst(m_graphOwner)) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "[%s]", owner->name.c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("This is the graph on the entity \"%s\".\n"
+                                  "Save it, then press Play to run the changes.",
+                                  owner->name.c_str());
+        }
 
         m_graph.Draw(m_nodeCtx);    // draw the node canvas itself
         ImGui::End();
@@ -971,6 +1054,8 @@ private:
                 e->AddComponent<eng::ShapeComponent>();
             if (ImGui::MenuItem("Script"))   // multiple scripts are allowed
                 e->AddComponent<eng::ScriptComponent>();
+            if (ImGui::MenuItem("Graph"))    // behaviour built as a node graph
+                e->AddComponent<eng::GraphComponent>();
             bool hasCam = e->GetComponent<eng::CameraComponent>() != nullptr;
             if (ImGui::MenuItem("Camera", nullptr, false, !hasCam))
                 e->AddComponent<eng::CameraComponent>();
@@ -1046,6 +1131,10 @@ private:
     ed::EditorContext* m_nodeCtx = nullptr;             // node-editor canvas state
     edtr::ScriptGraph  m_graph;                         // the graph being edited
     std::string        m_graphPath;                     // its file ("" if unsaved)
+    // The entity whose Graph component this canvas is editing, or kInvalidEntity
+    // when editing a graph file on its own (the original behaviour). Only used
+    // to label the panel, so nothing breaks if that entity is deleted.
+    eng::EntityID      m_graphOwner = eng::kInvalidEntity;
     RenderTexture2D    m_gameRT{};                       // the Game view's texture
 
     Shader m_skyShader{};      // procedural gradient skybox shader

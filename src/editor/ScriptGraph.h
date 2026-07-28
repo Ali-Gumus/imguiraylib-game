@@ -78,6 +78,9 @@ enum class NodeKind {
                              //         entity (fx.burst)
     SetLightIntensity,       // action: set the scene light's brightness
     PlaySound,               // action: play a named sound (audio.play)
+    LoopStart,               // action: start a looping sound (audio.loop_start)
+    LoopSet,                 // action: set a running loop's volume and pitch
+    LoopStop,                // action: stop a looping sound
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
@@ -125,6 +128,11 @@ public:
 
     bool Save(const std::string& path) const;
     bool Load(const std::string& path);
+
+    // The generated Lua as a string. Used when a graph attached to an entity is
+    // compiled and run directly, with no file involved.
+    std::string GenerateLuaSource() const;
+    // The same, written to a .lua file.
     bool GenerateLua(const std::string& path) const;
 
 private:

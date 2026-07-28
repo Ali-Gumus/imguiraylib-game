@@ -61,6 +61,7 @@ static int KeyFromName(const std::string& name) {
 std::unique_ptr<Component> MakeComponent(const std::string& name) {
     if (name == "Shape")  return std::make_unique<ShapeComponent>();
     if (name == "Script") return std::make_unique<ScriptComponent>();
+    if (name == "Graph")  return std::make_unique<GraphComponent>();
     if (name == "Camera") return std::make_unique<CameraComponent>();
     if (name == "Health") return std::make_unique<HealthComponent>();
     if (name == "Collider") return std::make_unique<ColliderComponent>();
@@ -346,7 +347,15 @@ void ScriptComponent::Load() {
     m_onDestroy = {};
     m_lua       = sol::state{};   // a fresh, empty Lua interpreter
     m_loaded   = false;
-    m_error.clear();
+    // Only clear a previous error when there is actually something to run. A
+    // component with neither source nor path has usually just failed to produce
+    // any (a graph that would not compile), and wiping the reason would leave
+    // the Inspector saying nothing at all.
+    if (!source.empty() || !path.empty()) m_error.clear();
+    if (source.empty() && path.empty()) {
+        if (m_error.empty()) m_error = "Nothing to run: no script file and no source.";
+        return;
+    }
 
     // Open only a safe subset of Lua's standard library. We deliberately do
     // NOT open `io` or `os`, so a script cannot read or delete files. This is
@@ -691,11 +700,16 @@ void ScriptComponent::Load() {
         return false;
     };
 
-    // --- Actually run the file --------------------------------------------
-    // safe_script_file runs the .lua file. Using the "pass on error" form
-    // means a mistake in the script is returned as an invalid result instead
-    // of throwing, so a bad script shows an error rather than crashing.
-    sol::protected_function_result r = m_lua.safe_script_file(path, sol::script_pass_on_error);
+    // --- Actually run the script -------------------------------------------
+    // Either from a string in memory or from a file on disk. The "pass on
+    // error" form means a mistake in the script comes back as an invalid result
+    // instead of throwing, so a bad script shows an error rather than crashing.
+    //
+    // The source path exists for generated code - a node graph compiled at Play
+    // - which has no file and should not have one.
+    sol::protected_function_result r =
+        source.empty() ? m_lua.safe_script_file(path, sol::script_pass_on_error)
+                       : m_lua.safe_script(source, sol::script_pass_on_error);
     if (!r.valid()) {
         m_error = r.get<sol::error>().what();   // human-readable message + line
         return;                                  // stay unloaded
@@ -812,9 +826,17 @@ void ScriptComponent::OnInspector() {
     // If there was an error, print the full message, wrapped to the panel.
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
 
-    // The script's exposed properties, as editable fields. Editing one writes
-    // the new value straight into the running script's `properties` table, so
-    // changes take effect immediately (including mid-play).
+    DrawPropertiesInspector();
+}
+
+// The script's exposed properties, as editable fields. Editing one writes the
+// new value straight into the running script's `properties` table, so changes
+// take effect immediately, including mid-play.
+//
+// This lives on its own so that any component backed by a Lua script presents
+// its tunables the same way, whether the script came from a file or was
+// generated from a node graph.
+void ScriptComponent::DrawPropertiesInspector() {
     if (m_loaded && !m_props.empty()) {
         ImGui::SeparatorText("Properties");
         // Any property this entity has overridden shows a revert arrow and an
@@ -870,6 +892,94 @@ void ScriptComponent::OnInspector() {
             Load();
         }
     }
+}
+
+// ---- GraphComponent --------------------------------------------------------
+
+// Whoever hosts the engine registers the graph code generator here. It stays
+// null in a host that has no node editor, which GraphComponent reports plainly
+// rather than failing in some confusing way.
+static GraphCompiler s_graphCompiler = nullptr;
+
+void SetGraphCompiler(GraphCompiler fn) { s_graphCompiler = fn; }
+bool HasGraphCompiler() { return s_graphCompiler != nullptr; }
+
+bool GraphComponent::CompileSource() {
+    source.clear();
+    if (graphPath.empty()) {
+        m_error = "No graph chosen. Use New Graph or Open Graph.";
+        return false;
+    }
+    if (!s_graphCompiler) {
+        m_error = "No graph compiler available in this program.";
+        return false;
+    }
+    std::string lua, err;
+    if (!s_graphCompiler(graphPath, lua, err)) {
+        m_error = err.empty() ? ("Could not compile " + graphPath) : err;
+        return false;
+    }
+    source = lua;
+    return true;
+}
+
+void GraphComponent::OnStart(Entity& owner) {
+    // Compile fresh every time play begins, so the graph on disk is always what
+    // runs. On failure the base class reports it through the same error field an
+    // ordinary script would use.
+    CompileSource();
+    ScriptComponent::OnStart(owner);
+}
+
+bool GraphComponent::Recompile() {
+    if (!CompileSource()) return false;
+    Load();
+    return m_loaded;
+}
+
+void GraphComponent::OnInspector() {
+    // Which graph this entity runs. Editable as text so a path can be pasted,
+    // like the Script component's path field.
+    //
+    // The label must NOT be "Graph". ImGui identifies a widget by its label
+    // within the current scope, and the Inspector draws each component inside
+    // one scope whose collapsing header is already labelled with the component's
+    // name - "Graph" here. Reusing that string makes two widgets with the same
+    // identity, which ImGui reports as a conflicting ID.
+    char buf[256];
+    strncpy(buf, graphPath.c_str(), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    if (ImGui::InputText("Graph file", buf, sizeof(buf))) graphPath = buf;
+
+    if (ImGui::Button("Open Graph...")) {
+        std::string picked = OpenFileDialog(
+            "Node graphs (*.json)\0*.json\0All files\0*.*\0", "json");
+        if (!picked.empty()) graphPath = picked;
+    }
+    ImGui::SameLine();
+    // Creating a graph and opening one for editing both need the node editor,
+    // which this component cannot reach. It records the request; the editor
+    // notices it and acts.
+    if (ImGui::Button("New Graph")) newRequested = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Edit in Node Editor")) editRequested = true;
+
+    ImGui::SameLine();
+    if (ImGui::Button("Recompile")) Recompile();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Compile the graph and reload it now, without leaving\n"
+                          "play mode. Play always compiles fresh anyway.");
+
+    // Status, in the same words the Script component uses.
+    if (m_loaded)              ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "compiled");
+    else if (!m_error.empty()) ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "error");
+    else                       ImGui::TextDisabled("not compiled yet");
+    if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
+
+    ImGui::TextDisabled("Compiled to Lua in memory on Play; no file is written.");
+
+    // The graph's Param nodes become properties, shown exactly as a script's are.
+    DrawPropertiesInspector();
 }
 
 // ---- ShapeComponent --------------------------------------------------------
