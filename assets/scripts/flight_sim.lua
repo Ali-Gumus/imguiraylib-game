@@ -45,7 +45,7 @@ function on_start(entity)
 
     -- Start the engine note. It runs for as long as the jet exists; the volume
     -- and pitch are set every frame below from the throttle.
-    audio.loop_start("engine")
+    audio.loop_start("jet")
 end
 
 function on_update(entity, dt)
@@ -109,5 +109,5 @@ function on_update(entity, dt)
     -- power, which is what makes opening the throttle *feel* like acceleration
     -- rather than just changing a number on the HUD. The ranges are deliberately
     -- narrow: an engine at idle is quieter and lower, not silent and inaudible.
-    audio.loop_set("engine", 0.55 + throttle * 0.45, 0.8 + throttle * 0.5)
+    audio.loop_set("jet", 1 + throttle * 1, 1.5 + throttle * 1)
 end

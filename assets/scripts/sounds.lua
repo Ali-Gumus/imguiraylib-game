@@ -6,17 +6,22 @@
 -- changing a volume means editing a number here and pressing Play -- no rebuild.
 -- Gameplay scripts trigger these by name:
 --
---     audio.play("shot")                  -- a one-shot sound
---     audio.play("shot", 0.5)             -- at half its defined volume
---     audio.loop_start("engine")          -- start a looping sound
---     audio.loop_set("engine", 0.6, 1.3)  -- its volume and pitch, per frame
---     audio.loop_stop("engine")
+--     audio.play("shot")               -- a one-shot sound
+--     audio.play("shot", 0.5)          -- at half its defined volume
+--     audio.loop_start("jet")          -- start a looping sound
+--     audio.loop_set("jet", 0.6, 1.3)  -- its volume and pitch, per frame
+--     audio.loop_stop("jet")
 --
--- FILES GO IN assets/sounds/. None are committed to the repository, so every
--- sound below is currently SILENT: a definition whose file is missing stays
--- registered and simply makes no noise, and the editor's toolbar lists what is
--- missing. Drop a file with the matching name in and it starts working -- no
--- code change anywhere. raylib reads .wav, .ogg, .mp3 and .flac.
+-- FILES GO IN assets/sounds/. A definition whose file is missing stays
+-- registered and simply makes no noise, and the editor's toolbar shows a "snd?"
+-- badge listing which ones those are - so silence is always explained. Drop a
+-- file in and it starts working with no code change anywhere. raylib reads
+-- .wav, .ogg, .mp3 and .flac.
+--
+-- A LOOP IS ONE STREAM, SHARED BY NAME. Two entities that both call
+-- loop_start("heli") get the same single stream, not one each, and it has no
+-- position in the world. That is fine for the player's own engine note; it is
+-- not yet enough for per-enemy engine sounds.
 --
 -- Every field is optional except the file:
 --
@@ -36,7 +41,7 @@
 -- The player's gun. Fires many times a second, so it needs several voices and a
 -- little pitch variation to sound like a gun rather than a loop.
 sound.define("shot", {
-    file      = "assets/sounds/shot.wav",
+    file      = "assets/sounds/heavy-machine-gun-50-caliber.mp3",
     volume    = 0.5,
     pitch_min = 0.94,
     pitch_max = 1.08,
@@ -55,8 +60,8 @@ sound.define("impact", {
 -- Something being destroyed. Louder, with a wider pitch spread so a wave of
 -- kills does not sound mechanical.
 sound.define("explosion", {
-    file      = "assets/sounds/explosion.wav",
-    volume    = 0.85,
+    file      = "assets/sounds/explosion.mp3",
+    volume    = 3,
     pitch_min = 0.85,
     pitch_max = 1.1,
     voices    = 4,
@@ -75,8 +80,14 @@ sound.define("hit_taken", {
 -- The jet's engine. A LOOP: it never stops while flying, and flight_sim.lua
 -- raises its pitch and volume with the throttle. Use a sample that loops
 -- seamlessly, or the seam will be audible every few seconds.
-sound.define("engine", {
-    file   = "assets/sounds/engine.ogg",
+sound.define("jet", {
+    file   = "assets/sounds/jet-loop-01.mp3",
+    volume = 0.35,
+    loop   = true,
+})
+
+sound.define("heli", {
+    file   = "assets/sounds/helicopter-blades.mp3",
     volume = 0.35,
     loop   = true,
 })
