@@ -313,23 +313,6 @@ inline JPH::Quat ToJolt(Quaternion q) { return JPH::Quat(q.x, q.y, q.z, q.w); }
 inline Vector3    ToRay(JPH::Vec3 v)  { return {v.GetX(), v.GetY(), v.GetZ()}; }
 inline Quaternion ToRay(JPH::Quat q)  { return {q.GetX(), q.GetY(), q.GetZ(), q.GetW()}; }
 
-// Build the Jolt shape described by a ColliderComponent, sized by the entity's
-// world scale.
-//
-// Two things here are worth understanding rather than skimming:
-//
-// SCALE IS BAKED IN, ONCE. A Jolt shape has no scale of its own - it is a
-// fixed piece of geometry, deliberately, because shapes are shared between
-// bodies and pre-processed for fast collision. So the entity's scale is
-// multiplied into the shape's dimensions when it is built. The consequence is
-// that resizing an entity while the game is running does NOT resize its
-// collision volume; the body would have to be rebuilt.
-//
-// SPHERES AND CAPSULES CANNOT BE SQUASHED. A sphere scaled 1,3,1 is an
-// ellipsoid, which is not a sphere, and no amount of parameter-fiddling makes
-// SphereShape into one. Rather than silently producing the wrong volume, the
-// largest axis is used, so a non-uniformly scaled sphere comes out too big
-// rather than the wrong shape - too big is at least visible.
 // Build the collision surface of a landscape from a TerrainComponent.
 //
 // A heightfield is a grid of ground heights rather than a solid volume, which
@@ -386,13 +369,27 @@ JPH::ShapeRefC MakeHeightfieldShape(const TerrainComponent& t, Vector3 scale) {
     return result.Get();
 }
 
-JPH::ShapeRefC MakeShape(const ColliderComponent& c, Vector3 scale) {
-    // Negative scale would mirror the shape, which collision maths cannot
-    // express; magnitude is all that matters here.
-    const float sx = std::fabs(scale.x);
-    const float sy = std::fabs(scale.y);
-    const float sz = std::fabs(scale.z);
-
+// Build the Jolt shape described by a ColliderComponent.
+//
+// THE ENTITY'S SCALE IS DELIBERATELY NOT APPLIED HERE. A collider in this
+// engine is authored directly in world units, so scaling an entity does not
+// resize its collision volume - the rule stated in
+// Scene::ClosestPointOnCollider and followed by the viewport's wireframe
+// gizmo. Multiplying by the scale would make the simulated shape disagree with
+// both: an entity scaled 8x to size its model would collide as something eight
+// times larger than the outline drawn around it, shoving things aside from far
+// outside anything visible.
+//
+// The heightfield above is the one exception, and for a reason that does not
+// apply here: the terrain MESH is drawn through the entity's full world
+// matrix, scale included, so that landscape really does grow with its entity
+// and its collision surface has to grow with it.
+//
+// One consequence either way: a Jolt shape has no scale of its own - it is a
+// fixed piece of geometry, so that shapes can be shared and pre-processed for
+// fast collision. Resizing a collider while the game is running therefore does
+// nothing until the body is rebuilt.
+JPH::ShapeRefC MakeShape(const ColliderComponent& c) {
     // A zero-sized shape makes Jolt assert and produces degenerate collisions,
     // so every dimension is held just above zero.
     constexpr float kMin = 0.01f;
@@ -401,18 +398,16 @@ JPH::ShapeRefC MakeShape(const ColliderComponent& c, Vector3 scale) {
     switch (c.shape) {
         case ColliderShape::Box: {
             inner = new JPH::BoxShape(JPH::Vec3(
-                std::max(c.halfExtents.x * sx, kMin),
-                std::max(c.halfExtents.y * sy, kMin),
-                std::max(c.halfExtents.z * sz, kMin)));
+                std::max(c.halfExtents.x, kMin),
+                std::max(c.halfExtents.y, kMin),
+                std::max(c.halfExtents.z, kMin)));
             break;
         }
         case ColliderShape::Capsule: {
-            // A capsule is round about its own Y axis, so its radius follows
-            // the two axes across that circle and its length follows Y.
-            const float r = std::max(c.radius * std::max(sx, sz), kMin);
+            const float r = std::max(c.radius, kMin);
             // Jolt asks for HALF the straight middle section, matching the
             // engine's own `height` field being the full middle section.
-            const float halfCyl = std::max(c.height * 0.5f * sy, kMin);
+            const float halfCyl = std::max(c.height * 0.5f, kMin);
             inner = new JPH::CapsuleShape(halfCyl, r);
             break;
         }
@@ -424,8 +419,7 @@ JPH::ShapeRefC MakeShape(const ColliderComponent& c, Vector3 scale) {
             return nullptr;
         case ColliderShape::Sphere:
         default: {
-            const float r = std::max(c.radius * std::max({sx, sy, sz}), kMin);
-            inner = new JPH::SphereShape(r);
+            inner = new JPH::SphereShape(std::max(c.radius, kMin));
             break;
         }
     }
@@ -444,9 +438,10 @@ JPH::ShapeRefC MakeShape(const ColliderComponent& c, Vector3 scale) {
     const Quaternion q = QuaternionFromEuler(c.rotation.x * DEG2RAD,
                                              c.rotation.y * DEG2RAD,
                                              c.rotation.z * DEG2RAD);
-    // The offset is measured in the entity's local space, so it scales with
-    // the entity just as the shape's dimensions do.
-    const JPH::Vec3 off(c.offset.x * sx, c.offset.y * sy, c.offset.z * sz);
+    // The offset is in the same authored world units as the shape's own
+    // dimensions, and is left unscaled for the same reason - it must place the
+    // volume exactly where ColliderComponent::LocalMatrix puts the wireframe.
+    const JPH::Vec3 off(c.offset.x, c.offset.y, c.offset.z);
 
     return new JPH::RotatedTranslatedShape(off, ToJolt(q), inner);
 }
@@ -609,7 +604,7 @@ void ReconcileBodies(Scene& scene) {
             // a working solid landscape instead of no landscape at all.
             motion = MotionType::Static;
         } else {
-            shape = MakeShape(*col, scene.WorldScale(e));
+            shape = MakeShape(*col);
         }
         // A shape that could not be built (bad terrain settings, an
         // unbuildable size) leaves the entity out of the simulation rather
