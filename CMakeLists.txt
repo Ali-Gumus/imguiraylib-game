@@ -118,6 +118,38 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sol2)
 
+# ---- Jolt Physics (rigid-body simulation) ----------------------------
+# The physics engine: it owns the world of solid bodies, moves them under
+# forces and gravity, and works out when they touch. We drive it with
+# forces rather than setting positions, which is what makes collisions,
+# bouncing and momentum come out for free instead of being faked.
+#
+# Two things about Jolt's build are unusual and both matter:
+#
+# 1. Its CMakeLists.txt is NOT at the repository root, it sits in a
+#    "Build" subfolder. SOURCE_SUBDIR points FetchContent at it.
+# 2. Its build script is written to be the TOP-LEVEL project, so by
+#    default it reaches out and rewrites global compiler settings. The
+#    two options below switch that off, because here Jolt is a guest in
+#    someone else's build:
+#      - USE_STATIC_MSVC_RUNTIME_LIBRARY: Jolt defaults to the static C
+#        runtime (/MT). Everything else here uses the dynamic one (/MD),
+#        and mixing the two is a link error ("mismatch detected for
+#        RuntimeLibrary"), so force it to agree with us.
+#      - OVERRIDE_CXX_FLAGS: stops Jolt replacing CMAKE_CXX_FLAGS_* for
+#        the WHOLE project (it disables buffer-security checks and edits
+#        optimisation flags — fine for its own code, not ours to change).
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS              OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    JoltPhysics
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+    GIT_TAG        v5.6.0        # pinned like every other dependency
+    SOURCE_SUBDIR  Build         # where its CMakeLists.txt actually lives
+)
+FetchContent_MakeAvailable(JoltPhysics)
+
 add_library(rlimgui STATIC ${rlimgui_SOURCE_DIR}/rlImGui.cpp)
 target_include_directories(rlimgui PUBLIC ${rlimgui_SOURCE_DIR})
 # rlImGui's code includes both raylib.h and imgui.h, so it must link both.
@@ -136,11 +168,12 @@ add_library(engine STATIC
     src/engine/Lighting.cpp
     src/engine/Particles.cpp
     src/engine/Audio.cpp
+    src/engine/Physics.cpp
 )
 # PUBLIC: anything linking engine can #include "engine/Application.h".
 target_include_directories(engine PUBLIC src)
 # PUBLIC so editor code can also call raylib/ImGui directly for its panels.
-target_link_libraries(engine PUBLIC rlimgui sol2 lua nlohmann_json::nlohmann_json)
+target_link_libraries(engine PUBLIC rlimgui sol2 lua nlohmann_json::nlohmann_json Jolt)
 # Win32 native file dialogs (FileDialog.cpp): common dialog + window APIs.
 target_link_libraries(engine PUBLIC comdlg32 user32)
 # sol2's "safety on" mode: friendly errors instead of crashes when Lua

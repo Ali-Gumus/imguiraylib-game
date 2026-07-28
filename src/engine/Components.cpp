@@ -70,6 +70,7 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
     // Deserialize reads the same "radius" key, so old files keep working; the
     // next save rewrites them under the new name.
     if (name == "Hitbox") return std::make_unique<ColliderComponent>();
+    if (name == "RigidBody") return std::make_unique<RigidBodyComponent>();
     if (name == "Light")  return std::make_unique<LightComponent>();
     if (name == "Model")  return std::make_unique<ModelComponent>();
     if (name == "Terrain") return std::make_unique<TerrainComponent>();
@@ -305,6 +306,49 @@ void ColliderComponent::OnInspector() {
         if (shape == ColliderShape::Capsule && ImGui::Button("Lay Along Forward"))
             rotation = {90.0f, 0.0f, 0.0f};
     }
+}
+
+// ---- RigidBodyComponent ----------------------------------------------------
+
+void RigidBodyComponent::OnInspector() {
+    // The order of these strings must match the MotionType enum, because
+    // ImGui::Combo works on the INDEX of the selected item.
+    static const char* kMotionNames[] = { "Static", "Kinematic", "Dynamic" };
+
+    int current = static_cast<int>(motion);
+    if (ImGui::Combo("Motion", &current, kMotionNames, IM_ARRAYSIZE(kMotionNames)))
+        motion = static_cast<MotionType>(current);
+
+    // A one-line reminder of what the chosen type means, because picking the
+    // wrong one produces behaviour that looks like a bug rather than a setting
+    // (a "static" aircraft simply refuses to move, with no error anywhere).
+    switch (motion) {
+        case MotionType::Static:
+            ImGui::TextDisabled("Never moves. For ground and scenery.");
+            break;
+        case MotionType::Kinematic:
+            ImGui::TextDisabled("Moved by scripts; pushes dynamic bodies.");
+            break;
+        case MotionType::Dynamic:
+            ImGui::TextDisabled("Moved by gravity, forces and collisions.");
+            break;
+    }
+
+    // Everything below this point only affects a body the simulation actually
+    // integrates, so hide it for a static one rather than offering numbers
+    // that do nothing.
+    if (motion == MotionType::Static) return;
+
+    // Mass must stay above zero: dividing a force by zero mass is an infinite
+    // acceleration, which turns the body's position into "not a number" and
+    // then quietly corrupts everything it touches.
+    ImGui::DragFloat("Mass (kg)", &mass, 0.5f, 0.001f, 100000.0f);
+
+    ImGui::DragFloat("Friction", &friction, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Restitution", &restitution, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Linear Damping", &linearDamping, 0.01f, 0.0f, 10.0f);
+    ImGui::DragFloat("Angular Damping", &angularDamping, 0.01f, 0.0f, 10.0f);
+    ImGui::DragFloat("Gravity Factor", &gravityFactor, 0.05f, -5.0f, 5.0f);
 }
 
 // ---- CameraComponent -------------------------------------------------------

@@ -9,6 +9,7 @@
 #include "engine/Lighting.h"      // the directional light and its shader
 #include "engine/Particles.h"     // explosion / spark / muzzle-flash effects
 #include "engine/Audio.h"         // sound playback and the mute toggle
+#include "engine/Physics.h"       // the rigid-body simulation (Jolt)
 
 #include "imgui.h"      // the UI library
 #include "raylib.h"     // window, input, drawing, camera
@@ -116,6 +117,11 @@ public:
         // not fatal: the game plays silently and says so in the toolbar.
         eng::InitAudio();
 
+        // Build the rigid-body world. This one needs no window - physics never
+        // touches the GPU - but it lives here with the other subsystems so
+        // there is a single place that starts everything.
+        eng::InitPhysics();
+
         m_skyShader = LoadShader("assets/shaders/skybox.vs", "assets/shaders/skybox.fs");
         m_skyReady  = IsShaderValid(m_skyShader);
         if (m_skyReady) {
@@ -132,6 +138,7 @@ public:
         eng::ShutdownLighting();
         eng::ShutdownParticles();
         eng::ShutdownAudio();
+        eng::ShutdownPhysics();
         ed::DestroyEditor(m_nodeCtx);
     }
 
@@ -274,6 +281,15 @@ public:
                 if (IsKeyPressed(KEY_R)) { StopPlay(); StartPlay(); }
             } else {
                 m_scene.Update(dt);
+
+                // Advance the rigid-body simulation, AFTER the scripts have
+                // run. The order is the whole contract between the two: a
+                // script's job is to decide what forces to apply this frame,
+                // and the simulation's job is to work out the motion those
+                // forces produce. Stepping first would act on last frame's
+                // decisions and leave the controls feeling a frame late.
+                eng::UpdatePhysics(m_scene, dt);
+
                 // Track the player's speed for the HUD by measuring how far it
                 // moved this frame (distance / time). This avoids reaching into
                 // the flight script for its internal velocity.
@@ -603,6 +619,7 @@ private:
         eng::ClearHudValues();        // start each run fresh (score 0, no stale values)
         eng::ClearParticles();        // and with no effects left over from before
         eng::StopAllAudio();          // nor any sound still ringing from before
+        eng::ResetPhysics();          // and with an empty simulation, not last run's
         // Re-read the effect and sound definitions, so retuning either is a
         // matter of editing its file and pressing Play again.
         eng::ReloadEffectPresets();
@@ -616,6 +633,9 @@ private:
         eng::ClearParticles();        // effects are runtime state, like the HUD
         // A looping engine note must not outlive the run that started it.
         eng::StopAllAudio();
+        // The simulation is runtime state too: the bodies it holds describe
+        // entities that have just been replaced by the restored originals.
+        eng::ResetPhysics();
         m_playing = false;
         // The selection still works because Clone kept the same entity ids.
     }
@@ -707,13 +727,16 @@ private:
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%d mesh triangles, drawn %d time(s) per frame\n"
                               "%d primitive shapes\n%d entities\n"
-                              "%d live effect particles\n%d sounds playing\n\n"
+                              "%d live effect particles\n%d sounds playing\n"
+                              "%d physics bodies, %.2f ms simulating them\n\n"
                               "Views = Viewport, plus the Game panel when visible.\n"
                               "16.7 ms is the budget for 60 fps.",
                               meshTris, views, primitives,
                               (int)m_scene.Entities().size(),
                               eng::AliveParticleCount(),
-                              eng::PlayingVoiceCount());
+                              eng::PlayingVoiceCount(),
+                              eng::PhysicsBodyCount(),
+                              eng::PhysicsStepMs());
 
         // If effects.lua could not be read, say so rather than silently falling
         // back to the built-in effects and leaving the developer wondering why
@@ -1065,6 +1088,16 @@ private:
             bool hasCollider = e->GetComponent<eng::ColliderComponent>() != nullptr;
             if (ImGui::MenuItem("Collider", nullptr, false, !hasCollider))
                 e->AddComponent<eng::ColliderComponent>();
+            bool hasRb = e->GetComponent<eng::RigidBodyComponent>() != nullptr;
+            if (ImGui::MenuItem("Rigid Body", nullptr, false, !hasRb)) {
+                e->AddComponent<eng::RigidBodyComponent>();
+                // A rigid body is useless without a shape to occupy, and an
+                // entity that has just been given one almost always wants a
+                // default collider rather than an error. Only added when there
+                // is none: an authored collider must never be replaced.
+                if (!e->GetComponent<eng::ColliderComponent>())
+                    e->AddComponent<eng::ColliderComponent>();
+            }
             bool hasLight = e->GetComponent<eng::LightComponent>() != nullptr;
             if (ImGui::MenuItem("Light", nullptr, false, !hasLight)) {
                 e->AddComponent<eng::LightComponent>();
