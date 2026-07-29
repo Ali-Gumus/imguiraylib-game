@@ -230,11 +230,35 @@ void ModelComponent::OnDraw(const Entity& owner) {
     // origin, unscaled. The rotation offset is folded into the model's own
     // transform so an oddly-authored model can be turned to face -Z; a model
     // that was already correct keeps offset {0,0,0} and is unchanged.
-    Matrix offset = MatrixRotateXYZ({rotationOffset.x * DEG2RAD,
+    Matrix rotate = MatrixRotateXYZ({rotationOffset.x * DEG2RAD,
                                      rotationOffset.y * DEG2RAD,
                                      rotationOffset.z * DEG2RAD});
-    m_model.transform = MatrixMultiply(m_baseTransform, offset);
+
+    // The shift comes FIRST, then the rotation. Order matters here and getting
+    // it the other way round is a subtle trap: the shift describes where the
+    // mesh sits within its own coordinates, so it belongs in the model's frame,
+    // before anything turns that frame. Applied afterwards it would be measured
+    // in the rotated frame instead, and every change to the alignment rotation
+    // would fling a correctly-centred model back off its origin.
+    Matrix shift = MatrixTranslate(positionOffset.x, positionOffset.y,
+                                   positionOffset.z);
+
+    // raylib multiplies in the order the transforms apply, so this reads
+    // left to right: the model's own transform, then the shift, then the turn.
+    m_model.transform = MatrixMultiply(MatrixMultiply(m_baseTransform, shift),
+                                       rotate);
     DrawModel(m_model, {0, 0, 0}, 1.0f, tint);
+}
+
+bool ModelComponent::Bounds(Vector3& outMin, Vector3& outMax) const {
+    if (!m_loaded) return false;
+    // GetModelBoundingBox measures the mesh in the model's OWN coordinates,
+    // which is exactly the frame positionOffset is expressed in - so the two
+    // can be compared and subtracted directly.
+    BoundingBox bb = GetModelBoundingBox(m_model);
+    outMin = bb.min;
+    outMax = bb.max;
+    return true;
 }
 
 int ModelComponent::TriangleCount() const {
@@ -272,8 +296,72 @@ void ModelComponent::OnInspector() {
     // an imported model flies sideways or upside-down: a common fix is 90 or 180
     // on Y (turn it about the vertical) or -90 on X (for a Z-up model).
     float rot[3] = {rotationOffset.x, rotationOffset.y, rotationOffset.z};
-    if (ImGui::DragFloat3("Rot offset", rot, 1.0f))
+    if (ImGui::DragFloat3("Rotation offset", rot, 1.0f))
         rotationOffset = {rot[0], rot[1], rot[2]};
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Turns the MODEL only, not the entity, to match this\n"
+                          "engine's convention of -Z forward and +Y up.\n\n"
+                          "Sideways: Y = 90 or -90.  Backwards: Y = 180.\n"
+                          "Lying on its back: X = -90 (a Z-up model).\n\n"
+                          "Use this rather than the entity's own Rotation,\n"
+                          "which gameplay scripts overwrite every frame.");
+
+    // Where the mesh sits inside its own coordinates. See the long note on
+    // positionOffset for why an off-centre pivot matters so much.
+    float pos[3] = {positionOffset.x, positionOffset.y, positionOffset.z};
+    if (ImGui::DragFloat3("Position offset", pos, 0.05f))
+        positionOffset = {pos[0], pos[1], pos[2]};
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Moves the MODEL only, to bring it onto the entity's\n"
+                          "origin when its pivot was authored somewhere else.\n\n"
+                          "This matters because everything rotates about the\n"
+                          "origin: with the pivot outside the aircraft, turning\n"
+                          "swings the model around a point in mid-air instead\n"
+                          "of banking it about its own centre.");
+
+    // Work the centring out instead of leaving it to be found by dragging.
+    Vector3 mn, mx;
+    if (Bounds(mn, mx)) {
+        const Vector3 centre = {(mn.x + mx.x) * 0.5f,
+                                (mn.y + mx.y) * 0.5f,
+                                (mn.z + mx.z) * 0.5f};
+
+        if (ImGui::Button("Centre On Origin")) {
+            // Shift by the OPPOSITE of where the model's middle currently is,
+            // which lands that middle exactly on the origin.
+            positionOffset = {-centre.x, -centre.y, -centre.z};
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Set the position offset so the model's bounding\n"
+                              "box is centred on the entity's origin.");
+        ImGui::SameLine();
+        if (ImGui::Button("Reset##modeloffset"))
+            positionOffset = {0.0f, 0.0f, 0.0f};
+
+        // The numbers behind the button, so a model that is still wrong can be
+        // reasoned about rather than nudged blindly. The size is also the
+        // quickest way to choose a collider that matches the aircraft.
+        ImGui::TextDisabled("size  %.2f x %.2f x %.2f",
+                            mx.x - mn.x, mx.y - mn.y, mx.z - mn.z);
+        // How far the pivot is from the middle, as drawn right now. Near zero
+        // means the model is centred; a large value is the thing that makes an
+        // aircraft orbit a point off in space.
+        const Vector3 off = {centre.x + positionOffset.x,
+                             centre.y + positionOffset.y,
+                             centre.z + positionOffset.z};
+        const float   dist = std::sqrt(off.x * off.x + off.y * off.y +
+                                       off.z * off.z);
+        const Vector3 size = {mx.x - mn.x, mx.y - mn.y, mx.z - mn.z};
+        const float   span = std::max({size.x, size.y, size.z});
+        // Flag it only when the pivot is off by enough to be felt - a tenth of
+        // the model's own size is about where a turn starts to look like a
+        // swing rather than a roll.
+        if (span > 0.0001f && dist > span * 0.1f)
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
+                               "pivot is %.2f off centre", dist);
+        else
+            ImGui::TextDisabled("pivot is %.2f off centre", dist);
+    }
 }
 
 void HealthComponent::OnInspector() {

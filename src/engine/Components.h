@@ -631,6 +631,7 @@ public:
         c->path           = path;
         c->tint           = tint;
         c->rotationOffset = rotationOffset;
+        c->positionOffset = positionOffset;
         return c;
     }
 
@@ -641,6 +642,7 @@ public:
         out["path"] = path;
         out["tint"] = {tint.r, tint.g, tint.b, tint.a};
         out["rotationOffset"] = {rotationOffset.x, rotationOffset.y, rotationOffset.z};
+        out["positionOffset"] = {positionOffset.x, positionOffset.y, positionOffset.z};
     }
     void Deserialize(const nlohmann::json& in) override {
         SetPath(in.value("path", path));
@@ -648,6 +650,8 @@ public:
             tint = {in["tint"][0], in["tint"][1], in["tint"][2], in["tint"][3]};
         if (in.contains("rotationOffset"))
             rotationOffset = {in["rotationOffset"][0], in["rotationOffset"][1], in["rotationOffset"][2]};
+        if (in.contains("positionOffset"))
+            positionOffset = {in["positionOffset"][0], in["positionOffset"][1], in["positionOffset"][2]};
     }
 
     // Change which file to draw (unloads any current model so the new one loads
@@ -665,6 +669,38 @@ public:
     // model authored facing a different axis can be aligned to the engine's
     // -Z forward / +Y up convention without rotating the gameplay transform.
     Vector3     rotationOffset{0, 0, 0};
+
+    // A fixed SHIFT (in the model's own units) applied to the mesh before that
+    // rotation, used to move a model onto its entity's origin.
+    //
+    // Every model carries a "pivot": the point its coordinates are measured
+    // from, chosen by whoever built it. Engines assume that point is at the
+    // middle of the object, but exported models frequently put it somewhere
+    // else entirely - at the nose, at a wingtip, or at the world origin of the
+    // scene the model was authored in, which can be a long way off.
+    //
+    // That matters far beyond looking untidy, because EVERYTHING rotates about
+    // the entity's origin. With the pivot outside the aircraft, turning the
+    // entity swings the model around a point in mid-air like a ball on a
+    // string, instead of banking it about its own centre. The collider, which
+    // is placed sensibly around the origin, then no longer covers the visible
+    // aircraft either.
+    //
+    // Setting this to the negative of the model's centre brings it back onto
+    // the origin. The Inspector's "Centre On Origin" button works that out from
+    // the model's bounding box rather than leaving it to be found by dragging.
+    //
+    // It is applied BEFORE the rotation offset, in the model's own frame, since
+    // it describes where the mesh sits inside its own coordinates - so getting
+    // the centring right once keeps working whatever the alignment rotation is
+    // later set to.
+    Vector3     positionOffset{0, 0, 0};
+
+    // The model's bounding box in its own coordinates, and whether it is known
+    // yet (it cannot be, until the file has actually loaded). The Inspector
+    // reports it, which is what turns "the model is in the wrong place" from a
+    // guess into a number.
+    bool        Bounds(Vector3& outMin, Vector3& outMax) const;
 
 private:
     void EnsureLoaded();          // load the file the first time we need it
