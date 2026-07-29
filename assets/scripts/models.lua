@@ -44,7 +44,7 @@ model.define("heli", {
 
 -- The player's jet, for reference and for spawning allies later.
 model.define("jet", {
-    file  = "assets/models/Jet2.glb",
+    file  = "assets/models/f-14_tomcat_top_gun_gear_up_downloadable.glb",
     scale = 8.0,
     rot   = {0, -90, 0},
     pos   = {0, 0, 0},

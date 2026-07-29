@@ -72,7 +72,7 @@ sound.define("shot", {
 
 -- A bullet striking an enemy. Short, and several can land close together.
 sound.define("impact", {
-    file      = "assets/sounds/impact.wav",
+    file      = "assets/sounds/finntastico-impact.mp3",
     volume    = 0.6,
     pitch_min = 0.9,
     pitch_max = 1.15,

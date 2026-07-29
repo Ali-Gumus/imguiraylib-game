@@ -20,15 +20,20 @@
           "type": "Health"
         },
         {
-          "path": "assets/models/Jet2.glb",
+          "path": "assets/models/f-14_tomcat_top_gun_gear_up_downloadable.glb",
+          "positionOffset": [
+            -151.64999389648438,
+            -78.19999694824219,
+            -29.0
+          ],
           "rotationOffset": [
             0.0,
-            -90.0,
+            90.0,
             0.0
           ],
           "tint": [
-            37,
-            150,
+            253,
+            255,
             255,
             255
           ],
@@ -40,13 +45,13 @@
             1.0,
             1.0
           ],
-          "height": 8.449999809265137,
+          "height": 16.700000762939453,
           "offset": [
             0.0,
-            1.0,
+            0.30000001192092896,
             0.0
           ],
-          "radius": 2.1500000953674316,
+          "radius": 2.3499999046325684,
           "rotation": [
             90.0,
             0.0,
@@ -54,6 +59,22 @@
           ],
           "shape": 2,
           "type": "Collider"
+        },
+        {
+          "angularDamping": 0.10000000149011612,
+          "continuous": false,
+          "friction": 0.20000000298023224,
+          "gravityFactor": 1.0,
+          "initialVelocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "linearDamping": 0.05000000074505806,
+          "mass": 100.0,
+          "motion": 1,
+          "restitution": 0.10000000149011612,
+          "type": "RigidBody"
         }
       ],
       "id": 1,
@@ -73,9 +94,9 @@
           1.0
         ],
         "scale": [
-          5.0,
-          5.0,
-          5.0
+          0.07999999821186066,
+          0.07999999821186066,
+          0.07999999821186066
         ]
       }
     },
@@ -92,16 +113,21 @@
           "type": "Script"
         },
         {
-          "path": "assets/models/Heli.glb",
+          "path": "assets/models/hind_attack_helicopter.glb",
+          "positionOffset": [
+            0.0,
+            -240.0,
+            250.0
+          ],
           "rotationOffset": [
             0.0,
             180.0,
             0.0
           ],
           "tint": [
-            193,
-            0,
-            0,
+            255,
+            255,
+            255,
             255
           ],
           "type": "Model"
@@ -112,13 +138,13 @@
             1.0,
             1.0
           ],
-          "height": 14.75,
+          "height": 12.75,
           "offset": [
             0.0,
             0.0,
             0.0
           ],
-          "radius": 4.300000190734863,
+          "radius": 2.950000047683716,
           "rotation": [
             90.0,
             0.0,
@@ -126,6 +152,22 @@
           ],
           "shape": 2,
           "type": "Collider"
+        },
+        {
+          "angularDamping": 0.10000000149011612,
+          "continuous": false,
+          "friction": 0.20000000298023224,
+          "gravityFactor": 1.0,
+          "initialVelocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "linearDamping": 0.05000000074505806,
+          "mass": 100.0,
+          "motion": 1,
+          "restitution": 0.10000000149011612,
+          "type": "RigidBody"
         }
       ],
       "id": 2,
@@ -136,7 +178,7 @@
         "position": [
           0.0,
           20.0,
-          -100.0
+          -150.0
         ],
         "rotation": [
           0.0,
@@ -145,9 +187,9 @@
           1.0
         ],
         "scale": [
-          5.0,
-          5.0,
-          5.0
+          0.009999999776482582,
+          0.009999999776482582,
+          0.009999999776482582
         ]
       }
     },
@@ -171,7 +213,7 @@
         "position": [
           0.0,
           26.100000381469727,
-          15.899999618530273
+          20.0
         ],
         "rotation": [
           -0.13917310535907745,
@@ -202,6 +244,43 @@
           "type": "Terrain",
           "wire": false,
           "worldSize": 1000.0
+        },
+        {
+          "angularDamping": 0.10000000149011612,
+          "continuous": false,
+          "friction": 0.20000000298023224,
+          "gravityFactor": 1.0,
+          "initialVelocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "linearDamping": 0.05000000074505806,
+          "mass": 100.0,
+          "motion": 0,
+          "restitution": 0.10000000149011612,
+          "type": "RigidBody"
+        },
+        {
+          "halfExtents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "height": 2.0,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "radius": 1.0,
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shape": 3,
+          "type": "Collider"
         }
       ],
       "id": 29,
@@ -309,5 +388,5 @@
       }
     }
   ],
-  "nextID": 1788
+  "nextID": 1854
 }
