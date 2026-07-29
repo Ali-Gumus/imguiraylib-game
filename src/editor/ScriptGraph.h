@@ -100,6 +100,10 @@ struct GraphNode {
     float     value = 0.0f;              // the constant for a Number node
     char      text[128]  = "hello";      // the message for a Print node
     char      text2[128] = "";           // a second string (Spawn's tag)
+    // A third string. Currently the Spawn node's model name - which entry in
+    // assets/scripts/models.lua the new entity should look like, or empty for
+    // the default cube.
+    char      text3[128] = "";
     float     x = 0.0f, y = 0.0f;        // canvas position (saved)
 };
 
@@ -194,14 +198,19 @@ private:
     // away - which closes the popup - would immediately reopen it, and the menu
     // could never be dismissed.
     bool  m_fxPickerOpen = false;
-    // Which of the node's two text fields the picker writes into: 0 = `text`
-    // (an FX Burst node's effect), 1 = `text2` (a Hit Nearest node's optional
-    // impact effect). One picker serves both rather than duplicating the list.
+    // Which of the node's text fields the picker writes into: 0 = `text` (an
+    // FX Burst node's effect), 1 = `text2` (a Hit Nearest node's optional
+    // impact effect), 2 = `text3` (a Spawn node's model). One picker serves
+    // them all rather than duplicating the list three times.
     int   m_fxPickerField = 0;
-    // Which list the picker is showing: false = the particle effects from
-    // effects.lua, true = the sounds from sounds.lua. One picker serves both,
-    // since the job is identical - choose a name the engine knows about.
-    bool  m_fxPickerSounds = false;
+    // Which list the picker is showing. One picker serves all of them, since
+    // the job is identical every time: choose a name the engine already knows
+    // about, so a graph never has to have a file path typed into it.
+    enum class PickList { Effects, Sounds, Models };
+    PickList m_fxPickerList = PickList::Effects;
+    // May the choice be "none"? An FX Burst must name an effect, but a Hit
+    // Nearest's impact effect and a Spawn's model are both optional.
+    bool  m_fxPickerOptional = false;
     // Where to put the list, in SCREEN coordinates, so it drops directly under
     // the button like an ordinary combo box. Captured while drawing the node,
     // because that is the only place the button's position is known, and

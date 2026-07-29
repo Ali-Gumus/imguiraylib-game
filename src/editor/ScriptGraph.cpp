@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "engine/Particles.h"   // the list of effects an FX Burst node can pick
 #include "engine/Audio.h"       // the list of sounds a Play Sound node can pick
+#include "engine/ModelDefs.h"   // the list of models a Spawn node can pick
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -436,7 +437,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         if (ImGui::Button(n.text2[0] ? n.text2 : "(no effect)", ImVec2(140.0f, 0.0f))) {
             m_fxPickerNode   = n.id;
             m_fxPickerField  = 1;       // this node's effect lives in `text2`
-            m_fxPickerSounds = false;
+            m_fxPickerList     = PickList::Effects;
+            m_fxPickerOptional = true;   // "no effect" is a valid choice here
             m_fxPickerOpen   = true;
             ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
             ImVec2 screen = ed::CanvasToScreen(bl);
@@ -464,7 +466,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         if (ImGui::Button(n.text[0] ? n.text : "(pick effect)", ImVec2(140.0f, 0.0f))) {
             m_fxPickerNode   = n.id;
             m_fxPickerField  = 0;       // this node's effect lives in `text`
-            m_fxPickerSounds = false;   // and it is choosing from the effects
+            m_fxPickerList     = PickList::Effects;
+            m_fxPickerOptional = false;  // a burst must name an effect
             m_fxPickerOpen   = true;    // one frame only; see the member's comment
             // Remember where to drop the list: directly under the button, the
             // way a combo box opens. The button's rectangle is in CANVAS
@@ -489,7 +492,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         if (ImGui::Button(n.text[0] ? n.text : "(pick sound)", ImVec2(140.0f, 0.0f))) {
             m_fxPickerNode   = n.id;
             m_fxPickerField  = 0;
-            m_fxPickerSounds = true;    // choose from the sounds, not the effects
+            m_fxPickerList     = PickList::Sounds;
+            m_fxPickerOptional = false;
             m_fxPickerOpen   = true;
             ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
             ImVec2 screen = ed::CanvasToScreen(bl);
@@ -510,6 +514,26 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::InputText("##sscript", n.text,  sizeof(n.text));  // the script to run
         ImGui::InputText("##stag",    n.text2, sizeof(n.text2)); // the tag to give it
         ImGui::DragFloat("##shp", &n.value, 0.1f);               // starting health
+        // What it should LOOK like. A name from models.lua rather than a file
+        // path, so the graph carries no file names and the scale and offsets
+        // that model needs live in one place. Optional: without one the spawned
+        // entity is the default cube.
+        //
+        // Same deferred-popup dance as FX Burst, for the same reason: a list
+        // opened from inside a node is placed in screen coordinates and would
+        // land somewhere unclickable.
+        if (ImGui::Button(n.text3[0] ? n.text3 : "(no model)", ImVec2(140.0f, 0.0f))) {
+            m_fxPickerNode     = n.id;
+            m_fxPickerField    = 2;      // this node's model lives in `text3`
+            m_fxPickerList     = PickList::Models;
+            m_fxPickerOptional = true;   // a cube is a legitimate choice
+            m_fxPickerOpen     = true;
+            ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
+            ImVec2 screen = ed::CanvasToScreen(bl);
+            m_fxPickerX = screen.x;
+            m_fxPickerY = screen.y;
+            m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
+        }
     }
     else if (n.kind == NodeKind::CountTag)
         ImGui::InputText("##counttag", n.text, sizeof(n.text)); // the tag to count
@@ -596,20 +620,30 @@ void ScriptGraph::HandleFxPicker() {
     }
 
     if (ImGui::BeginPopup("FxPicker")) {
-        // The same picker serves both lists; only the source differs.
-        const auto& names = m_fxPickerSounds ? eng::SoundNames()
-                                             : eng::EffectPresetNames();
+        // The same picker serves every list; only the source differs.
+        const auto& names =
+            (m_fxPickerList == PickList::Sounds) ? eng::SoundNames() :
+            (m_fxPickerList == PickList::Models) ? eng::ModelDefNames()
+                                                 : eng::EffectPresetNames();
         if (names.empty()) {
             // Say why the list is empty rather than showing a blank menu that
             // simply looks broken.
-            if (m_fxPickerSounds) {
-                ImGui::TextDisabled("No sounds defined.");
-                ImGui::TextDisabled("Add one with sound.define in");
-                ImGui::TextDisabled("assets/scripts/sounds.lua");
-            } else {
-                ImGui::TextDisabled("No effects defined.");
-                ImGui::TextDisabled("Add one with fx.define in");
-                ImGui::TextDisabled("assets/scripts/effects.lua");
+            switch (m_fxPickerList) {
+                case PickList::Sounds:
+                    ImGui::TextDisabled("No sounds defined.");
+                    ImGui::TextDisabled("Add one with sound.define in");
+                    ImGui::TextDisabled("assets/scripts/sounds.lua");
+                    break;
+                case PickList::Models:
+                    ImGui::TextDisabled("No models defined.");
+                    ImGui::TextDisabled("Add one with model.define in");
+                    ImGui::TextDisabled("assets/scripts/models.lua");
+                    break;
+                default:
+                    ImGui::TextDisabled("No effects defined.");
+                    ImGui::TextDisabled("Add one with fx.define in");
+                    ImGui::TextDisabled("assets/scripts/effects.lua");
+                    break;
             }
         }
         // Writes the picked name into whichever of the node's two text fields
@@ -617,8 +651,10 @@ void ScriptGraph::HandleFxPicker() {
         auto choose = [&](const char* picked) {
             for (auto& n : m_nodes) {
                 if (n.id != m_fxPickerNode) continue;
-                char* field = (m_fxPickerField == 1) ? n.text2 : n.text;
-                size_t cap  = (m_fxPickerField == 1) ? sizeof(n.text2) : sizeof(n.text);
+                char*  field = n.text;
+                size_t cap   = sizeof(n.text);
+                if (m_fxPickerField == 1) { field = n.text2; cap = sizeof(n.text2); }
+                if (m_fxPickerField == 2) { field = n.text3; cap = sizeof(n.text3); }
                 std::strncpy(field, picked, cap - 1);
                 field[cap - 1] = '\0';
                 break;
@@ -627,10 +663,12 @@ void ScriptGraph::HandleFxPicker() {
             m_fxPickerNode = -1;
         };
 
-        // The impact effect on a Hit Nearest node is optional, so that one
-        // needs a way back to "no effect at all".
-        if (m_fxPickerField == 1) {
-            if (ImGui::Selectable("(no effect)")) choose("");
+        // Some of these choices are optional - a Hit Nearest's impact effect,
+        // a Spawn's model - so those need a way back to "none at all".
+        if (m_fxPickerOptional) {
+            if (ImGui::Selectable(m_fxPickerList == PickList::Models
+                                      ? "(no model)" : "(no effect)"))
+                choose("");
             ImGui::Separator();
         }
 
@@ -858,6 +896,7 @@ bool ScriptGraph::Save(const std::string& path) const {
         doc["nodes"].push_back({{"id", n.id}, {"kind", (int)n.kind},
                                 {"value", n.value}, {"text", n.text},
                                 {"text2", n.text2},
+                                {"text3", n.text3},
                                 {"x", n.x}, {"y", n.y}});
     for (const auto& l : m_links)
         doc["links"].push_back({{"id", l.id}, {"from", l.fromPin}, {"to", l.toPin}});
@@ -888,6 +927,7 @@ bool ScriptGraph::Load(const std::string& path) {
         n.y     = jn.value("y", 0.0f);
         std::strncpy(n.text, jn.value("text", "").c_str(), sizeof(n.text) - 1);
         std::strncpy(n.text2, jn.value("text2", "").c_str(), sizeof(n.text2) - 1);
+        std::strncpy(n.text3, jn.value("text3", "").c_str(), sizeof(n.text3) - 1);
         m_nodes.push_back(n);
     }
     for (const json& jl : doc.value("links", json::array()))
@@ -1318,6 +1358,8 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 for (char c : script) { if (c == '"' || c == '\\') es1 += '\\'; es1 += c; }
                 std::string tag(n->text2), es2;
                 for (char c : tag) { if (c == '"' || c == '\\') es2 += '\\'; es2 += c; }
+                std::string model(n->text3), es3;
+                for (char c : model) { if (c == '"' || c == '\\') es3 += '\\'; es3 += c; }
                 char hp[32]; snprintf(hp, sizeof(hp), "%.7g", n->value);
                 lua += "    scene.spawn(\"" + es2 + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
@@ -1326,7 +1368,13 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                        ExprForInput(PinId(n->id, SlotDataIn + 3)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 4)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 5)) + ", \"" +
-                       es1 + "\", \"" + es2 + "\", " + hp + ")\n";
+                       es1 + "\", \"" + es2 + "\", " + hp;
+                // The model is the last argument and is optional, so it is left
+                // off entirely when unset rather than passed as an empty string.
+                // That keeps the generated Lua identical to what it was before
+                // this node gained the field, so old graphs regenerate unchanged.
+                if (!es3.empty()) lua += ", \"" + es3 + "\"";
+                lua += ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
