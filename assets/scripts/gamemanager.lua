@@ -73,7 +73,12 @@ function on_update(entity, dt)
         local z = math.sin(ang) * r
         -- Spawn facing roughly toward the origin so they head inward, tagged
         -- "enemy" with health so bullets can hit and kill them.
+        -- The last argument names a model set-up in assets/scripts/models.lua,
+        -- which carries the file, the scale and the pivot/facing offsets. That
+        -- is why this line does not mention any of them: change what an enemy
+        -- looks like by editing models.lua, not here.
         scene.spawn("Enemy", x, properties.spawn_height, z, -x, 0, -z,
-                    "assets/scripts/enemy.lua", "enemy", properties.enemy_hp)
+                    "assets/scripts/enemy.lua", "enemy", properties.enemy_hp,
+                    "heli")
     end
 end

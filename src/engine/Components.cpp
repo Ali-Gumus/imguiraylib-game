@@ -953,15 +953,21 @@ void ScriptComponent::Load() {
     // tagged and killable.
     scn["spawn"] = [](const std::string& name, float x, float y, float z,
                       float dx, float dy, float dz, const std::string& script,
-                      sol::optional<std::string> tag, sol::optional<float> hp) {
+                      sol::optional<std::string> tag, sol::optional<float> hp,
+                      sol::optional<std::string> model) {
         if (!Scene::Current()) return;
         Quaternion rot = QuaternionIdentity();       // default: unrotated
         if (dx * dx + dy * dy + dz * dz > 1e-4f) {   // if a real direction was given
             Matrix view = MatrixLookAt({0, 0, 0}, {dx, dy, dz}, {0, 1, 0});
             rot = QuaternionFromMatrix(MatrixInvert(view));   // face that direction
         }
+        // The last argument names an entry in assets/scripts/models.lua, which
+        // carries the file, the scale and both offsets - so a spawning script
+        // says "heli" and never has to know any of that. Left out, the entity
+        // is the usual cube.
         Scene::Current()->QueueSpawn(name, {x, y, z}, rot, script,
-                                     tag.value_or(std::string()), hp.value_or(0.0f));
+                                     tag.value_or(std::string()), hp.value_or(0.0f),
+                                     model.value_or(std::string()));
     };
     // count(tag): how many live entities carry `tag`. A wave is cleared when
     // scene.count("enemy") reaches zero.
@@ -1346,6 +1352,13 @@ void GraphComponent::OnInspector() {
 // ---- ShapeComponent --------------------------------------------------------
 
 void ShapeComponent::OnDraw(const Entity& owner) {
+    // A model replaces the primitive. Spawned entities are given a cube so that
+    // something is always visible, and a model may be added on top of it; drawing
+    // both would leave a cube buried inside every aircraft. Skipping here rather
+    // than removing the cube component avoids changing an entity's component
+    // list while hooks are running over it (see the note in Scene::Start).
+    if (owner.GetComponent<ModelComponent>() != nullptr) return;
+
     // Before calling this, Scene::Draw pushed this entity's world matrix onto
     // raylib's matrix stack. That matrix already encodes position, rotation
     // and scale (including parents'), so here we simply draw a unit-sized

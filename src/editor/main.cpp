@@ -5,6 +5,7 @@
 #include "engine/Application.h"   // window + main loop base class
 #include "engine/Scene.h"         // the world of entities
 #include "engine/Components.h"    // ShapeComponent, CameraComponent, ...
+#include "engine/ModelDefs.h"      // named model set-ups, re-read on Play
 #include "engine/FileDialog.h"    // native open/save dialogs
 #include "engine/Lighting.h"      // the directional light and its shader
 #include "engine/Particles.h"     // explosion / spark / muzzle-flash effects
@@ -121,6 +122,9 @@ public:
         // touches the GPU - but it lives here with the other subsystems so
         // there is a single place that starts everything.
         eng::InitPhysics();
+
+        // Read the named model set-ups that spawning scripts refer to.
+        eng::ReloadModelDefs();
 
         m_skyShader = LoadShader("assets/shaders/skybox.vs", "assets/shaders/skybox.fs");
         m_skyReady  = IsShaderValid(m_skyShader);
@@ -664,6 +668,7 @@ private:
         // matter of editing its file and pressing Play again.
         eng::ReloadEffectPresets();
         eng::ReloadSoundDefs();
+        eng::ReloadModelDefs();       // and the model set-ups spawns refer to
         m_scene.Start();              // run every script's on_start
         m_playing = true;
     }

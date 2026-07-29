@@ -29,6 +29,15 @@ function on_start(entity)
     -- This only sets a default for spawned enemies (which start with none); an
     -- enemy given a Collider component in the editor keeps that authored shape.
     scene.set_hitbox(entity, properties.hitbox)
+
+    -- And a rigid body, or the physics simulation does not know it exists.
+    -- Bullets are physical objects now and report their hits through
+    -- on_collision, which only fires between bodies the simulation owns - so
+    -- without this a spawned enemy is completely bulletproof. KINEMATIC because
+    -- this script flies the enemy by setting its transform directly; it still
+    -- registers contacts with the dynamic bullets. Add-only-if-missing, so an
+    -- enemy set up in the editor keeps whatever was chosen there.
+    physics.set_body(entity, "kinematic")
 end
 
 local cooldown = 0       -- seconds until the enemy can fire again (runtime state)

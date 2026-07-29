@@ -1,5 +1,6 @@
 #include "engine/Scene.h"
 #include "engine/Components.h"   // MakeComponent, used when loading a scene file
+#include "engine/ModelDefs.h"    // ApplyModelDef, for spawning something with a model
 #include "engine/Lighting.h"     // the shared lighting shader applied while drawing
 
 #include "raymath.h"   // matrix and quaternion math
@@ -349,8 +350,9 @@ void Scene::QueueSpawnCube(const std::string& name, Vector3 position) {
 }
 void Scene::QueueSpawn(const std::string& name, Vector3 position,
                        Quaternion rotation, const std::string& script,
-                       const std::string& tag, float hp) {
-    m_spawnQueue.push_back({name, position, rotation, script, tag, hp});
+                       const std::string& tag, float hp,
+                       const std::string& model) {
+    m_spawnQueue.push_back({name, position, rotation, script, tag, hp, model});
 }
 
 int Scene::CountWithTag(const std::string& tag) const {
@@ -387,7 +389,15 @@ void Scene::Update(float dt) {
         e->transform.position = req.position;
         e->transform.rotation = req.rotation;
         e->tag = req.tag;                           // label it (e.g. "enemy")
-        e->AddComponent<ShapeComponent>();          // spawned things are visible cubes
+        e->AddComponent<ShapeComponent>();          // a cube, unless a model replaces it
+
+        // Give it a real model if one was named. This is what makes a wave
+        // enemy look like the aircraft it is meant to be rather than a cube;
+        // the definition carries the file, the scale and both offsets, so the
+        // spawning script needs to know none of that. The cube stays attached
+        // but stops drawing once a model is present (see ShapeComponent::OnDraw),
+        // which avoids removing a component while hooks may be running.
+        if (!req.model.empty()) ApplyModelDef(*e, req.model);
         if (req.hp > 0.0f) {                        // give it health so it can be killed
             auto& hc = e->AddComponent<HealthComponent>();
             hc.hp = req.hp;

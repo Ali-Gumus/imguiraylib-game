@@ -169,6 +169,7 @@ add_library(engine STATIC
     src/engine/Particles.cpp
     src/engine/Audio.cpp
     src/engine/Physics.cpp
+    src/engine/ModelDefs.cpp
 )
 # PUBLIC: anything linking engine can #include "engine/Application.h".
 target_include_directories(engine PUBLIC src)

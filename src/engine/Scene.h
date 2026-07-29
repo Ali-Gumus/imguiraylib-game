@@ -111,6 +111,15 @@ struct Entity {
             if (T* t = dynamic_cast<T*>(c.get())) return t;
         return nullptr;
     }
+
+    // Read-only version, for code that only has a `const Entity&` - a drawing
+    // hook, for instance, which must not change the entity it is drawing.
+    template <typename T>
+    const T* GetComponent() const {
+        for (const auto& c : components)
+            if (const T* t = dynamic_cast<const T*>(c.get())) return t;
+        return nullptr;
+    }
 };
 
 // A Scene owns every entity in one world and provides the operations on them.
@@ -186,9 +195,13 @@ public:
     // its own flight/hit script. `tag` and `hp` are optional: a non-empty tag
     // labels the entity (e.g. "enemy" so bullets can hit it), and hp > 0 gives
     // it a Health component so it can be damaged and killed.
+    // `model` optionally names an entry in assets/scripts/models.lua; the new
+    // entity is given that model, with its offsets and scale already set, in
+    // place of the default cube. An empty or unknown name leaves the cube.
     void QueueSpawn(const std::string& name, Vector3 position,
                     Quaternion rotation, const std::string& script,
-                    const std::string& tag = "", float hp = 0.0f);
+                    const std::string& tag = "", float hp = 0.0f,
+                    const std::string& model = "");
 
     // How many live entities carry `tag`. Used to tell when a wave is cleared.
     int CountWithTag(const std::string& tag) const;
@@ -244,6 +257,7 @@ private:
         std::string script;                 // "" means no script attached
         std::string tag;                    // "" means untagged
         float       hp = 0.0f;              // > 0 adds a Health component
+        std::string model;                  // "" means the default cube
     };
     std::vector<EntityID>     m_destroyQueue;   // entities to remove after the loop
     std::vector<SpawnRequest> m_spawnQueue;     // entities to create after the loop
