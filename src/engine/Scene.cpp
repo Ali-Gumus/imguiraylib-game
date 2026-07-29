@@ -340,6 +340,7 @@ void Scene::Start() {
 // The static Scene::Current() function exposes it to the script bindings.
 static Scene* s_current = nullptr;
 Scene* Scene::Current() { return s_current; }
+void   Scene::SetCurrent(Scene* s) { s_current = s; }
 
 // The three "queue" functions just record a request for later.
 void Scene::QueueDestroy(EntityID id) { m_destroyQueue.push_back(id); }
@@ -360,8 +361,11 @@ int Scene::CountWithTag(const std::string& tag) const {
 }
 
 void Scene::Update(float dt) {
-    // Mark this as the active scene so scripts' scene.* calls know where to go.
-    s_current = this;
+    // Mark this as the active scene so scripts' scene.* calls know where to
+    // go. The guard covers this whole function, INCLUDING the deferred destroy
+    // and spawn passes at the end - both of those run script hooks too.
+    ActiveScene active(*this);
+
     for (Entity& e : m_entities) {
         // Snapshot component pointers so a script that adds a component during
         // its update can't invalidate this loop (see the note in Start()).
@@ -370,14 +374,6 @@ void Scene::Update(float dt) {
         for (auto& c : e.components) comps.push_back(c.get());
         for (Component* c : comps) c->OnUpdate(dt, e);
     }
-
-    // NOTE: the active-scene marker deliberately stays set through everything
-    // below. The destroy and spawn passes both run script code - a destroyed
-    // entity's on_destroy, and a newly spawned one's on_start - and those are
-    // script hooks like any other, so every scene.* call they make must still
-    // find the scene. Clearing it before this point makes those calls silently
-    // do nothing, which is invisible: the script runs, no error is raised, and
-    // the effect simply never happens.
 
     // Now that the loop above is finished, it is safe to change the entity
     // list. First remove everything that was queued for destruction.
@@ -404,8 +400,6 @@ void Scene::Update(float dt) {
         }
     }
     m_spawnQueue.clear();
-
-    s_current = nullptr;
 }
 
 // Build the 4x4 matrix for a single transform, in the order scale, then

@@ -247,6 +247,43 @@ private:
     };
     std::vector<EntityID>     m_destroyQueue;   // entities to remove after the loop
     std::vector<SpawnRequest> m_spawnQueue;     // entities to create after the loop
+
+    // ActiveScene (below) is the only thing allowed to change which scene is
+    // current, so it needs access to the private marker.
+    friend class ActiveScene;
+    static void SetCurrent(Scene* s);
+};
+
+// Marks a scene as "the current one" for as long as this object exists, and
+// puts things back afterwards.
+//
+// Script bindings reach the world through Scene::Current(), so ANY code path
+// that ends up running a script hook must have a scene marked active first. If
+// it does not, every scene.* call the script makes does nothing whatsoever -
+// no error, no warning, no clue. That failure has bitten this engine twice:
+// once when spawned entities' on_start ran after the marker was cleared, and
+// once when physics collisions were reported from outside the update entirely,
+// which left bullets unable to destroy themselves and so bouncing off the
+// scenery.
+//
+// Hence a scope guard rather than a pair of assignments: you cannot set it and
+// forget to unset it, and it restores whatever was current before rather than
+// clearing it, so nesting is safe.
+//
+// The rule: if your code can reach a script, wrap it in one of these.
+class ActiveScene {
+public:
+    explicit ActiveScene(Scene& s) : m_previous(Scene::Current()) {
+        Scene::SetCurrent(&s);
+    }
+    ~ActiveScene() { Scene::SetCurrent(m_previous); }
+
+    // Copying a scope guard would restore the scene twice, so it is forbidden.
+    ActiveScene(const ActiveScene&)            = delete;
+    ActiveScene& operator=(const ActiveScene&) = delete;
+
+private:
+    Scene* m_previous;
 };
 
 } // namespace eng

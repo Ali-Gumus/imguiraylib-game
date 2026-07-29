@@ -797,6 +797,13 @@ void PushKinematicTargets(Scene& scene, float dt) {
 // Runs after the simulation has finished stepping, when it is safe for a
 // script to spawn an explosion or destroy the thing it just hit.
 void DispatchContacts(Scene& scene) {
+    // These hooks are script code, and scripts reach the world through
+    // Scene::Current(). Physics is stepped from outside Scene::Update, so
+    // without this the scene would not be marked active and every scene.* call
+    // made from a collision would silently do nothing - a bullet unable to
+    // destroy itself, an enemy that takes damage but never dies.
+    ActiveScene active(scene);
+
     // Take the list, leaving the collector empty for the next frame. Swapping
     // rather than iterating in place matters: a script reached from in here
     // may cause more contacts to be recorded later this frame, and those
