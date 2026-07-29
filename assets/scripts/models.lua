@@ -15,9 +15,11 @@
 --
 -- Fields (all optional except the file):
 --   file    path to the model, relative to the project root (.obj/.glb/.gltf)
---   scale   uniform entity scale. Model files vary enormously in what one unit
---           means; this is what brings them into the game's own scale, where
---           one unit is one metre.
+--   scale   how much to resize the MODEL. Model files vary enormously in what
+--           one unit means; this brings them into the game's own scale, where
+--           one unit is one metre. It resizes the drawing only - the entity
+--           keeps its true size, so colliders, speeds and child objects are all
+--           unaffected by how large the artist happened to export the mesh.
 --   rot     euler degrees turning the MODEL to face this engine's forward,
 --           which is -Z, with +Y up. Sideways: {0,90,0} or {0,-90,0}.
 --           Backwards: {0,180,0}. Lying on its back: {-90,0,0}.

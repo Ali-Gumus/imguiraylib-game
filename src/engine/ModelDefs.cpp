@@ -98,10 +98,11 @@ bool ApplyModelDef(Entity& e, const std::string& name) {
     mc.rotationOffset = d->rotationOffset;
     mc.positionOffset = d->positionOffset;
 
-    // Scale belongs to the entity rather than the model, because it is what
-    // everything else measures against - the collider, the flight speeds, the
-    // distance at which the model is worth drawing.
-    e.transform.scale = {d->scale, d->scale, d->scale};
+    // The scale resizes the MODEL, not the entity. The entity's own scale is
+    // what the rest of the game measures against, so bending it to suit a
+    // model's export units would make the entity claim a size it does not have
+    // and would drag every child along with it.
+    mc.scale = {d->scale, d->scale, d->scale};
     return true;
 }
 

@@ -243,10 +243,17 @@ void ModelComponent::OnDraw(const Entity& owner) {
     Matrix shift = MatrixTranslate(positionOffset.x, positionOffset.y,
                                    positionOffset.z);
 
-    // raylib multiplies in the order the transforms apply, so this reads
-    // left to right: the model's own transform, then the shift, then the turn.
-    m_model.transform = MatrixMultiply(MatrixMultiply(m_baseTransform, shift),
-                                       rotate);
+    // Resizing the MODEL rather than the entity, so the entity keeps its true
+    // size. It goes after the shift so that the shift stays measured in the
+    // model's own raw units - the same units the bounding box and the "Centre
+    // On Origin" button work in - and shrinks along with the model instead of
+    // the two disagreeing.
+    Matrix resize = MatrixScale(scale.x, scale.y, scale.z);
+
+    // raylib multiplies in the order the transforms apply, so this reads left
+    // to right: the model's own transform, the shift, the resize, the turn.
+    m_model.transform = MatrixMultiply(
+        MatrixMultiply(MatrixMultiply(m_baseTransform, shift), resize), rotate);
     DrawModel(m_model, {0, 0, 0}, 1.0f, tint);
 }
 
@@ -305,6 +312,21 @@ void ModelComponent::OnInspector() {
                           "Lying on its back: X = -90 (a Z-up model).\n\n"
                           "Use this rather than the entity's own Rotation,\n"
                           "which gameplay scripts overwrite every frame.");
+
+    // Resizes the MODEL only. Dragging all three together is the usual case,
+    // so a uniform field is offered first and the per-axis one below it.
+    float uniform = scale.x;
+    if (ImGui::DragFloat("Model scale", &uniform, 0.005f, 0.0001f, 1000.0f,
+                         "%.4f"))
+        scale = {uniform, uniform, uniform};
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Resizes the MODEL, leaving the entity's own scale\n"
+                          "alone. Model files disagree wildly about what one\n"
+                          "unit means, and scaling the ENTITY to compensate\n"
+                          "drags every child with it and makes the entity\n"
+                          "claim a size it does not have.");
+    if (scale.x != scale.y || scale.y != scale.z)
+        ImGui::DragFloat3("Scale XYZ", &scale.x, 0.005f, 0.0001f, 1000.0f, "%.4f");
 
     // Where the mesh sits inside its own coordinates. See the long note on
     // positionOffset for why an off-centre pivot matters so much.

@@ -632,6 +632,7 @@ public:
         c->tint           = tint;
         c->rotationOffset = rotationOffset;
         c->positionOffset = positionOffset;
+        c->scale          = scale;
         return c;
     }
 
@@ -643,6 +644,7 @@ public:
         out["tint"] = {tint.r, tint.g, tint.b, tint.a};
         out["rotationOffset"] = {rotationOffset.x, rotationOffset.y, rotationOffset.z};
         out["positionOffset"] = {positionOffset.x, positionOffset.y, positionOffset.z};
+        out["scale"] = {scale.x, scale.y, scale.z};
     }
     void Deserialize(const nlohmann::json& in) override {
         SetPath(in.value("path", path));
@@ -652,6 +654,8 @@ public:
             rotationOffset = {in["rotationOffset"][0], in["rotationOffset"][1], in["rotationOffset"][2]};
         if (in.contains("positionOffset"))
             positionOffset = {in["positionOffset"][0], in["positionOffset"][1], in["positionOffset"][2]};
+        if (in.contains("scale"))
+            scale = {in["scale"][0], in["scale"][1], in["scale"][2]};
     }
 
     // Change which file to draw (unloads any current model so the new one loads
@@ -695,6 +699,26 @@ public:
     // the centring right once keeps working whatever the alignment rotation is
     // later set to.
     Vector3     positionOffset{0, 0, 0};
+
+    // How much to resize the MODEL, without touching the entity.
+    //
+    // Model files disagree wildly about what one unit means - the same
+    // helicopter may arrive 100 times too big or a hundredth of the size it
+    // should be. The obvious fix is to scale the entity, but that is the wrong
+    // knob: an entity's scale is what the rest of the game measures against.
+    // Scaling it drags along every child, and it makes the entity claim to be a
+    // size it is not, so a 0.01 entity reads as a centimetre-wide object when it
+    // is really a helicopter that happens to have been exported large.
+    //
+    // Keeping this separate means the entity stays at its true size and only
+    // the drawing is adjusted - which is exactly the distinction rotationOffset
+    // and positionOffset already make.
+    //
+    // It is applied AFTER positionOffset, so that offset stays measured in the
+    // model's own raw units - the same units the bounding box and the "Centre
+    // On Origin" button work in - and scaling the model scales the shift with
+    // it, instead of the two disagreeing.
+    Vector3     scale{1.0f, 1.0f, 1.0f};
 
     // The model's bounding box in its own coordinates, and whether it is known
     // yet (it cannot be, until the file has actually loaded). The Inspector
