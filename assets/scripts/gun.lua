@@ -16,7 +16,7 @@ properties = {
     -- straight. The jet's collider is a capsule running nose to tail, so this
     -- needs to be past its front cap - check the green wireframe in the
     -- viewport and put the muzzle beyond it.
-    muzzle    = 14.0,
+    muzzle    = 15.0,
 }
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)

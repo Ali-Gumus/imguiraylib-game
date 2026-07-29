@@ -713,6 +713,21 @@ void ScriptComponent::Load() {
     // stopping something dead), wrong for ordinary movement, which should go
     // through forces so that collisions still have a say.
     phys["set_velocity"] = [](Entity& e, float x, float y, float z) {
+        // When the body does not exist yet - the normal case for an entity
+        // spawned this frame, which joins the simulation at the end of it -
+        // this becomes the velocity the body will be born with, so a
+        // projectile leaves the muzzle already moving.
+        //
+        // The entity is already in hand here, so the record is written
+        // directly rather than looked up through the active scene. That
+        // matters: a spawned entity's on_start is exactly the place this gets
+        // called from, and depending on anything more than the entity itself
+        // is one more thing that can quietly not be there.
+        if (!HasBody(e.id)) {
+            if (auto* rb = e.GetComponent<RigidBodyComponent>())
+                rb->initialVelocity = {x, y, z};
+            return;
+        }
         SetLinearVelocity(e.id, {x, y, z});
     };
     phys["set_angular_velocity"] = [](Entity& e, float x, float y, float z) {

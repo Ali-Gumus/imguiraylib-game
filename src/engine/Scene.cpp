@@ -370,7 +370,14 @@ void Scene::Update(float dt) {
         for (auto& c : e.components) comps.push_back(c.get());
         for (Component* c : comps) c->OnUpdate(dt, e);
     }
-    s_current = nullptr;
+
+    // NOTE: the active-scene marker deliberately stays set through everything
+    // below. The destroy and spawn passes both run script code - a destroyed
+    // entity's on_destroy, and a newly spawned one's on_start - and those are
+    // script hooks like any other, so every scene.* call they make must still
+    // find the scene. Clearing it before this point makes those calls silently
+    // do nothing, which is invisible: the script runs, no error is raised, and
+    // the effect simply never happens.
 
     // Now that the loop above is finished, it is safe to change the entity
     // list. First remove everything that was queued for destruction.
@@ -397,6 +404,8 @@ void Scene::Update(float dt) {
         }
     }
     m_spawnQueue.clear();
+
+    s_current = nullptr;
 }
 
 // Build the 4x4 matrix for a single transform, in the order scale, then

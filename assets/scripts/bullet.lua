@@ -28,7 +28,7 @@
 
 -- Tunable values, shown as editable fields in the Inspector.
 properties = {
-    speed   = 300,    -- launch speed in world units per second
+    speed   = 1000,    -- launch speed in world units per second
     life    = 5.0,    -- seconds before it gives up and removes itself
     damage  = 1,      -- hit points removed from an enemy on impact
     radius  = 0.25,   -- physical size of the round

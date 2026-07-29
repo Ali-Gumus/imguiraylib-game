@@ -260,6 +260,20 @@ constexpr JPH::uint kNumBodyMutexes = 0;
 constexpr JPH::uint kMaxBodyPairs         = 4096;
 constexpr JPH::uint kMaxContactConstraints = 2048;
 
+// The fastest any body is allowed to travel, in world units per second.
+//
+// Jolt enforces a speed limit per body and its default is 500. The limit is
+// there for a real reason - something crossing a whole level in a single step
+// breaks the assumptions the solver rests on - but 500 suits human-scale games
+// and this one fires bullets. Left at the default, a round asked to travel at
+// 1000 simply comes out at 500: no error, no warning, just a shot moving at
+// half the speed the script asked for.
+//
+// So it is raised, not removed. Continuous collision is what makes fast bodies
+// safe to simulate; this ceiling still catches a runaway force before it sends
+// something to infinity.
+constexpr float kMaxLinearVelocity = 4000.0f;
+
 // The size of the per-step scratch buffer Jolt uses for temporary allocations
 // during a simulation step. It is claimed once and reused every step, so that
 // stepping the world does no heap allocation at all.
@@ -689,6 +703,8 @@ void ReconcileBodies(Scene& scene) {
         bcs.mLinearDamping  = rb->linearDamping;
         bcs.mAngularDamping = rb->angularDamping;
         bcs.mGravityFactor  = rb->gravityFactor;
+        // Jolt's own default here is 500, which is slower than a bullet.
+        bcs.mMaxLinearVelocity = kMaxLinearVelocity;
 
         // By default Jolt derives mass from the shape's volume assuming a
         // fixed density. We want the mass the Inspector says instead, but we
