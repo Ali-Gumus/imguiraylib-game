@@ -634,12 +634,34 @@ void ScriptComponent::Load() {
     // Looping sounds, for anything continuous like an engine note. Starting one
     // that is already running does nothing, so a script may call loop_start
     // every frame without stacking up copies.
+    // audio.play_at(name, x, y, z [, volume [, pitch]]): the same one-shot, but
+    // heard FROM A PLACE - quieter with distance and weighted towards the ear
+    // it happened on. Use this for anything that happens somewhere in the world
+    // (a gun, an impact, an explosion) and keep audio.play for sounds that
+    // genuinely have no location, like a warning tone meant for the player
+    // rather than the pilot. Beyond the sound's range it is not played at all.
+    au["play_at"] = [](const std::string& name, float x, float y, float z,
+                       sol::optional<float> volume, sol::optional<float> pitch) {
+        PlaySoundNamedAt(name.c_str(), {x, y, z}, volume.value_or(1.0f),
+                         pitch.value_or(0.0f));
+    };
+
     au["loop_start"] = [](const std::string& name) { LoopStart(name.c_str()); };
     au["loop_stop"]  = [](const std::string& name) { LoopStop(name.c_str()); };
     // audio.loop_set(name, volume, pitch): change a running loop. Called every
     // frame to tie an engine note to the throttle.
     au["loop_set"] = [](const std::string& name, float volume, float pitch) {
         LoopSet(name.c_str(), volume, pitch);
+    };
+    // audio.loop_at(name, x, y, z, volume, pitch): a loop coming from a moving
+    // point, such as a helicopter passing overhead. Call it every frame with
+    // the source's current position - both the distance and the side change as
+    // the thing moves, and a loop positioned once would stay where it started.
+    // Out of range it fades to silence rather than stopping, so a source that
+    // flies away and returns fades back in instead of restarting with a click.
+    au["loop_at"] = [](const std::string& name, float x, float y, float z,
+                       float volume, float pitch) {
+        LoopSetAt(name.c_str(), {x, y, z}, volume, pitch);
     };
 
     // The `physics` table drives entities that the simulation owns - those

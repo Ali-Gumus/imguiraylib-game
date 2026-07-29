@@ -36,6 +36,10 @@ function on_update(entity, dt)
         fx.burst("spark", p.x, p.y, p.z)
         -- A distinct sound from the player's own hits: being shot has to be
         -- unmistakable, not something to work out from the health bar.
+        -- Left unpositioned on purpose. This one is not a sound happening
+        -- somewhere in the world so much as a message to the player that they
+        -- are being hit, and it must never be faint or off to one side - it
+        -- always fires right where the player is anyway.
         audio.play("hit_taken")
         scene.destroy(entity)
         return

@@ -101,5 +101,7 @@ function on_destroy(entity)
     -- enemy that crashes explodes exactly like one that was shot down.
     local p = entity.transform.position
     fx.burst("explosion", p.x, p.y, p.z)
-    audio.play("explosion")
+    -- Heard from where the enemy died. A kill across the valley should sound
+    -- distant and off to one side, not like it happened in the cockpit.
+    audio.play_at("explosion", p.x, p.y, p.z)
 end

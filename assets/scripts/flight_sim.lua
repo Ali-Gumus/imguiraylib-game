@@ -109,5 +109,12 @@ function on_update(entity, dt)
     -- power, which is what makes opening the throttle *feel* like acceleration
     -- rather than just changing a number on the HUD. The ranges are deliberately
     -- narrow: an engine at idle is quieter and lower, not silent and inaudible.
-    audio.loop_set("jet", 1 + throttle * 1, 1.5 + throttle * 1)
+    --
+    -- Positioned at the aircraft, and updated every frame because the aircraft
+    -- moves: with a chase camera the engine sits just ahead of the listener, so
+    -- it stays loud and centred, but the same script on an enemy jet is heard
+    -- from wherever that jet is.
+    local ep = entity.transform.position
+    audio.loop_at("jet", ep.x, ep.y, ep.z,
+                  1 + throttle * 1, 1.5 + throttle * 1)
 end

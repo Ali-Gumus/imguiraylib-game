@@ -175,6 +175,34 @@ public:
         eng::SetSun(eng::SunSettings{});   // no light in the scene: use defaults
     }
 
+    // Put the listener where the world is being heard from, so that a sound's
+    // distance and side are measured against the right place.
+    //
+    // The listener follows whichever camera the player is looking through, so
+    // what is heard always agrees with what is seen. While play is running that
+    // is the scene's CameraComponent - the chase camera behind the jet. While
+    // stopped, it is the editor's own fly camera, so clicking around the scene
+    // in the viewport still gives an idea of where things sound from.
+    void UpdateAudioListener() {
+        if (m_playing) {
+            if (eng::Entity* camEnt = FindCameraEntity()) {
+                Matrix w = m_scene.WorldMatrix(*camEnt, /*ignoreScale=*/true);
+                // A world matrix carries the entity's axes in known slots.
+                // (m8,m9,m10) is its local +Z in world space and this engine's
+                // convention is that forward is local -Z, hence the negation;
+                // (m4,m5,m6) is its local +Y, which is "up".
+                eng::SetAudioListener(Vector3Transform({0.0f, 0.0f, 0.0f}, w),
+                                      {-w.m8, -w.m9, -w.m10},
+                                      { w.m4,  w.m5,  w.m6});
+                return;
+            }
+        }
+        // No camera entity, or not playing: use the editor's viewport camera.
+        eng::SetAudioListener(m_camera.position,
+                              Vector3Subtract(m_camera.target, m_camera.position),
+                              m_camera.up);
+    }
+
     // Called once per frame BEFORE anything is drawn. Handles input and,
     // during play, advances the world. `dt` is the frame time in seconds.
     void OnUpdate(float dt) override {
@@ -186,6 +214,11 @@ public:
         // a burst fired on the last frame before Stop should still finish
         // gracefully rather than freeze in mid-air.
         eng::UpdateParticles(dt);
+
+        // Place the listener before anything can play a sound this frame, or
+        // positioned sounds would be judged against where the listener was on
+        // the PREVIOUS frame - which at 200 units a second is a long way off.
+        UpdateAudioListener();
 
         // Looping sounds decode as they play and hold only a small buffer, so
         // they must be topped up every frame or they stutter and stop.

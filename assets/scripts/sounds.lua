@@ -12,6 +12,17 @@
 --     audio.loop_set("jet", 0.6, 1.3)  -- its volume and pitch, per frame
 --     audio.loop_stop("jet")
 --
+-- ...or, for anything that happens SOMEWHERE in the world:
+--
+--     audio.play_at("impact", x, y, z)          -- heard from that point
+--     audio.loop_at("jet", x, y, z, 0.6, 1.3)   -- a loop that moves with it
+--
+-- A positioned sound gets quieter with distance and leans towards the ear it
+-- is on. Prefer it for everything that physically happens - guns, impacts,
+-- explosions, engines - and keep the plain audio.play for sounds aimed at the
+-- PLAYER rather than the pilot, such as a warning tone or the cue that you
+-- have been hit, which must never be faint or off to one side.
+--
 -- FILES GO IN assets/sounds/. A definition whose file is missing stays
 -- registered and simply makes no noise, and the editor's toolbar shows a "snd?"
 -- badge listing which ones those are - so silence is always explained. Drop a
@@ -19,9 +30,11 @@
 -- .wav, .ogg, .mp3 and .flac.
 --
 -- A LOOP IS ONE STREAM, SHARED BY NAME. Two entities that both call
--- loop_start("heli") get the same single stream, not one each, and it has no
--- position in the world. That is fine for the player's own engine note; it is
--- not yet enough for per-enemy engine sounds.
+-- loop_start("heli") get the same single stream, not one each. It can now be
+-- given a position with loop_at, but there is still only ONE of it: with two
+-- helicopters, whichever calls loop_at last that frame decides where the sound
+-- appears to come from. That is fine for the player's own engine note, and for
+-- a single enemy; several at once would need a stream per source.
 --
 -- Every field is optional except the file:
 --
@@ -31,6 +44,15 @@
 --   pitch_max   highest; a small spread stops repeats sounding identical
 --   voices      how many copies may sound at once (one-shots only)
 --   loop        true for a continuous sound whose pitch and volume change
+--   range       how far away it can still be heard, in world units. Past this
+--               a positioned sound is silent and is not played at all. Set it
+--               by what the sound IS: gunfire and explosions carry a long way,
+--               a bullet striking dirt does not. Ignored by audio.play.
+--   ref_dist    how close it can get before it stops growing louder. Without
+--               it, a sound rushes towards deafening as its source reaches the
+--               camera; it also fades the left-right split near the listener,
+--               so a source passing through the camera does not snap from one
+--               ear to the other.
 --
 -- A NOTE ON VOICES. Playing a sound that is already playing restarts it, so a
 -- gun firing every 0.05 seconds would cut itself off on every shot and be heard

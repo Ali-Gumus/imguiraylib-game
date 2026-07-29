@@ -61,6 +61,9 @@ function on_update(entity, dt)
         fx.burst("muzzle", mx, my, mz, 1.0, vx, vy, vz)
         -- The report. Its pitch varies slightly per shot (set in sounds.lua), so
         -- sustained fire sounds like a gun rather than one repeated sample.
-        audio.play("shot")
+        -- Fired from the muzzle. On the player's own jet that is right beside
+        -- the camera and so still loud and central, but the same script on
+        -- another aircraft is heard from over there instead.
+        audio.play_at("shot", mx, my, mz)
     end
 end

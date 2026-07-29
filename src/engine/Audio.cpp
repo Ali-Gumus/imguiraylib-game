@@ -1,6 +1,7 @@
 #include "engine/Audio.h"
 
 #include "raylib.h"
+#include "raymath.h"     // vector maths for placing sounds in the world
 #include "sol/sol.hpp"   // runs sounds.lua, where the sound definitions live
 
 #include <algorithm>     // std::sort
@@ -19,6 +20,22 @@ struct SoundDef {
     float pitchMin = 1.0f;
     float pitchMax = 1.0f;
     bool  loop     = false;
+
+    // How far away this sound can still be heard, in world units. Beyond it the
+    // sound is silent and is not played at all.
+    //
+    // It is per sound because sounds genuinely differ: a rifle shot carries for
+    // hundreds of metres while a shell casing hitting the ground does not carry
+    // across a room. The default is large because this is a game of aircraft
+    // over a landscape a thousand units across, where a "nearby" explosion may
+    // be two hundred units away.
+    float range    = 500.0f;
+
+    // How far away the sound plays at full volume. Inside this radius it does
+    // not get any louder, which stops a sound exploding towards infinite volume
+    // as its source approaches the listener - the thing that makes an engine
+    // note stab painfully the instant the camera passes through it.
+    float refDist  = 10.0f;
 
     // --- one-shot playback ---
     // The sound as loaded from disk, plus a pool of ALIASES. An alias shares the
@@ -46,6 +63,83 @@ static std::vector<std::string> s_missing;    // defined but not on disk
 static std::string s_error;
 static bool s_ready = false;                  // did the audio device open?
 static bool s_muted = false;
+
+// ---------------------------------------------------------------------------
+// The listener: where the world is being heard from.
+// ---------------------------------------------------------------------------
+static Vector3 s_listenerPos{0.0f, 0.0f, 0.0f};
+// The listener's own rightward direction. Panning is decided by which side of
+// this the sound lies on, so it is stored ready-made rather than recomputed
+// from forward and up on every single sound.
+static Vector3 s_listenerRight{1.0f, 0.0f, 0.0f};
+
+void SetAudioListener(Vector3 position, Vector3 forward, Vector3 up) {
+    s_listenerPos = position;
+
+    // "Right" is the direction perpendicular to both where you are looking and
+    // which way is up - the cross product of the two. This is the same
+    // calculation that gives a camera its sideways axis.
+    Vector3 right = Vector3CrossProduct(forward, up);
+    // A zero-length result means forward and up were parallel (looking straight
+    // up, say), which leaves no meaningful "right". Keep the previous one
+    // rather than dividing by zero and panning everything to one ear.
+    if (Vector3LengthSqr(right) > 0.000001f)
+        s_listenerRight = Vector3Normalize(right);
+}
+
+Vector3 GetAudioListenerPosition() { return s_listenerPos; }
+
+// Work out how loud a sound at `pos` should be, and how far to either side.
+// Returns false when the sound is out of range and should not play at all.
+static bool Spatialize(const SoundDef& d, Vector3 pos, float& outGain,
+                       float& outPan) {
+    Vector3 toSource = Vector3Subtract(pos, s_listenerPos);
+    float   dist     = Vector3Length(toSource);
+
+    if (dist >= d.range) return false;          // too far to hear
+
+    // --- Volume ---
+    // Full volume inside refDist, then falling to nothing at range. The falloff
+    // is SQUARED rather than straight-line: sound intensity in the real world
+    // drops with the square of distance, and a linear fade sounds wrong in a
+    // specific way - things stay too loud too long and then vanish abruptly.
+    if (dist <= d.refDist) {
+        outGain = 1.0f;
+    } else {
+        float t = (dist - d.refDist) / (d.range - d.refDist);   // 0 near, 1 far
+        float fade = 1.0f - t;
+        outGain = fade * fade;
+    }
+
+    // --- Side ---
+    // How far the source lies along the listener's rightward axis, as a
+    // fraction of its distance: +1 is directly to the right, -1 directly to the
+    // left, 0 straight ahead OR straight behind (stereo cannot tell those
+    // apart).
+    float side = (dist > 0.0001f)
+               ? Vector3DotProduct(Vector3Scale(toSource, 1.0f / dist),
+                                   s_listenerRight)
+               : 0.0f;
+
+    // A sound very close to the listener should not be hard in one ear - when
+    // something is almost on top of you it surrounds you. Fading the panning
+    // out at close range avoids a sound snapping from one side to the other as
+    // the source passes through the camera.
+    float closeness = (dist < d.refDist) ? (dist / d.refDist) : 1.0f;
+    side *= closeness;
+
+    // raylib's pan runs from -1 (hard left) through 0 (centred) to +1 (hard
+    // right), which is exactly the range `side` already covers - so it goes
+    // straight across.
+    //
+    // Worth checking rather than assuming, because raylib's own header comments
+    // are inconsistent about this and a 0..1 reading would be wrong in a way
+    // that is easy to miss: centre would sit half-right, and nothing would ever
+    // be heard on the left at all. The authority is SetAudioBufferPan, which
+    // clamps to [-1, 1], and the mixer's `right = (pan + 1)/2`.
+    outPan = side;
+    return true;
+}
 
 static float RandRange(float lo, float hi) {
     if (hi <= lo) return lo;
@@ -128,6 +222,8 @@ bool ReloadSoundDefs() {
         d.volume   = num("volume", 1.0f);
         d.pitchMin = num("pitch_min", 1.0f);
         d.pitchMax = num("pitch_max", d.pitchMin);
+        d.range    = num("range", 500.0f);
+        d.refDist  = num("ref_dist", 10.0f);
         int voices = (int)num("voices", 4.0f);
 
         sol::optional<bool> lp = t["loop"];
@@ -188,13 +284,10 @@ void UpdateAudio() {
     }
 }
 
-void PlaySoundNamed(const char* name, float volume, float pitch) {
-    if (!s_ready || s_muted || name == nullptr) return;
-    auto it = s_sounds.find(name);
-    if (it == s_sounds.end()) return;      // unknown name: silence, not an error
-    SoundDef& d = it->second;
-    if (!d.loaded || d.voices.empty()) return;   // defined but its file is missing
-
+// The shared body of both play functions. `gain` already includes any distance
+// attenuation, and `pan` is raylib's -1 (left) to +1 (right); 0 is centred,
+// which is what an unpositioned sound uses.
+static void PlayOneShot(SoundDef& d, float volume, float pitch, float pan) {
     // Prefer a voice that is not currently sounding, so overlapping shots do not
     // cut each other off. If every voice is busy the oldest is reused, which is
     // the right compromise: the newest shot is the one the player just caused.
@@ -211,7 +304,36 @@ void PlaySoundNamed(const char* name, float volume, float pitch) {
     // A pitch of 0 from the caller means "use the definition's range", which
     // varies each shot. Identical repeats are what make a gun sound fake.
     SetSoundPitch(v, (pitch > 0.0f) ? pitch : RandRange(d.pitchMin, d.pitchMax));
+    SetSoundPan(v, pan);
     PlaySound(v);
+}
+
+void PlaySoundNamed(const char* name, float volume, float pitch) {
+    if (!s_ready || s_muted || name == nullptr) return;
+    auto it = s_sounds.find(name);
+    if (it == s_sounds.end()) return;      // unknown name: silence, not an error
+    SoundDef& d = it->second;
+    if (!d.loaded || d.voices.empty()) return;   // defined but its file is missing
+
+    // No position, so no attenuation and dead centre.
+    PlayOneShot(d, volume, pitch, 0.0f);
+}
+
+void PlaySoundNamedAt(const char* name, Vector3 position, float volume,
+                      float pitch) {
+    if (!s_ready || s_muted || name == nullptr) return;
+    auto it = s_sounds.find(name);
+    if (it == s_sounds.end()) return;
+    SoundDef& d = it->second;
+    if (!d.loaded || d.voices.empty()) return;
+
+    float gain = 1.0f, pan = 0.0f;
+    // Out of earshot: do not play it at all. Beyond being pointless, a silent
+    // distant shot would still claim a voice from the pool, and the pool is
+    // what lets nearby shots overlap instead of cutting each other off.
+    if (!Spatialize(d, position, gain, pan)) return;
+
+    PlayOneShot(d, volume * gain, pitch, pan);
 }
 
 void LoopStart(const char* name) {
@@ -232,6 +354,25 @@ void LoopSet(const char* name, float volume, float pitch) {
     SoundDef& d = it->second;
     if (!d.musicLoaded || !d.musicPlaying) return;
     SetMusicVolume(d.music, s_muted ? 0.0f : d.volume * volume);
+    if (pitch > 0.0f) SetMusicPitch(d.music, pitch);
+}
+
+void LoopSetAt(const char* name, Vector3 position, float volume, float pitch) {
+    if (!s_ready || name == nullptr) return;
+    auto it = s_sounds.find(name);
+    if (it == s_sounds.end()) return;
+    SoundDef& d = it->second;
+    if (!d.musicLoaded || !d.musicPlaying) return;
+
+    float gain = 0.0f, pan = 0.0f;
+    // Unlike a one-shot, an out-of-range LOOP is not stopped - it is turned
+    // down to silence and left running. A helicopter that flies away and comes
+    // back should fade out and in; stopping the stream would restart it from
+    // the beginning of the sample, which is audible as a click and a jump.
+    if (!Spatialize(d, position, gain, pan)) gain = 0.0f;
+
+    SetMusicVolume(d.music, s_muted ? 0.0f : d.volume * volume * gain);
+    SetMusicPan(d.music, pan);
     if (pitch > 0.0f) SetMusicPitch(d.music, pitch);
 }
 

@@ -94,6 +94,8 @@ function on_collision(entity, other, speed, x, y, z)
         fx.burst("explosion", x, y, z, 0.5)
     end
 
-    audio.play("impact")
+    -- Heard from where it landed, so a shot striking a distant hill is faint
+    -- and off to one side rather than going off inside the player's head.
+    audio.play_at("impact", x, y, z)
     scene.destroy(entity)
 end
