@@ -96,6 +96,7 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::FxBurstAt:       return "FX Burst At";
         case NodeKind::SetCollider:     return "Set Collider";
         case NodeKind::HudAdd:          return "HUD Add";
+        case NodeKind::HudGet:          return "HUD Get";
     }
     return "?";
 }
@@ -126,6 +127,7 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::CountTag:
         case NodeKind::OtherTagIs:
         case NodeKind::Speed:
+        case NodeKind::HudGet:
             return true;
         default:
             return false;
@@ -255,6 +257,9 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
         // How fast this entity is travelling, from the simulation.
         case NodeKind::Speed:
             return {{SlotDataOut, PinType::Float, false, "speed"}};
+        // Read a HUD value back, so a graph can branch on shared game state.
+        case NodeKind::HudGet:
+            return {{SlotDataOut, PinType::Float, false, "value"}};
         // Damage whatever we just hit.
         case NodeKind::DamageOther:
             return {{SlotExecIn,  PinType::Exec,  true,  ""},
@@ -620,8 +625,8 @@ void ScriptGraph::DrawNode(GraphNode& n) {
             m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
         }
     }
-    else if (n.kind == NodeKind::HudAdd)
-        ImGui::InputText("##hudadd", n.text, sizeof(n.text));  // which HUD value
+    else if (n.kind == NodeKind::HudAdd || n.kind == NodeKind::HudGet)
+        ImGui::InputText("##hudname", n.text, sizeof(n.text));  // which HUD value
     else if (n.kind == NodeKind::SetCollider) {
         static const char* kShapes[] = { "sphere", "box", "capsule" };
         int cur = 0;
@@ -906,6 +911,7 @@ void ScriptGraph::HandleContextMenu() {
             item("Hit Nearest", NodeKind::HitNearest);
             item("HUD Set", NodeKind::HudSet);
             item("HUD Add", NodeKind::HudAdd);
+            item("HUD Get", NodeKind::HudGet);
             item("Avoid Crowd", NodeKind::AvoidCrowd);
             item("Aimed At Player", NodeKind::AimedAtPlayer);
             item("Chase Target", NodeKind::ChaseTarget);
@@ -971,7 +977,7 @@ void ScriptGraph::HandleContextMenu() {
             if (picked == NodeKind::FxBurstAt) n.value = 1.0f;        // default effect size
             if (picked == NodeKind::SetCollider)
                 std::strncpy(n.text, "sphere", sizeof(n.text) - 1);   // the usual shape
-            if (picked == NodeKind::HudAdd)
+            if (picked == NodeKind::HudAdd || picked == NodeKind::HudGet)
                 std::strncpy(n.text, "score", sizeof(n.text) - 1);    // the usual target
             if (picked == NodeKind::HudSet)
                 std::strncpy(n.text, "value", sizeof(n.text) - 1);   // default HUD name
@@ -1161,6 +1167,13 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         }
         case NodeKind::Speed:
             return "physics.speed(entity)";
+        case NodeKind::HudGet: {
+            std::string name(n.text), esc;
+            for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+            // A HUD value that was never set reads as 0, which is what makes a
+            // guard like "game_over > 0" work before anything has set it.
+            return "hud.get(\"" + esc + "\", 0)";
+        }
         case NodeKind::Param:
             // Read the tunable back from the generated properties table.
             return n.text[0] ? ("properties." + std::string(n.text)) : "0";

@@ -104,6 +104,13 @@ enum class NodeKind {
     SetCollider,             // action: give this entity a collision volume
     HudAdd,                  // action: ADD to a HUD value (HudSet only sets, so
                              //         a score could not be awarded from a graph)
+    HudGet,                  // value: read a HUD value back -> Float. Lets a
+                             //        graph branch on shared game state, which
+                             //        is how a game-over guard is written.
+                             // (APPENDED, per the note above: putting this in
+                             //  front of HudAdd would have renumbered it and
+                             //  silently turned it into a different node in
+                             //  every graph already using it.)
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
