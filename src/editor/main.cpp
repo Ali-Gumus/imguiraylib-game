@@ -143,6 +143,9 @@ public:
         eng::ShutdownParticles();
         eng::ShutdownAudio();
         eng::ShutdownPhysics();
+        // Model files are shared and outlive the components that drew them, so
+        // they are freed here rather than by any one component.
+        eng::ClearModelCache();
         ed::DestroyEditor(m_nodeCtx);
     }
 
@@ -669,6 +672,10 @@ private:
         eng::ReloadEffectPresets();
         eng::ReloadSoundDefs();
         eng::ReloadModelDefs();       // and the model set-ups spawns refer to
+        // Read every model file now. Loading one costs several megabytes off
+        // disk, and paying that here - where a pause is expected - keeps a wave
+        // of enemies from stalling the game the moment it appears.
+        eng::PreloadModelDefs();
         m_scene.Start();              // run every script's on_start
         m_playing = true;
     }

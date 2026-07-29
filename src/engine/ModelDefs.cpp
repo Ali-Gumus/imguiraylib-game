@@ -85,6 +85,10 @@ bool ReloadModelDefs() {
     return true;
 }
 
+void PreloadModelDefs() {
+    for (const auto& kv : s_defs) PreloadModel(kv.second.file);
+}
+
 bool ApplyModelDef(Entity& e, const std::string& name) {
     const ModelDef* d = FindModelDef(name);
     if (d == nullptr || d->file.empty()) return false;

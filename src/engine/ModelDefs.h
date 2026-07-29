@@ -66,4 +66,11 @@ const ModelDef* FindModelDef(const std::string& name);
 // Returns true if a model was actually added.
 bool ApplyModelDef(Entity& e, const std::string& name);
 
+// Load every defined model's file now, so that nothing spawned later has to
+// stop the game to read one off disk. Call when play begins: a pause there is
+// expected and barely noticed, whereas the same pause when a wave of enemies
+// appears is the most conspicuous moment it could possibly happen.
+// Needs the window to exist, since loading a model talks to the graphics device.
+void PreloadModelDefs();
+
 } // namespace eng

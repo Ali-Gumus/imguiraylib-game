@@ -829,6 +829,18 @@ private:
 // so an unfamiliar entry in a file is skipped rather than crashing the load.
 std::unique_ptr<Component> MakeComponent(const std::string& name);
 
+// Free every model file the engine has loaded. Model files are loaded once and
+// shared by everything that draws them (see the cache note in Components.cpp),
+// and are kept until this is called. Call ONCE at shutdown, while the window -
+// and therefore the graphics device - still exists.
+void ClearModelCache();
+
+// Load a model file into that shared cache now, rather than when something
+// first draws it. Use it to move an unavoidable cost to a moment where a pause
+// is expected - pressing Play - instead of mid-game when a wave spawns.
+// Does nothing if the file is already loaded or cannot be read.
+void PreloadModel(const std::string& path);
+
 // A tiny shared store of named numbers that scripts can post to (via the Lua
 // `hud.set(name, value)` call) and the editor's HUD can read back. This is how
 // a value that lives inside a Lua script (like throttle) reaches the C++ HUD.

@@ -200,27 +200,90 @@ void TerrainComponent::OnInspector() {
 
 // ---- ModelComponent --------------------------------------------------------
 
+// Every distinct model FILE is loaded once and shared by everything that draws
+// it.
+//
+// Without this, each entity loads its own copy: a wave of five helicopters
+// meant five separate reads of the same six-megabyte file, five parses and five
+// uploads to the graphics card, all on the single frame they first appeared -
+// which stalls the game visibly at exactly the moment a wave arrives.
+//
+// Sharing is safe because a raylib `Model` is a small handle struct pointing at
+// meshes and materials on the GPU. A component keeps its own COPY of that
+// struct, so it can set its own draw transform, while the buffers underneath
+// are shared. Only the transform is written per component, and it is written
+// immediately before drawing, so no two entities can disagree about it.
+//
+// Nothing is unloaded until shutdown, deliberately. Releasing a model the
+// moment its last user died would mean re-reading six megabytes the next time a
+// wave spawned - the very stall this exists to remove. The cost is bounded by
+// how many distinct model files a project has, which is small.
+namespace {
+
+struct CachedModel {
+    Model model{};
+    bool  ok = false;      // did it actually load?
+};
+
+std::unordered_map<std::string, CachedModel> g_modelCache;
+
+// Load `path` if it has not been loaded before, and return it. Returns nullptr
+// if the file is missing or unreadable.
+const CachedModel* AcquireModel(const std::string& path) {
+    auto it = g_modelCache.find(path);
+    if (it != g_modelCache.end())
+        return it->second.ok ? &it->second : nullptr;
+
+    CachedModel c;
+    c.model = LoadModel(path.c_str());
+    // LoadModel returns a model with zero meshes if the file was missing or
+    // invalid; treat that as "not loaded" so we don't try to draw nothing.
+    c.ok = (c.model.meshCount > 0);
+    if (c.ok) ApplyLightingShader(c.model);   // shade it like everything else
+
+    // A failed load is remembered too, so a missing file is not retried on
+    // every single frame for the rest of the run.
+    auto res = g_modelCache.emplace(path, c);
+    return res.first->second.ok ? &res.first->second : nullptr;
+}
+
+} // anonymous namespace
+
+void PreloadModel(const std::string& path) {
+    if (!path.empty()) AcquireModel(path);
+}
+
+void ClearModelCache() {
+    for (auto& kv : g_modelCache)
+        if (kv.second.ok) UnloadModel(kv.second.model);
+    g_modelCache.clear();
+}
+
 ModelComponent::~ModelComponent() {
-    if (m_loaded) UnloadModel(m_model);   // free the GPU resources
+    // Nothing to free: the model belongs to the shared cache, not to this
+    // component. Unloading here would pull the mesh out from under every other
+    // entity drawing the same file.
 }
 
 void ModelComponent::SetPath(const std::string& p) {
-    if (m_loaded) UnloadModel(m_model);   // drop the old model
     path     = p;
     m_loaded = false;
-    m_tried  = false;                     // load the new one on the next draw
+    m_tried  = false;                     // pick up the new one on the next draw
 }
 
 void ModelComponent::EnsureLoaded() {
     if (m_tried) return;                  // only attempt the load once per path
     m_tried = true;
     if (path.empty()) return;
-    m_model = LoadModel(path.c_str());
-    // LoadModel returns a model with zero meshes if the file was missing or
-    // invalid; treat that as "not loaded" so we don't try to draw nothing.
-    m_loaded = (m_model.meshCount > 0);
-    m_baseTransform = m_model.transform;   // remember the file's own transform
-    ApplyLightingShader(m_model);          // shade it like everything else
+
+    const CachedModel* c = AcquireModel(path);
+    if (c == nullptr) return;             // missing file: stays unloaded
+
+    // A copy of the handle struct, so this component can set its own draw
+    // transform without disturbing anyone else drawing the same file.
+    m_model         = c->model;
+    m_baseTransform = c->model.transform;  // the file's own transform
+    m_loaded        = true;
 }
 
 void ModelComponent::OnDraw(const Entity& owner) {
