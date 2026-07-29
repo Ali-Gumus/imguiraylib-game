@@ -707,6 +707,11 @@ void ReconcileBodies(Scene& scene) {
         // awkward to do safely.
         bcs.mUserData = (JPH::uint64)e.id;
 
+        // Sweep the path rather than sampling its end, for bodies fast enough
+        // to skip past thin geometry between one step and the next.
+        if (rb->continuous)
+            bcs.mMotionQuality = JPH::EMotionQuality::LinearCast;
+
         // A static body is created asleep: activating it would only cost work,
         // since it is never going to move.
         const JPH::EActivation activation = (motion == MotionType::Static)
@@ -714,8 +719,16 @@ void ReconcileBodies(Scene& scene) {
             : JPH::EActivation::Activate;
 
         const JPH::BodyID id = bi.CreateAndAddBody(bcs, activation);
-        if (!id.IsInvalid())
-            g_world->bodies[e.id] = World::Tracked{id, motion};
+        if (id.IsInvalid()) continue;
+        g_world->bodies[e.id] = World::Tracked{id, motion};
+
+        // Launch it, if it was asked to start moving. This is how a projectile
+        // leaves the barrel at speed: the script that spawned it had no body
+        // to push at the time, so it recorded the velocity instead.
+        if (motion == MotionType::Dynamic &&
+            (rb->initialVelocity.x != 0.0f || rb->initialVelocity.y != 0.0f ||
+             rb->initialVelocity.z != 0.0f))
+            bi.SetLinearVelocity(id, ToJolt(rb->initialVelocity));
     }
 
     // Remove bodies whose entity is gone, or which no longer has the
@@ -1048,7 +1061,19 @@ void SetLinearVelocity(EntityID id, Vector3 v) {
         JPH::BodyInterface& bi = g_world->system.GetBodyInterface();
         bi.ActivateBody(t->id);
         bi.SetLinearVelocity(t->id, ToJolt(v));
+        return;
     }
+
+    // No body yet. That is the normal situation for an entity spawned during
+    // this frame: it joins the simulation at the end of it. Rather than
+    // silently dropping the request - which would leave a bullet hanging in
+    // the air at the muzzle - record it as the velocity the body should be
+    // born with. A script therefore does not have to know or care whether the
+    // entity it is launching has reached the simulation yet.
+    if (Scene* s = Scene::Current())
+        if (Entity* e = s->Find(id))
+            if (auto* rb = e->GetComponent<RigidBodyComponent>())
+                rb->initialVelocity = v;
 }
 
 Vector3 GetAngularVelocity(EntityID id) {

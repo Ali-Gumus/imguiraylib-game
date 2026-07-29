@@ -8,7 +8,15 @@
 -- Tunable values, shown as editable fields in the Inspector.
 properties = {
     fire_rate = 0.2,   -- seconds between shots (smaller = faster fire)
-    muzzle    = 8.0,    -- how far in front of the jet each bullet appears
+    -- How far in front of the jet each bullet appears.
+    --
+    -- This must clear the jet's OWN COLLIDER, not just its model. A bullet is
+    -- now a solid physical object, so one born inside the aircraft that fired
+    -- it starts the frame overlapping it and is shoved aside instead of flying
+    -- straight. The jet's collider is a capsule running nose to tail, so this
+    -- needs to be past its front cap - check the green wireframe in the
+    -- viewport and put the muzzle beyond it.
+    muzzle    = 14.0,
 }
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)

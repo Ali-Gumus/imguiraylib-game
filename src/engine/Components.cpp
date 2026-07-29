@@ -407,6 +407,15 @@ void RigidBodyComponent::OnInspector() {
     ImGui::DragFloat("Linear Damping", &linearDamping, 0.01f, 0.0f, 10.0f);
     ImGui::DragFloat("Angular Damping", &angularDamping, 0.01f, 0.0f, 10.0f);
     ImGui::DragFloat("Gravity Factor", &gravityFactor, 0.05f, -5.0f, 5.0f);
+    ImGui::DragFloat3("Start Velocity", &initialVelocity.x, 0.5f);
+
+    ImGui::Checkbox("Continuous collision", &continuous);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Sweep the whole path each step instead of only\n"
+                          "testing where the body lands. Needed for anything\n"
+                          "fast enough to jump past a wall between steps -\n"
+                          "bullets above all. Costs more, so leave it off\n"
+                          "for ordinary objects.");
 }
 
 // ---- CameraComponent -------------------------------------------------------
@@ -717,6 +726,32 @@ void ScriptComponent::Load() {
     // physics.has_body(entity): true when the simulation owns this entity, so
     // a script can offer both a physics path and a hand-moved fallback.
     phys["has_body"] = [](Entity& e) { return HasBody(e.id); };
+
+    // physics.set_body(entity, motion [, mass [, gravity [, continuous]]]):
+    // hand a spawned entity to the simulation. `motion` is "static",
+    // "kinematic" or "dynamic"; anything else is treated as dynamic.
+    //
+    // Like scene.set_collider, this only ADDS a rigid body when the entity has
+    // none. An entity built in the editor already carries the settings someone
+    // chose, and a script default must never overwrite a decision a person
+    // made - so calling this on an authored entity leaves it untouched.
+    //
+    // It exists for entities created at runtime: a bullet is spawned as a bare
+    // entity plus a script, and this is how that script says "and I am a solid
+    // object that falls".
+    phys["set_body"] = [](Entity& e, const std::string& motion,
+                          sol::optional<float> mass,
+                          sol::optional<float> gravity,
+                          sol::optional<bool> continuous) {
+        if (e.GetComponent<RigidBodyComponent>()) return;
+        RigidBodyComponent& rb = e.AddComponent<RigidBodyComponent>();
+        if (motion == "static")         rb.motion = MotionType::Static;
+        else if (motion == "kinematic") rb.motion = MotionType::Kinematic;
+        else                            rb.motion = MotionType::Dynamic;
+        rb.mass          = mass.value_or(rb.mass);
+        rb.gravityFactor = gravity.value_or(rb.gravityFactor);
+        rb.continuous    = continuous.value_or(rb.continuous);
+    };
 
     // The `light` table lets scripts change the sun while the game runs: dimming
     // it towards dusk, flashing it red when the player is hit, and so on.

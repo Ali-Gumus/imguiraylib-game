@@ -477,6 +477,9 @@ public:
         out["linearDamping"]  = linearDamping;
         out["angularDamping"] = angularDamping;
         out["gravityFactor"]  = gravityFactor;
+        out["continuous"]     = continuous;
+        out["initialVelocity"] = {initialVelocity.x, initialVelocity.y,
+                                  initialVelocity.z};
     }
     void Deserialize(const nlohmann::json& in) override {
         int m = in.value("motion", static_cast<int>(motion));
@@ -490,6 +493,10 @@ public:
         linearDamping  = in.value("linearDamping", linearDamping);
         angularDamping = in.value("angularDamping", angularDamping);
         gravityFactor  = in.value("gravityFactor", gravityFactor);
+        continuous     = in.value("continuous", continuous);
+        if (in.contains("initialVelocity"))
+            initialVelocity = {in["initialVelocity"][0], in["initialVelocity"][1],
+                               in["initialVelocity"][2]};
     }
 
     MotionType motion = MotionType::Dynamic;
@@ -522,6 +529,32 @@ public:
     // weightless (useful for a projectile that should fly straight), and small
     // values read as something buoyant. Negative values make it fall upwards.
     float gravityFactor = 1.0f;
+
+    // Sweep this body's whole path each step instead of only testing where it
+    // lands ("continuous collision detection").
+    //
+    // The simulation normally advances in jumps and checks for overlaps at the
+    // end of each one. A fast object can therefore be in front of a wall on
+    // one step and behind it on the next, never overlapping it on any step, so
+    // nothing is ever detected and it passes straight through. At sixty steps
+    // a second an object moving 200 units a second travels more than three
+    // units per step, so anything thinner than that is unreliable.
+    //
+    // Switching this on makes the body test the whole line it travelled. It
+    // costs noticeably more, so it is off by default and belongs on small fast
+    // things - bullets above all - not on everything.
+    bool continuous = false;
+
+    // The velocity the body starts with, in world units per second, applied
+    // once when it enters the simulation.
+    //
+    // This exists because a body is not created the instant a script asks for
+    // one: entities spawned during a frame join the simulation at the end of
+    // it. A projectile therefore has nothing to set the velocity ON at the
+    // moment it is spawned. Recording the intent here and applying it at
+    // creation is what lets a bullet leave the barrel already moving, instead
+    // of appearing motionless and dropping for a frame.
+    Vector3 initialVelocity{0.0f, 0.0f, 0.0f};
 };
 
 // ============================================================================
