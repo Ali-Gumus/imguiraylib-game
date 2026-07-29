@@ -83,6 +83,19 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::SpawnCube:    return "Spawn Cube";
         case NodeKind::Spawn:        return "Spawn";
         case NodeKind::CountTag:     return "Count Tag";
+        case NodeKind::EventCollision:  return "On Collision";
+        case NodeKind::OtherTagIs:      return "Hit Tag Is";
+        case NodeKind::DamageOther:     return "Damage Hit";
+        case NodeKind::SetBody:         return "Set Body";
+        case NodeKind::SetVelocity:     return "Set Velocity";
+        case NodeKind::ApplyForce:      return "Apply Force";
+        case NodeKind::ApplyLocalForce: return "Apply Local Force";
+        case NodeKind::Speed:           return "Speed";
+        case NodeKind::PlaySoundAt:     return "Play Sound At";
+        case NodeKind::LoopAt:          return "Loop At";
+        case NodeKind::FxBurstAt:       return "FX Burst At";
+        case NodeKind::SetCollider:     return "Set Collider";
+        case NodeKind::HudAdd:          return "HUD Add";
     }
     return "?";
 }
@@ -111,6 +124,8 @@ bool ScriptGraph::IsPure(NodeKind k) {
         case NodeKind::Param:
         case NodeKind::Sin: case NodeKind::Cos: case NodeKind::Floor:
         case NodeKind::CountTag:
+        case NodeKind::OtherTagIs:
+        case NodeKind::Speed:
             return true;
         default:
             return false;
@@ -223,6 +238,76 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
         // Count entities carrying a tag (the tag is a node field).
         case NodeKind::CountTag:
             return {{SlotDataOut, PinType::Float, false, "count"}};
+
+        // --- Stage 13: physics and collisions -------------------------------
+        // The collision event hands on everything the impact knew: how hard it
+        // was, and where on the two surfaces it happened - which is where an
+        // explosion or a shower of sparks belongs.
+        case NodeKind::EventCollision:
+            return {{SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataOut,     PinType::Float, false, "speed"},
+                    {SlotDataOut + 1, PinType::Float, false, "x"},
+                    {SlotDataOut + 2, PinType::Float, false, "y"},
+                    {SlotDataOut + 3, PinType::Float, false, "z"}};
+        // Was the thing we hit tagged this? The tag is a node field.
+        case NodeKind::OtherTagIs:
+            return {{SlotDataOut, PinType::Bool, false, "is"}};
+        // How fast this entity is travelling, from the simulation.
+        case NodeKind::Speed:
+            return {{SlotDataOut, PinType::Float, false, "speed"}};
+        // Damage whatever we just hit.
+        case NodeKind::DamageOther:
+            return {{SlotExecIn,  PinType::Exec,  true,  ""},
+                    {SlotDataIn,  PinType::Float, true,  "amount"},
+                    {SlotExecOut, PinType::Exec,  false, "then"}};
+        // Hand this entity to the physics simulation. Motion type and the
+        // continuous-collision flag are node fields; mass and gravity are
+        // wired, so a Param can drive them.
+        case NodeKind::SetBody:
+            return {{SlotExecIn,     PinType::Exec,  true,  ""},
+                    {SlotDataIn,     PinType::Float, true,  "mass"},
+                    {SlotDataIn + 1, PinType::Float, true,  "gravity"},
+                    {SlotExecOut,    PinType::Exec,  false, "then"}};
+        // Three-component vector actions: velocity and the two force kinds all
+        // take the same shape.
+        case NodeKind::SetVelocity:
+        case NodeKind::ApplyForce:
+        case NodeKind::ApplyLocalForce:
+            return {{SlotExecIn,     PinType::Exec,  true,  ""},
+                    {SlotDataIn,     PinType::Float, true,  "x"},
+                    {SlotDataIn + 1, PinType::Float, true,  "y"},
+                    {SlotDataIn + 2, PinType::Float, true,  "z"},
+                    {SlotExecOut,    PinType::Exec,  false, "then"}};
+        // A one-shot sound or a particle burst at a point in the world. The
+        // name is a node field, chosen from a dropdown.
+        case NodeKind::PlaySoundAt:
+        case NodeKind::FxBurstAt:
+            return {{SlotExecIn,     PinType::Exec,  true,  ""},
+                    {SlotDataIn,     PinType::Float, true,  "x"},
+                    {SlotDataIn + 1, PinType::Float, true,  "y"},
+                    {SlotDataIn + 2, PinType::Float, true,  "z"},
+                    {SlotExecOut,    PinType::Exec,  false, "then"}};
+        // A collision volume. The shape is a node field; its size is wired, so
+        // a Param can drive it from the Inspector.
+        case NodeKind::SetCollider:
+            return {{SlotExecIn,   PinType::Exec,  true,  ""},
+                    {SlotDataIn,   PinType::Float, true,  "size"},
+                    {SlotExecOut,  PinType::Exec,  false, "then"}};
+        // Add to a HUD value rather than replacing it - awarding score.
+        case NodeKind::HudAdd:
+            return {{SlotExecIn,   PinType::Exec,  true,  ""},
+                    {SlotDataIn,   PinType::Float, true,  "delta"},
+                    {SlotExecOut,  PinType::Exec,  false, "then"}};
+        // A moving loop: position, plus the volume and pitch that make an
+        // engine note follow the throttle.
+        case NodeKind::LoopAt:
+            return {{SlotExecIn,     PinType::Exec,  true,  ""},
+                    {SlotDataIn,     PinType::Float, true,  "x"},
+                    {SlotDataIn + 1, PinType::Float, true,  "y"},
+                    {SlotDataIn + 2, PinType::Float, true,  "z"},
+                    {SlotDataIn + 3, PinType::Float, true,  "volume"},
+                    {SlotDataIn + 4, PinType::Float, true,  "pitch"},
+                    {SlotExecOut,    PinType::Exec,  false, "then"}};
         // Is a player within range? number in, bool out.
         case NodeKind::IsPlayerNear:
             return {{SlotDataIn,  PinType::Float, true,  "range"},
@@ -328,7 +413,7 @@ PinType ScriptGraph::PinTypeOf(int pin) const {
 
 static bool IsEvent(NodeKind k) {
     return k == NodeKind::EventCreate || k == NodeKind::EventUpdate ||
-           k == NodeKind::EventDestroy;
+           k == NodeKind::EventDestroy || k == NodeKind::EventCollision;
 }
 
 // ---- Construction ----------------------------------------------------------
@@ -533,6 +618,60 @@ void ScriptGraph::DrawNode(GraphNode& n) {
             m_fxPickerX = screen.x;
             m_fxPickerY = screen.y;
             m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
+        }
+    }
+    else if (n.kind == NodeKind::HudAdd)
+        ImGui::InputText("##hudadd", n.text, sizeof(n.text));  // which HUD value
+    else if (n.kind == NodeKind::SetCollider) {
+        static const char* kShapes[] = { "sphere", "box", "capsule" };
+        int cur = 0;
+        for (int i = 0; i < 3; ++i)
+            if (std::strcmp(n.text, kShapes[i]) == 0) cur = i;
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Combo("##shape", &cur, kShapes, 3))
+            std::strncpy(n.text, kShapes[cur], sizeof(n.text) - 1);
+    }
+    else if (n.kind == NodeKind::OtherTagIs)
+        ImGui::InputText("##hittag", n.text, sizeof(n.text));   // the tag to test for
+    else if (n.kind == NodeKind::SetBody) {
+        // The three motion types, in the same order the engine's enum uses.
+        static const char* kMotions[] = { "static", "kinematic", "dynamic" };
+        int cur = 2;                                   // default: dynamic
+        for (int i = 0; i < 3; ++i)
+            if (std::strcmp(n.text, kMotions[i]) == 0) cur = i;
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Combo("##motion", &cur, kMotions, 3))
+            std::strncpy(n.text, kMotions[cur], sizeof(n.text) - 1);
+        // `value` doubles as the continuous-collision flag - a float standing in
+        // for a bool, because a node carries one number and this needs no more.
+        bool cont = (n.value != 0.0f);
+        if (ImGui::Checkbox("sweep", &cont)) n.value = cont ? 1.0f : 0.0f;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Continuous collision: sweep the whole path each\n"
+                              "step instead of only testing where it lands.\n"
+                              "Needed for bullets; wasted on anything slow.");
+    }
+    else if (n.kind == NodeKind::PlaySoundAt || n.kind == NodeKind::LoopAt ||
+             n.kind == NodeKind::FxBurstAt) {
+        // Same deferred-popup dance as the unpositioned versions.
+        const bool sound = (n.kind != NodeKind::FxBurstAt);
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Button(n.text[0] ? n.text : (sound ? "(pick sound)" : "(pick effect)"),
+                          ImVec2(140.0f, 0.0f))) {
+            m_fxPickerNode     = n.id;
+            m_fxPickerField    = 0;
+            m_fxPickerList     = sound ? PickList::Sounds : PickList::Effects;
+            m_fxPickerOptional = false;
+            m_fxPickerOpen     = true;
+            ImVec2 bl{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
+            ImVec2 screen = ed::CanvasToScreen(bl);
+            m_fxPickerX = screen.x;
+            m_fxPickerY = screen.y;
+            m_fxPickerW = ed::CanvasToScreen(ImGui::GetItemRectMax()).x - screen.x;
+        }
+        if (n.kind == NodeKind::FxBurstAt) {
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::DragFloat("##fxatscale", &n.value, 0.05f, 0.0f, 100.0f);  // effect size
         }
     }
     else if (n.kind == NodeKind::CountTag)
@@ -766,6 +905,7 @@ void ScriptGraph::HandleContextMenu() {
             item("Set Scale", NodeKind::SetScale);
             item("Hit Nearest", NodeKind::HitNearest);
             item("HUD Set", NodeKind::HudSet);
+            item("HUD Add", NodeKind::HudAdd);
             item("Avoid Crowd", NodeKind::AvoidCrowd);
             item("Aimed At Player", NodeKind::AimedAtPlayer);
             item("Chase Target", NodeKind::ChaseTarget);
@@ -779,6 +919,27 @@ void ScriptGraph::HandleContextMenu() {
             item("Loop Set", NodeKind::LoopSet);
             item("Loop Stop", NodeKind::LoopStop);
             item("Set Light", NodeKind::SetLightIntensity);
+            ImGui::Separator();
+            // The positioned versions. These take a point in the world, so an
+            // impact is heard and seen where it happened rather than at the
+            // listener or at the entity's own origin.
+            item("Play Sound At", NodeKind::PlaySoundAt);
+            item("Loop At",       NodeKind::LoopAt);
+            item("FX Burst At",   NodeKind::FxBurstAt);
+            ImGui::EndMenu();
+        }
+        // Physics: an entity the simulation owns is never placed, only pushed.
+        if (ImGui::BeginMenu("Physics")) {
+            item("On Collision",      NodeKind::EventCollision);
+            item("Hit Tag Is",        NodeKind::OtherTagIs);
+            item("Damage Hit",        NodeKind::DamageOther);
+            ImGui::Separator();
+            item("Set Body",          NodeKind::SetBody);
+            item("Set Velocity",      NodeKind::SetVelocity);
+            item("Apply Force",       NodeKind::ApplyForce);
+            item("Apply Local Force", NodeKind::ApplyLocalForce);
+            item("Speed",             NodeKind::Speed);
+            item("Set Collider",      NodeKind::SetCollider);
             ImGui::EndMenu();
         }
         if (add) {
@@ -800,6 +961,18 @@ void ScriptGraph::HandleContextMenu() {
                 std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default target tag
                 n.value = 1.0f;                                      // default damage
             }
+            if (picked == NodeKind::OtherTagIs)
+                std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // the usual test
+            if (picked == NodeKind::DamageOther) n.value = 1.0f;      // default damage
+            if (picked == NodeKind::SetBody) {
+                std::strncpy(n.text, "dynamic", sizeof(n.text) - 1);  // the interesting kind
+                n.value = 0.0f;                                       // continuous off
+            }
+            if (picked == NodeKind::FxBurstAt) n.value = 1.0f;        // default effect size
+            if (picked == NodeKind::SetCollider)
+                std::strncpy(n.text, "sphere", sizeof(n.text) - 1);   // the usual shape
+            if (picked == NodeKind::HudAdd)
+                std::strncpy(n.text, "score", sizeof(n.text) - 1);    // the usual target
             if (picked == NodeKind::HudSet)
                 std::strncpy(n.text, "value", sizeof(n.text) - 1);   // default HUD name
             if (picked == NodeKind::AvoidCrowd) {
@@ -978,6 +1151,16 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         }
         case NodeKind::GetVar:
             return n.text[0] ? std::string(n.text) : "0";   // the variable's name
+        case NodeKind::OtherTagIs: {
+            // `other` is the collision handler's own parameter, so this is only
+            // meaningful inside an On Collision chain. Outside one it would
+            // reference a nil, which Lua reports plainly enough.
+            std::string tag(n.text), esc;
+            for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+            return "other.tag == \"" + esc + "\"";
+        }
+        case NodeKind::Speed:
+            return "physics.speed(entity)";
         case NodeKind::Param:
             // Read the tunable back from the generated properties table.
             return n.text[0] ? ("properties." + std::string(n.text)) : "0";
@@ -1045,6 +1228,23 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
 std::string ScriptGraph::ExprForInput(int inputPin) const {
     const GraphNode* src = SourceOf(inputPin);
     if (!src) return PinTypeOf(inputPin) == PinType::Bool ? "false" : "0";
+
+    // Almost every value node has a single output, so knowing the node is
+    // enough to know the expression. On Collision is the exception: it hands
+    // out four separate numbers, and which one is wanted depends on WHICH of
+    // its pins the wire came from - information ExprForNode never sees, since
+    // it is given only the node.
+    if (src->kind == NodeKind::EventCollision) {
+        for (const auto& l : m_links) {
+            if (l.toPin != inputPin) continue;
+            switch (PinToSlot(l.fromPin) - SlotDataOut) {
+                case 0:  return "speed";
+                case 1:  return "hx";
+                case 2:  return "hy";
+                default: return "hz";
+            }
+        }
+    }
     return ExprForNode(*src);
 }
 
@@ -1378,6 +1578,100 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
+            case NodeKind::SetCollider: {
+                std::string shape(n->text);
+                if (shape.empty()) shape = "sphere";
+                lua += "    scene.set_collider(entity, \"" + shape + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::HudAdd: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                lua += "    hud.add(\"" + esc + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+
+            // --- Stage 13: physics and collisions ------------------------
+            case NodeKind::DamageOther:
+                lua += "    scene.damage(other, " +
+                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            case NodeKind::SetBody: {
+                // Motion type is a node field; `value` doubles as the
+                // continuous-collision flag, drawn as a checkbox.
+                std::string motion(n->text);
+                if (motion.empty()) motion = "dynamic";
+
+                // Only pass the optional arguments that were actually wired.
+                // Emitting an unwired input as 0 would not be a harmless
+                // default: physics.set_body treats every argument it receives
+                // as a decision, so a literal 0 would set the mass to zero
+                // rather than leave the component's own value alone.
+                const bool hasMass    = SourceOf(PinId(n->id, SlotDataIn))     != nullptr;
+                const bool hasGravity = SourceOf(PinId(n->id, SlotDataIn + 1)) != nullptr;
+                const bool sweep      = (n->value != 0.0f);
+
+                lua += "    physics.set_body(entity, \"" + motion + "\"";
+                if (hasMass || hasGravity || sweep)
+                    lua += ", " + ExprForInput(PinId(n->id, SlotDataIn));
+                if (hasGravity || sweep)
+                    lua += ", " + ExprForInput(PinId(n->id, SlotDataIn + 1));
+                if (sweep) lua += ", true";
+                lua += ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::SetVelocity:
+            case NodeKind::ApplyForce:
+            case NodeKind::ApplyLocalForce: {
+                const char* fn = (n->kind == NodeKind::SetVelocity) ? "set_velocity"
+                               : (n->kind == NodeKind::ApplyForce)  ? "apply_force"
+                                                                    : "apply_local_force";
+                lua += std::string("    physics.") + fn + "(entity, " +
+                       ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 2)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::PlaySoundAt:
+            case NodeKind::FxBurstAt: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                const bool sound = (n->kind == NodeKind::PlaySoundAt);
+                lua += std::string("    ") + (sound ? "audio.play_at(\"" : "fx.burst(\"") +
+                       esc + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 2));
+                // An effect takes a size; a sound does not.
+                if (!sound) {
+                    char sc[32]; snprintf(sc, sizeof(sc), "%.7g",
+                                          n->value > 0.0f ? n->value : 1.0f);
+                    lua += std::string(", ") + sc;
+                }
+                lua += ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::LoopAt: {
+                std::string name(n->text), esc;
+                for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+                lua += "    audio.loop_at(\"" + esc + "\", " +
+                       ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 2)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 3)) + ", " +
+                       ExprForInput(PinId(n->id, SlotDataIn + 4)) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+
             case NodeKind::Branch: {
                 lua += "    if " + ExprForInput(PinId(n->id, SlotDataIn)) + " then\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut),  depth + 1);
@@ -1460,6 +1754,11 @@ std::string ScriptGraph::GenerateLuaSource() const {
     EmitEvent(lua, NodeKind::EventCreate,  "function on_start(entity)\n",      false);
     EmitEvent(lua, NodeKind::EventUpdate,  "function on_update(entity, dt)\n", true);
     EmitEvent(lua, NodeKind::EventDestroy, "function on_destroy(entity)\n",    false);
+    // The collision handler takes more parameters than the others: what was
+    // hit, how hard, and where. These names are exactly what On Collision's
+    // output pins generate, so the two have to agree.
+    EmitEvent(lua, NodeKind::EventCollision,
+              "function on_collision(entity, other, speed, hx, hy, hz)\n", false);
 
     return lua;
 }

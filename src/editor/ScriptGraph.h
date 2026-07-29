@@ -81,6 +81,29 @@ enum class NodeKind {
     LoopStart,               // action: start a looping sound (audio.loop_start)
     LoopSet,                 // action: set a running loop's volume and pitch
     LoopStop,                // action: stop a looping sound
+    // Stage 13: physics, and the collision event that goes with it. These are
+    // what let a graph describe an object that the simulation owns rather than
+    // one the script pushes around by hand.
+    EventCollision,          // event: something struck this entity. Outputs the
+                             //        impact speed and where the surfaces met.
+    OtherTagIs,              // value: is the thing we hit tagged this? -> Bool.
+                             //        Only meaningful inside an On Collision.
+    DamageOther,             // action: scene.damage on the thing we hit. Also
+                             //         only meaningful inside an On Collision.
+    SetBody,                 // action: hand this entity to the simulation
+    SetVelocity,             // action: set its velocity outright
+    ApplyForce,              // action: push it, in world axes
+    ApplyLocalForce,         // action: push it along its own axes (thrust)
+    Speed,                   // value: how fast it is moving -> Float
+    // Positioned audio and effects: the same calls as above, but heard and seen
+    // at a point in the world rather than at the listener or the entity.
+    PlaySoundAt,             // action: audio.play_at(name, x, y, z)
+    LoopAt,                  // action: audio.loop_at(name, x,y,z, vol, pitch)
+    FxBurstAt,               // action: fx.burst(name, x, y, z, scale)
+    // The two remaining gaps that stopped a graph reproducing its script.
+    SetCollider,             // action: give this entity a collision volume
+    HudAdd,                  // action: ADD to a HUD value (HudSet only sets, so
+                             //         a score could not be awarded from a graph)
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
