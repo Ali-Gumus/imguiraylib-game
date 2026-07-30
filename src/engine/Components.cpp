@@ -785,10 +785,54 @@ Camera3D CameraComponent::ToCamera3D(const Matrix& world) const {
     Vector3 pos = Vector3Transform({0.0f, 0.0f, 0.0f}, world);
     Vector3 tgt = Vector3Transform({0.0f, 0.0f, -1.0f}, world);
 
+    // The view's "up" comes from the entity's OWN up axis (local +Y), not from
+    // world up. That is what lets a camera ROLL: with world up hardcoded here,
+    // an entity could be banked right over and the horizon would still be drawn
+    // dead level, because the roll was discarded before the view was built.
+    // A chase camera that banks with an aircraft depends entirely on this.
+    //
+    // It is found as a DIRECTION - the local up point minus the eye - rather
+    // than by transforming {0,1,0} as a point, which would include the
+    // translation and give a position instead of an axis.
+    Vector3 up = Vector3Subtract(Vector3Transform({0.0f, 1.0f, 0.0f}, world), pos);
+
+    // Guard against the two ways this can degenerate, because both produce a
+    // view matrix full of NaNs and a black screen rather than a wrong picture.
+    //
+    // 1. A zero-length up axis, from a world matrix scaled flat on Y.
+    // 2. An up axis PARALLEL to the direction of view. The view matrix is built
+    //    by crossing the two, and the cross product of parallel vectors is
+    //    zero. This was easy to hit while up was world up - an entity pitching
+    //    to point straight upwards then looked along its own up axis, which is
+    //    exactly the vertical climb this game invites. Taking up from the
+    //    entity's frame CANNOT do it under a pure rotation, since a rotation
+    //    keeps the local axes square to each other; only a world matrix
+    //    carrying scale or shear can still collapse them.
+    const float upLen = Vector3Length(up);
+    if (upLen < 1e-6f) {
+        up = {0.0f, 1.0f, 0.0f};
+    } else {
+        up = Vector3Scale(up, 1.0f / upLen);
+        Vector3 dir = Vector3Subtract(tgt, pos);
+        const float dirLen = Vector3Length(dir);
+        if (dirLen > 1e-6f) {
+            dir = Vector3Scale(dir, 1.0f / dirLen);
+            // Nearly parallel: fall back to the entity's own +X axis, which is
+            // square to its forward by construction, so the view stays valid
+            // and merely rolls to a defined orientation instead of breaking.
+            if (std::fabs(Vector3DotProduct(up, dir)) > 0.9999f) {
+                Vector3 side = Vector3Subtract(
+                    Vector3Transform({1.0f, 0.0f, 0.0f}, world), pos);
+                Vector3 fixed = Vector3CrossProduct(dir, side);
+                if (Vector3Length(fixed) > 1e-6f) up = Vector3Normalize(fixed);
+            }
+        }
+    }
+
     Camera3D cam{};                         // zero-initialize all fields
     cam.position   = pos;                   // where the eye is
     cam.target     = tgt;                   // the point it looks at
-    cam.up         = {0.0f, 1.0f, 0.0f};    // which way is "up" for the view
+    cam.up         = up;                    // which way is "up" for the view
     cam.fovy       = fovy;                  // field of view (zoom)
     cam.projection = CAMERA_PERSPECTIVE;    // normal 3D perspective
     return cam;
@@ -923,6 +967,36 @@ void ScriptComponent::Load() {
             // Inverting it gives the eye's own orientation matrix, whose
             // rotation part is exactly the facing we want.
             Matrix view = MatrixLookAt(t.position, {x, y, z}, {0.0f, 1.0f, 0.0f});
+            t.rotation = QuaternionFromMatrix(MatrixInvert(view));
+        },
+        // look_at_up(x,y,z, ux,uy,uz) — the same aim, but with the "up"
+        // direction given rather than assumed to be world up.
+        //
+        // This is what makes a rolling camera possible. Plain look_at always
+        // keeps world up, so the horizon it produces is always level: a camera
+        // following a banking aircraft would stay stubbornly upright no matter
+        // what the aircraft did. Passing the AIRCRAFT's own up axis instead
+        // tilts the horizon with it, and passing something part-way between the
+        // two rolls the view only partly - which is how flight games avoid
+        // spinning the whole screen during a fast roll.
+        //
+        // It also sidesteps a failure that plain look_at cannot avoid: aiming
+        // straight up or straight down is parallel to world up, the two cross
+        // to zero, and the view matrix comes out as NaN. An up axis taken from
+        // the aircraft is always square to where it is pointing.
+        "look_at_up", [](Transform3D& t, float x, float y, float z,
+                         float ux, float uy, float uz) {
+            float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
+            if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // aimed at ourselves: skip
+            Vector3 up{ux, uy, uz};
+            if (Vector3Length(up) < 1e-6f) up = {0.0f, 1.0f, 0.0f};
+            up = Vector3Normalize(up);
+            // Reject an up direction lying along the line of sight, for the
+            // reason above. Keeping the previous orientation for one frame is a
+            // far better failure than a frame of NaN.
+            Vector3 dir = Vector3Normalize({dx, dy, dz});
+            if (std::fabs(Vector3DotProduct(up, dir)) > 0.9999f) return;
+            Matrix view = MatrixLookAt(t.position, {x, y, z}, up);
             t.rotation = QuaternionFromMatrix(MatrixInvert(view));
         },
         // rotate_toward(x,y,z, max_degrees) — turn PART-WAY toward facing a
