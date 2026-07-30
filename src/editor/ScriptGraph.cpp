@@ -516,8 +516,15 @@ void ScriptGraph::DrawNode(GraphNode& n) {
         ImGui::InputText("##txt", n.text, sizeof(n.text));   // message, or key name
     else if (n.kind == NodeKind::GetVar || n.kind == NodeKind::SetVar)
         ImGui::InputText("##var", n.text, sizeof(n.text));   // the variable name
-    else if (n.kind == NodeKind::Fire)
+    else if (n.kind == NodeKind::Fire) {
         ImGui::InputText("##bullet", n.text, sizeof(n.text)); // the bullet script
+        // How far ahead of the entity the round is born. This is not cosmetic:
+        // a bullet is a solid physical object, so one spawned inside the
+        // collider of the thing that fired it starts the frame overlapping and
+        // gets shoved aside instead of flying. It must clear the shooter's own
+        // shape - at real-world scale that is several metres, not a token step.
+        ImGui::DragFloat("##muzzle", &n.value, 0.1f, 0.0f, 500.0f);
+    }
     else if (n.kind == NodeKind::HitNearest) {
         ImGui::InputText("##tag", n.text, sizeof(n.text));    // the tag to damage
         ImGui::DragFloat("##dmg", &n.value, 0.1f);            // hit points removed
@@ -1107,6 +1114,16 @@ bool ScriptGraph::Load(const std::string& path) {
         std::strncpy(n.text, jn.value("text", "").c_str(), sizeof(n.text) - 1);
         std::strncpy(n.text2, jn.value("text2", "").c_str(), sizeof(n.text2) - 1);
         std::strncpy(n.text3, jn.value("text3", "").c_str(), sizeof(n.text3) - 1);
+
+        // Fire's muzzle distance used to be fixed at 3 in the generated code, so
+        // graphs written before it became a field carry no value for it and would
+        // load as 0 - which means spawning the round at the shooter's own centre,
+        // inside its collider, where it is shoved aside instead of fired. Giving
+        // those graphs the 3 they used to emit keeps them behaving exactly as
+        // they did rather than silently breaking. A deliberate 0 is not a thing
+        // anyone wants here, so nothing is lost by claiming it.
+        if (n.kind == NodeKind::Fire && n.value == 0.0f) n.value = 3.0f;
+
         m_nodes.push_back(n);
     }
     for (const json& jl : doc.value("links", json::array()))
@@ -1339,15 +1356,23 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 break;
             }
             case NodeKind::Fire: {
-                // Spawn a bullet a little ahead of the entity, facing forward.
+                // Spawn a bullet ahead of the entity, facing forward. The
+                // distance is the node's own value, NOT a fixed step: a bullet
+                // is a solid body, so one born inside the collider of whatever
+                // fired it is shoved aside rather than launched. At real-world
+                // scale an aircraft's capsule reaches many metres forward, so
+                // this has to be authorable per graph. Load() gives graphs
+                // written before the field existed the 3 they used to emit.
                 std::string script(n->text), esc;
                 for (char c : script) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                char buf[420];
+                char buf[520];
                 snprintf(buf, sizeof(buf),
                     "    local ff%d = entity.transform:forward()\n"
                     "    local pp%d = entity.transform.position\n"
-                    "    scene.spawn(\"Bullet\", pp%d.x+ff%d.x*3, pp%d.y+ff%d.y*3, pp%d.z+ff%d.z*3, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
-                    n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id, n->id,
+                    "    scene.spawn(\"Bullet\", pp%d.x+ff%d.x*%.7g, pp%d.y+ff%d.y*%.7g, pp%d.z+ff%d.z*%.7g, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
+                    n->id, n->id,
+                    n->id, n->id, n->value, n->id, n->id, n->value, n->id, n->id, n->value,
+                    n->id, n->id, n->id,
                     esc.c_str());
                 lua += buf;
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
@@ -1432,8 +1457,18 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 break;
             }
             case NodeKind::ChaseTarget: {
-                // Ease toward a point behind and above the named target, then
-                // look at it. Node-scoped locals (by id) avoid clashes.
+                // Hold a point behind and above the named target and look at it.
+                // Node-scoped locals (by id) avoid clashes; the cox/coy/coz trio
+                // is declared at file scope by GenerateLuaSource, because the
+                // offset must survive between frames.
+                //
+                // The offset is what gets smoothed, NOT the camera's position.
+                // Easing a position toward a point on a moving target settles a
+                // standing `target speed / stiffness` behind it, so a fast target
+                // ends up far further away than `distance` asks for and no value
+                // of it helps. Smoothing the offset and adding the target's
+                // position keeps the distance exact at any speed, and leaves
+                // stiffness governing only the swing when the target ROTATES.
                 std::string i = std::to_string(n->id);
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
@@ -1447,13 +1482,17 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                   "        local ch" + i + " = " + hgt + "\n"
                   "        local cs" + i + " = " + stf + "\n"
                   "        local jf" + i + " = jet" + i + ".transform:forward()\n"
-                  "        local dx" + i + " = jet" + i + ".transform.position.x - jf" + i + ".x * cd" + i + "\n"
-                  "        local dy" + i + " = jet" + i + ".transform.position.y - jf" + i + ".y * cd" + i + " + ch" + i + "\n"
-                  "        local dz" + i + " = jet" + i + ".transform.position.z - jf" + i + ".z * cd" + i + "\n"
+                  "        local wx" + i + " = -jf" + i + ".x * cd" + i + "\n"
+                  "        local wy" + i + " = -jf" + i + ".y * cd" + i + " + ch" + i + "\n"
+                  "        local wz" + i + " = -jf" + i + ".z * cd" + i + "\n"
+                  "        if cox" + i + " == nil then cox" + i + ", coy" + i + ", coz" + i + " = wx" + i + ", wy" + i + ", wz" + i + " end\n"
                   "        local ca" + i + " = 1 - math.exp(-cs" + i + " * dt)\n"
-                  "        entity.transform.position.x = entity.transform.position.x + (dx" + i + " - entity.transform.position.x) * ca" + i + "\n"
-                  "        entity.transform.position.y = entity.transform.position.y + (dy" + i + " - entity.transform.position.y) * ca" + i + "\n"
-                  "        entity.transform.position.z = entity.transform.position.z + (dz" + i + " - entity.transform.position.z) * ca" + i + "\n"
+                  "        cox" + i + " = cox" + i + " + (wx" + i + " - cox" + i + ") * ca" + i + "\n"
+                  "        coy" + i + " = coy" + i + " + (wy" + i + " - coy" + i + ") * ca" + i + "\n"
+                  "        coz" + i + " = coz" + i + " + (wz" + i + " - coz" + i + ") * ca" + i + "\n"
+                  "        entity.transform.position.x = jet" + i + ".transform.position.x + cox" + i + "\n"
+                  "        entity.transform.position.y = jet" + i + ".transform.position.y + coy" + i + "\n"
+                  "        entity.transform.position.z = jet" + i + ".transform.position.z + coz" + i + "\n"
                   "        entity.transform:look_at(jet" + i + ".transform.position.x, jet" + i + ".transform.position.y, jet" + i + ".transform.position.z)\n"
                   "    end\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
@@ -1763,6 +1802,29 @@ std::string ScriptGraph::GenerateLuaSource() const {
         lua += buf;
     }
     if (!m_vars.empty()) lua += "\n";
+
+    // Chase Target keeps its camera OFFSET from one frame to the next, so each
+    // such node needs its own file-scope storage - a local inside on_update would
+    // be forgotten every frame and the smoothing would have nothing to smooth
+    // from. They start as nil, which the node's own code reads as "no previous
+    // offset yet" and snaps into place on the first frame.
+    //
+    // Why an offset rather than the camera's position: easing a position toward a
+    // point on a MOVING target never catches it, and settles a standing
+    // `speed / stiffness` behind - which for a fast aircraft is far enough to
+    // swamp the distance setting completely. Smoothing the offset and adding the
+    // target's position afterwards makes the follow exact at any speed.
+    bool anyChase = false;
+    for (const GraphNode& n : m_nodes) {
+        if (n.kind != NodeKind::ChaseTarget) continue;
+        char buf[160];
+        const std::string i = std::to_string(n.id);
+        snprintf(buf, sizeof(buf), "local cox%s, coy%s, coz%s = nil, nil, nil\n",
+                 i.c_str(), i.c_str(), i.c_str());
+        lua += buf;
+        anyChase = true;
+    }
+    if (anyChase) lua += "\n";
 
     EmitEvent(lua, NodeKind::EventCreate,  "function on_start(entity)\n",      false);
     EmitEvent(lua, NodeKind::EventUpdate,  "function on_update(entity, dt)\n", true);

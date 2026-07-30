@@ -36,7 +36,7 @@
                   {
                       "id":  101,
                       "kind":  48,
-                      "value":  9,
+                      "value":  22,
                       "text":  "distance",
                       "x":  120,
                       "y":  60
@@ -44,7 +44,7 @@
                   {
                       "id":  102,
                       "kind":  48,
-                      "value":  3,
+                      "value":  6,
                       "text":  "height",
                       "x":  120,
                       "y":  160
@@ -52,7 +52,7 @@
                   {
                       "id":  103,
                       "kind":  48,
-                      "value":  4,
+                      "value":  6,
                       "text":  "stiffness",
                       "x":  120,
                       "y":  260

@@ -44,7 +44,7 @@
                   {
                       "id":  102,
                       "kind":  48,
-                      "value":  55,
+                      "value":  860,
                       "text":  "speed",
                       "x":  300,
                       "y":  200
@@ -68,7 +68,7 @@
                   {
                       "id":  105,
                       "kind":  48,
-                      "value":  1.2,
+                      "value":  12,
                       "text":  "hit_radius",
                       "x":  780,
                       "y":  340
