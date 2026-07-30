@@ -16,7 +16,12 @@ properties = {
     -- straight. The jet's collider is a capsule running nose to tail, so this
     -- needs to be past its front cap - check the green wireframe in the
     -- viewport and put the muzzle beyond it.
-    muzzle    = 13.0,
+    --
+    -- At the F-16's real size that capsule is 15 metres long and centred on the
+    -- aircraft, so its front cap sits 7.5 metres ahead; 10 clears it with a
+    -- couple of metres to spare. RAISE THIS AGAIN if the collider grows - a
+    -- round appearing inside its own shooter does not travel.
+    muzzle    = 10.0,
 }
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)
