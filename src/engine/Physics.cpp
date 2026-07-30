@@ -48,6 +48,27 @@ JPH_SUPPRESS_WARNINGS
 // Jolt name below is therefore written out in full.
 
 namespace eng {
+
+// Snap a terrain's visual resolution down to a grid the heightfield can use:
+// the largest power of two that does not exceed it, capped so that a very
+// detailed landscape does not buy a collision surface far finer than anything
+// needs to stand on it. 512 across is a quarter of a million samples, which is
+// already well past the point where extra precision changes how the ground
+// feels underfoot.
+//
+// A terrain whose resolution is itself a power of two up to that cap therefore
+// gets a collision surface sample-for-sample identical to the mesh, which is the
+// arrangement worth aiming for.
+//
+// This sits OUTSIDE the file's anonymous namespace below, because the Inspector
+// calls it to report when the two grids disagree; everything in that namespace
+// is private to this file by design.
+int TerrainCollisionGrid(int resolution) {
+    int n = 4;                                  // the smallest grid the field allows
+    while (n * 2 <= resolution && n < 512) n *= 2;
+    return n;
+}
+
 namespace {
 
 // ============================================================================
@@ -403,11 +424,7 @@ inline Quaternion ToRay(JPH::Quat q)  { return {q.GetX(), q.GetY(), q.GetZ(), q.
 // to differ - which is normal and usually desirable, since a landscape needs
 // far less precision to stand on than to look at.
 JPH::ShapeRefC MakeHeightfieldShape(const TerrainComponent& t, Vector3 scale) {
-    // Snap to the largest power of two that does not exceed the visual
-    // resolution, so the collision surface is never finer (and so more
-    // expensive) than the mesh it approximates.
-    int n = 4;
-    while (n * 2 <= t.resolution && n < 512) n *= 2;
+    const int n = TerrainCollisionGrid(t.resolution);
 
     const std::vector<float> heights = t.SampleHeights(n);
     if (heights.empty()) return nullptr;

@@ -179,4 +179,23 @@ int PhysicsBodyCount();
 // toolbar next to the frame time.
 float PhysicsStepMs();
 
+// --- Terrain collision -------------------------------------------------------
+
+// How many samples across the COLLISION grid will be, for a terrain whose
+// visual grid is `resolution` samples across.
+//
+// The simulation's heightfield must be a power of two across (it subdivides the
+// field in half repeatedly to search it) and there is an upper bound on how fine
+// a collision surface is worth paying for, so a terrain's own free-form
+// resolution is snapped down to fit. When the two numbers differ, the collision
+// surface is a coarser approximation of the hills that are drawn.
+//
+// This is exposed because the Inspector has to be able to TELL the developer
+// when that happens: a terrain whose collision grid is quietly a quarter of its
+// visual grid looks completely correct and collides wrongly, which is not
+// something anyone should have to discover by flying into a hill. It is declared
+// here, beside the code that obeys it, so there is one definition of the rule
+// rather than a copy in the user interface that can fall out of step.
+int TerrainCollisionGrid(int resolution);
+
 } // namespace eng

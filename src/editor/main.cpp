@@ -131,6 +131,10 @@ public:
         if (m_skyReady) {
             m_sky = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
             m_sky.materials[0].shader = m_skyShader;
+            // Look the uniform's location up ONCE. GetShaderLocation queries the
+            // driver by name, which is far too slow to repeat every frame, so
+            // the handle is cached and only the value is pushed per draw.
+            m_skyScaleLoc = GetShaderLocation(m_skyShader, "skyScale");
         }
     }
 
@@ -359,12 +363,23 @@ public:
         if (eng::Entity* camEnt = m_gameVisible ? FindCameraEntity() : nullptr) {
             // Pass ignoreScale = true so a scaled parent can't stretch or shove
             // the camera; only its position and rotation should matter.
-            Camera3D cam = camEnt->GetComponent<eng::CameraComponent>()
-                                 ->ToCamera3D(m_scene.WorldMatrix(*camEnt, true));
+            eng::CameraComponent* camComp = camEnt->GetComponent<eng::CameraComponent>();
+            Camera3D cam = camComp->ToCamera3D(m_scene.WorldMatrix(*camEnt, true));
+
+            // Apply this camera's clipping planes. They are GLOBAL state inside
+            // the graphics layer, read by BeginMode3D when it builds the
+            // projection matrix, so they must be set before it and they persist
+            // afterwards. Setting them immediately before each BeginMode3D is
+            // what keeps the Game view and the editor Viewport independent -
+            // whichever ran last would otherwise impose its view distance on the
+            // other, and the symptom (a view distance that changes depending on
+            // which panel is open) would be baffling.
+            rlSetClipPlanes(camComp->nearClip, camComp->farClip);
+
             BeginTextureMode(m_gameRT);
             ClearBackground(Color{15, 15, 20, 255});
             BeginMode3D(cam);
-            DrawSky();                    // gradient sky behind the world
+            DrawSky(camComp->nearClip);   // gradient sky behind the world
             m_scene.Draw();               // the player's view has no editor grid
             // Effects draw after the world, so they are never shaded by the
             // sun: fire and sparks give off their own light.
@@ -470,8 +485,22 @@ public:
     // Draw the gradient sky as a backdrop. Call right after BeginMode3D, while
     // the view/projection are active. Depth writes and back-face culling are off
     // so the cube fills the background without occluding the scene.
-    void DrawSky() {
+    //
+    // `nearClip` is the near plane of the camera currently being drawn through.
+    // The sky cube surrounds the camera, so it is only visible while its faces
+    // sit beyond that plane - a cube smaller than the near distance is entirely
+    // clipped and the sky vanishes. Sizing it from the near plane rather than
+    // fixing it at some constant is what lets the near plane be raised freely to
+    // buy depth precision without the background quietly disappearing.
+    //
+    // Ten times the near distance is comfortably clear of the front of the
+    // frustum while staying far inside any sane far plane. The exact number does
+    // not matter: the cube is a device for handing the shader a direction, and
+    // with depth writes off it cannot occlude anything at any size.
+    void DrawSky(float nearClip) {
         if (!m_skyReady) return;
+        const float scale = nearClip * 10.0f;
+        SetShaderValue(m_skyShader, m_skyScaleLoc, &scale, SHADER_UNIFORM_FLOAT);
         rlDisableBackfaceCulling();
         rlDisableDepthMask();
         DrawModel(m_sky, {0, 0, 0}, 1.0f, WHITE);
@@ -481,8 +510,12 @@ public:
 
     // Called each frame to draw the 3D scene into the engine's viewport texture.
     void OnRenderScene() override {
+        // The editor camera's own view distance. Set before BeginMode3D for the
+        // same reason as the Game view: the planes are global state that the
+        // projection matrix is built from, so each view claims them in turn.
+        rlSetClipPlanes(m_viewNear, m_viewFar);
         BeginMode3D(m_camera);            // view the world through the editor camera
-        DrawSky();                       // gradient sky behind the world
+        DrawSky(m_viewNear);             // gradient sky behind the world
         DrawGrid(20, 1.0f);              // a 20x20 reference grid on the ground
         m_scene.Draw();
         eng::DrawParticles(m_camera);    // effects, unlit and after the world
@@ -722,6 +755,27 @@ private:
         ImGui::SameLine();
         bool muted = eng::IsMuted();
         if (ImGui::Button(muted ? "Unmute" : "Mute")) eng::SetMuted(!muted);
+
+        // The editor camera's view distance, behind a small popup so it does not
+        // eat a toolbar row it does not need. This pair governs the Viewport
+        // only; the Game view reads the scene camera's own Clipping Planes in
+        // the Inspector, and the two are meant to be set independently.
+        ImGui::SameLine();
+        if (ImGui::Button("View")) ImGui::OpenPopup("view_distance");
+        if (ImGui::BeginPopup("view_distance")) {
+            ImGui::TextDisabled("Editor camera clipping planes");
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::DragFloat("Near", &m_viewNear, 0.01f, 0.01f, 100.0f, "%.2f");
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::DragFloat("Far",  &m_viewFar,  10.0f,  1.0f,  200000.0f, "%.0f",
+                             ImGuiSliderFlags_Logarithmic);
+            if (m_viewNear >= m_viewFar) m_viewNear = m_viewFar * 0.5f;
+            ImGui::TextDisabled("far/near %.0f:1", m_viewFar / m_viewNear);
+            // A one-click way back, because these are easy to drag somewhere
+            // useless and there is no undo on a toolbar popup.
+            if (ImGui::Button("Reset")) { m_viewNear = 0.3f; m_viewFar = 25000.0f; }
+            ImGui::EndPopup();
+        }
 
         DrawStats();
         ImGui::End();                                // end the panel
@@ -1240,6 +1294,15 @@ private:
     Shader m_skyShader{};      // procedural gradient skybox shader
     Model  m_sky{};            // the unit cube it draws on
     bool   m_skyReady = false; // false if the shader failed to compile
+    int    m_skyScaleLoc = -1; // cached location of the shader's skyScale uniform
+
+    // Clipping planes for the EDITOR's own fly camera. The scene camera carries
+    // its own pair on its CameraComponent, because a game view's view distance
+    // is a property of the game; these are a workshop setting that belongs to
+    // the person flying around the scene, so they are deliberately separate and
+    // are not saved into the scene file.
+    float m_viewNear = 0.3f;
+    float m_viewFar  = 25000.0f;
 
     // HUD state: the player's position last frame and its measured speed, used
     // to show airspeed without reading the flight script's internal velocity.
