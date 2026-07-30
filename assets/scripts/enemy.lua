@@ -11,17 +11,37 @@
 -- =============================================================================
 
 -- Tunable values, shown as editable fields in the Inspector.
+--
+-- Sized and paced as a real Mi-24 attack helicopter, the model these enemies
+-- wear, at the engine's one-unit-is-one-metre scale. It is 17.5 metres long and
+-- tops out near 93 metres per second, which makes it far slower than the
+-- player's jet - so an enemy cannot chase the player down, and a dogfight is
+-- about the player choosing to come back around rather than about the two
+-- matching speeds.
+--
+-- Two of these numbers are not free choices:
+--
+--   muzzle    Must reach past the helicopter's own collision shape, which is
+--             about 18 metres long and so extends 9 metres forward of its
+--             middle. A round spawned inside its own shooter is solid against
+--             it and gets shoved aside instead of flying, which is why this is
+--             not simply "just in front of the nose".
+--
+--   sep_range Separation is what stops a squadron converging into one point.
+--             It has to be measured against how big these are: two 18-metre
+--             aircraft holding 8 metres apart are overlapping, so this scales
+--             with the airframe, not with the old placeholder cubes.
 properties = {
-    speed       = 11,    -- constant forward flight speed (world units/sec)
-    turn_rate   = 65,    -- most degrees per second it can rotate toward the target
-    fire_range  = 45,    -- only shoot when the player is at least this close
+    speed       = 80,    -- constant forward flight speed (metres/sec)
+    turn_rate   = 30,    -- most degrees per second it can rotate toward the target
+    fire_range  = 1200,  -- only shoot when the player is at least this close
     fire_angle  = 12,    -- only shoot when the nose is within this many degrees
-    fire_rate   = 1.0,   -- seconds between shots
-    muzzle      = 2.0,   -- spawn bullets this far ahead of the enemy
-    sep_range   = 8,     -- start avoiding other enemies within this distance
-    sep_force   = 12,    -- how strongly to push apart from a crowding neighbor
+    fire_rate   = 0.5,   -- seconds between shots
+    muzzle      = 12.0,  -- spawn bullets this far ahead; must clear the collider
+    sep_range   = 60,    -- start avoiding other enemies within this distance
+    sep_force   = 40,    -- how strongly to push apart from a crowding neighbor
     points      = 1,     -- score awarded to the player when this enemy dies
-    hitbox      = 1.5,   -- radius of its hittable ball (size to the model)
+    hitbox      = 8.0,   -- radius of its hittable ball (size to the model)
 }
 
 function on_start(entity)

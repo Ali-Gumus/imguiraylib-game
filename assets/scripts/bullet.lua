@@ -27,12 +27,33 @@
 -- =============================================================================
 
 -- Tunable values, shown as editable fields in the Inspector.
+--
+-- Modelled on the M61 Vulcan, the 20 mm rotary cannon an F-16 actually carries:
+-- a muzzle velocity of 1036 metres per second and a round of about 0.1 kg.
+--
+-- ONE IMPORTANT LIMITATION. `speed` is the bullet's velocity through the WORLD,
+-- not its speed relative to the aircraft that fired it. A real gun adds its
+-- muzzle velocity to the aircraft's own, so a round always leaves at 1036
+-- metres per second RELATIVE to the jet no matter how fast the jet is going.
+-- Here the aircraft's velocity is not inherited, so the faster the jet flies the
+-- less the round outruns it: at a 250 m/s cruise it pulls away at nearly 800
+-- m/s, but at the 685 m/s top speed it gains only about 350, and a jet faster
+-- than this number would overtake its own fire.
+--
+-- The reason it is not simply fixed here is that a bullet has no way to ask who
+-- fired it, and `scene.spawn` queues the new entity for the end of the frame and
+-- returns nothing, so the gun cannot reach the bullet to add its velocity
+-- either. Inheriting it properly needs the spawn call to carry a velocity.
 properties = {
-    speed   = 1000,    -- launch speed in world units per second
+    speed   = 1036,   -- muzzle velocity in metres per second (M61 Vulcan)
     life    = 5.0,    -- seconds before it gives up and removes itself
     damage  = 1,      -- hit points removed from an enemy on impact
+    -- A real 20 mm round is 20 mm ACROSS, and a projectile that small moving
+    -- this fast is a poor thing to simulate: it slips between collision checks
+    -- and misses. This is deliberately far bigger than scale so that hits
+    -- register reliably, which matters more than a tracer's exact width.
     radius  = 0.25,   -- physical size of the round
-    mass    = 0.05,   -- kilograms; affects how hard it shoves what it hits
+    mass    = 0.1,    -- kilograms; affects how hard it shoves what it hits
     gravity = 1.0,    -- 1 = full drop, 0 = flies perfectly straight
 }
 

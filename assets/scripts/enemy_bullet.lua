@@ -6,11 +6,29 @@
 -- =============================================================================
 
 -- Tunable values, shown as editable fields in the Inspector.
+--
+-- 860 metres per second is the muzzle velocity of the 12.7 mm gun a Mi-24
+-- carries. It has to be in that region for the enemy to be a threat at all: the
+-- player's jet tops out at 685, so anything slower than that can simply be
+-- outrun and enemy fire would never land.
+--
+-- WHY hit_radius IS SO LARGE. This bullet is moved by the script rather than by
+-- the simulation, and it checks for a hit only once per frame, at wherever it
+-- has arrived. At 860 metres per second it covers about 14 metres between one
+-- check and the next, so it JUMPS over that distance without testing any of it.
+-- A radius of a metre or two would therefore fly straight through the player
+-- almost every time - the faster the round, the more reliably it misses. The
+-- radius is sized to cover most of one frame's jump instead.
+--
+-- The real fix is the one the player's own bullet already uses: be a rigid body
+-- with continuous collision and let the simulation sweep the whole path. Until
+-- then this number has to stay tied to speed - raise one and the other must
+-- follow.
 properties = {
-    speed      = 55,    -- travel speed in world units per second
+    speed      = 860,   -- muzzle velocity in metres per second
     life       = 3.0,   -- seconds before it self-destructs
     damage     = 1,     -- hit points removed from the player on impact
-    hit_radius = 1.2,   -- how near the player must be to count as a hit
+    hit_radius = 12,    -- covers one frame's travel; see the note above
 }
 
 local age = 0           -- seconds this bullet has existed (runtime state)

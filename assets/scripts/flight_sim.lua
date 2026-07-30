@@ -21,15 +21,54 @@
 -- properties: a global table of tunable numbers. The engine shows each entry
 -- as an editable field in the Inspector, so these can be adjusted per plane
 -- (even while flying) without editing this file.
+--
+-- THESE NUMBERS ARE A REAL F-16C, IN THE ENGINE'S OWN UNITS.
+-- One world unit is one metre, so an aircraft's real dimensions and speeds can
+-- be used directly, and every value below is derived rather than dialled in by
+-- feel. The reference airframe is an F-16C Block 50 at a combat weight of about
+-- 12000 kg with one F110-GE-129 engine:
+--
+--   thrust  Acceleration, in metres per second squared, not a force. The engine
+--           produces about 129000 newtons in full afterburner, and force divided
+--           by mass is acceleration: 129000 / 12000 = 10.75. Reaching top speed
+--           therefore takes the best part of a minute, which is how long a real
+--           jet takes; it is not meant to feel like a car.
+--
+--   drag    Air resistance grows with the SQUARE of speed, so thrust and drag
+--           balance at sqrt(thrust / drag) and that balance point IS the top
+--           speed. Solving for a top speed of 685 metres per second - Mach 2 at
+--           altitude, the F-16's limit - gives 10.8 / 685^2 = 0.000023. Change
+--           either number and the top speed moves with it.
+--
+--   align   How hard the wings bend the velocity back towards the nose. This
+--           has to fall as speed rises because the bend per frame is worked out
+--           from speed x align: at the old airspeeds of around 100 the velocity
+--           snapped to the nose in a fraction of a second, and at 685 it would
+--           be instant, which removes the momentum and the stall along with it.
+--           0.015 leaves roughly a tenth of a second of lag at top speed and
+--           over a second near the stall, so a slow aircraft still sinks.
+--
+--   rates   A real F-16 rolls extremely fast - about 270 degrees per second -
+--           while its PITCH rate is limited by what the airframe and the pilot
+--           can survive, around 20 to 26 degrees per second in a hard turn.
+--           Yaw is small on purpose: a jet's rudder coordinates a turn, it does
+--           not steer the aircraft. Note the pitch rate here is a constant,
+--           whereas a real one falls as speed rises (the same turn rate needs
+--           more g the faster you go), so hard turns at top speed pull more g
+--           than an airframe would allow.
+--
+--   cruise  The airspeed the aircraft is launched at. 250 is a realistic cruise
+--           and is far above the roughly 57 metres per second it stalls at, so
+--           it starts flying rather than falling.
 properties = {
-    pitch_rate = 50,     -- nose up/down speed (degrees per second)
-    roll_rate  = 110,    -- roll speed (degrees per second)
-    yaw_rate   = 35,     -- nose left/right speed (degrees per second)
-    thrust     = 200,     -- forward acceleration at full throttle
-    gravity    = 13,     -- downward acceleration
-    drag       = 0.020,  -- air resistance; with thrust this sets the top speed
-    align      = 0.10,   -- how strongly aerodynamics bend velocity toward the nose
-    cruise     = 20,     -- starting airspeed
+    pitch_rate = 25,        -- nose up/down (degrees per second)
+    roll_rate  = 270,       -- roll (degrees per second)
+    yaw_rate   = 8,         -- rudder yaw (degrees per second)
+    thrust     = 10.8,      -- metres per second squared, full afterburner
+    gravity    = 9.81,      -- metres per second squared, real gravity
+    drag       = 0.000023,  -- gives a top speed of sqrt(10.8/0.000023) = 685 m/s
+    align      = 0.015,     -- how strongly aerodynamics bend velocity to the nose
+    cruise     = 250,       -- starting airspeed (metres per second)
 }
 
 -- State that must persist between frames.
