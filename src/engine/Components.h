@@ -5,6 +5,7 @@
 #include "raylib.h"        // Color, Camera3D, Matrix, drawing types
 #include "sol/sol.hpp"     // sol2: a C++ wrapper that runs Lua and binds C++ to it
 
+#include <optional>        // std::optional, for an omitted colour name
 #include <string>
 #include <utility>         // std::pair
 #include <vector>
@@ -51,6 +52,12 @@ public:
     void OnUpdate(float dt, Entity& owner) override;
     void OnCollision(Entity& owner, Entity& other, float speed,
                      Vector3 point) override;
+    // Calls the script's optional on_draw_hud(entity, w, h), where it may use
+    // the `draw.*` API to put things on screen over the finished 3D view. This
+    // is what lets a HUD element be authored in a script - and, because
+    // GraphComponent derives from this class, in a node graph - instead of
+    // needing C++ drawing code written for it.
+    void OnDrawHud(const Entity& owner, int width, int height) override;
 
     // Save the script path, plus ONLY the properties this entity has actually
     // overridden in the Inspector.
@@ -117,6 +124,7 @@ protected:
     sol::protected_function m_onUpdate;
     sol::protected_function m_onDestroy;
     sol::protected_function m_onCollision;
+    sol::protected_function m_onDrawHud;
     bool        m_loaded = false;           // did the file load without error?
     std::string m_error;                    // last error message, "" if none
 
@@ -884,9 +892,94 @@ void ClearModelCache();
 // Does nothing if the file is already loaded or cannot be read.
 void PreloadModel(const std::string& path);
 
+// ============================================================================
+// MinimapComponent: a player-centred radar, drawn over the game view.
+// ----------------------------------------------------------------------------
+// Attach it to the entity it should be centred on - the player's aircraft. It
+// draws in SCREEN space through OnDrawHud, not in the world, so it appears in
+// the Game view over the finished 3D image.
+//
+// WHY IT IS DRAWN RATHER THAN RENDERED. The obvious way to build a minimap is a
+// second camera looking straight down into a texture, which is what large
+// engines offer. That costs a COMPLETE extra pass over the scene, and almost all
+// of it is wasted here: at minimap size an aircraft is smaller than a pixel, so
+// the only thing that pass really contributes is the landscape - which this
+// engine can already produce as data, without drawing anything. So the terrain
+// is baked into a small image ONCE and aircraft are drawn as symbols on top.
+// That is also what a radar in a real aircraft is: symbols, not a picture.
+//
+// HEADING-UP. The map turns so the aircraft always points up the screen, the
+// convention for anything you sit inside. It means a contact drawn above you is
+// ahead of you, which is the question being asked mid-dogfight. The cost is that
+// north moves, so a small tick marks where north has gone.
+// ============================================================================
+class MinimapComponent : public Component {
+public:
+    ~MinimapComponent() override;
+
+    const char* Name() const override { return "Minimap"; }
+
+    // Copied field by field rather than with the compiler's own copy, because
+    // this component owns a TEXTURE. A blind copy would duplicate that handle
+    // and both copies would later free the same image. The clone starts with no
+    // image and bakes its own on first use.
+    std::unique_ptr<Component> Clone() const override;
+
+    void OnInspector() override;
+    void OnDrawHud(const Entity& owner, int width, int height) override;
+
+    void Serialize(nlohmann::json& out) const override {
+        out["range"] = range;   out["size"]    = size;
+        out["corner"] = corner; out["terrain"] = showTerrain;
+        out["tag"] = blipTag;
+    }
+    void Deserialize(const nlohmann::json& in) override {
+        range       = in.value("range",  range);
+        size        = in.value("size",   size);
+        corner      = in.value("corner", corner);
+        showTerrain = in.value("terrain", showTerrain);
+        blipTag     = in.value("tag", blipTag);
+    }
+
+    // How far the radar reaches, in metres. Contacts beyond this are held at the
+    // rim rather than dropped, so a threat never simply vanishes.
+    float range = 5000.0f;
+    int   size  = 200;          // width and height on screen, in pixels
+    int   corner = 3;           // 0 = top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right
+    bool  showTerrain = true;   // draw the baked landscape behind the contacts
+    std::string blipTag = "enemy";   // which tag counts as a contact
+
+private:
+    // Bake the landscape into an image, once. Returns false when there is no
+    // terrain in the scene, in which case the radar simply has no backdrop.
+    bool EnsureTerrain();
+
+    Texture2D m_terrain{};      // the baked relief image
+    bool  m_built = false;      // has it been baked?
+    bool  m_tried = false;      // has baking been ATTEMPTED? (so a failure is not retried every frame)
+    float m_worldSize = 0.0f;   // the terrain's span in metres, needed to map world to pixel
+    Vector3 m_worldCentre{};    // where the terrain's middle sits in the world
+};
+
 // A tiny shared store of named numbers that scripts can post to (via the Lua
 // `hud.set(name, value)` call) and the editor's HUD can read back. This is how
 // a value that lives inside a Lua script (like throttle) reaches the C++ HUD.
+// --- HUD drawing support (used by the `draw.*` script API) -------------------
+
+// Named colours for HUD drawing. A script may add to the palette with
+// draw.define_color, so a HUD's colours are data rather than compiled in.
+// An unknown name resolves to the default HUD green rather than failing.
+void  DefineHudColor(const std::string& name, Color c);
+Color HudColor(const std::string& name);   // empty name = the default HUD colour
+
+// Whether HUD drawing is currently legal. The `draw.*` calls only work inside
+// the HUD pass; from any other hook they do nothing, because pixel coordinates
+// mean nothing in the middle of the 3D pass. Anything that dispatches OnDrawHud
+// must bracket it with these.
+bool HudDrawAllowed();
+void BeginHudPass();
+void EndHudPass();
+
 void  SetHudValue(const std::string& key, float value);
 float GetHudValue(const std::string& key, float fallback = 0.0f);
 // Forget every published HUD value. Called when play starts so each run begins

@@ -111,6 +111,27 @@ enum class NodeKind {
                              //  front of HudAdd would have renumbered it and
                              //  silently turned it into a different node in
                              //  every graph already using it.)
+    // ---- HUD drawing -------------------------------------------------------
+    // These are what let a HUD element be built in a graph, with no C++ written
+    // for it. They generate `draw.*` calls, which are only legal inside
+    // on_draw_hud, so all of them belong under an On Draw HUD event.
+    //
+    // The set is deliberately small. A HUD is not made of a hundred kinds of
+    // thing; it is text, numbers, bars, boxes and lines. Adding an ELEMENT
+    // should never need C++ again, and this is the primitive set that makes that
+    // true. (A new primitive still would - node kinds are a C++ enum - which is
+    // exactly why the aim was a set complete enough not to need one.)
+    EventDrawHud,            // event: draw over the finished 3D view. Outputs the
+                             //        surface width and height in pixels, which
+                             //        every anchored position is measured from.
+    DrawText,                // action: a fixed string
+    DrawValue,               // action: a label plus a wired number. The common
+                             //         case by a wide margin - SPD 340, ALT 1000
+    DrawBar,                 // action: a 0..1 fraction as a filled bar, the
+                             //         other thing a HUD is mostly made of
+    DrawRect,                // action: a box, filled or outlined
+    DrawLine,                // action: a straight line between two offsets
+    DrawCircle,              // action: a circle, filled or outlined
 };
 
 // One pin on a node. `slot` is its fixed position within the node (see the
@@ -206,6 +227,14 @@ private:
 
     // Codegen helpers.
     std::string ExprForInput(int inputPin) const;       // expression feeding a data input
+    // As above, but substitutes `fallback` when nothing is wired in.
+    //
+    // An unwired float input normally generates "0", which is right for an offset
+    // and wrong for a SIZE: a rectangle or bar whose width came out as zero draws
+    // nothing at all, so a freshly placed node appears broken with no clue as to
+    // why. Sizes therefore fall back to something visible, and the developer
+    // adjusts from there rather than starting from invisible.
+    std::string ExprForInputOr(int inputPin, const char* fallback) const;
     std::string ExprForNode(const GraphNode& n) const;  // a value node's expression
     void        EmitExecChain(std::string& lua, int fromExecPin, int depth = 0) const;
     void        EmitEvent(std::string& lua, NodeKind ev,

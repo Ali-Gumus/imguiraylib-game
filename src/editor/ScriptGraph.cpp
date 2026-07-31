@@ -97,6 +97,13 @@ const char* ScriptGraph::Title(NodeKind k) {
         case NodeKind::SetCollider:     return "Set Collider";
         case NodeKind::HudAdd:          return "HUD Add";
         case NodeKind::HudGet:          return "HUD Get";
+        case NodeKind::EventDrawHud:    return "On Draw HUD";
+        case NodeKind::DrawText:        return "Draw Text";
+        case NodeKind::DrawValue:       return "Draw Value";
+        case NodeKind::DrawBar:         return "Draw Bar";
+        case NodeKind::DrawRect:        return "Draw Rect";
+        case NodeKind::DrawLine:        return "Draw Line";
+        case NodeKind::DrawCircle:      return "Draw Circle";
     }
     return "?";
 }
@@ -143,6 +150,57 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
         case NodeKind::EventUpdate:
             return {{SlotExecOut,  PinType::Exec,  false, "then"},
                     {SlotDataOut,  PinType::Float, false, "dt"}};
+
+        // Draws over the finished 3D view. It hands out the surface size because
+        // every anchored position is measured from it, and because a graph that
+        // wants something at, say, a third of the width has no other way to know
+        // how wide the view is.
+        case NodeKind::EventDrawHud:
+            return {{SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataOut,     PinType::Float, false, "w"},
+                    {SlotDataOut + 1, PinType::Float, false, "h"}};
+
+        // The drawing nodes. All of them take an OFFSET from their anchor rather
+        // than an absolute position, so they survive the view being resized.
+        case NodeKind::DrawText:
+            return {{SlotExecIn,      PinType::Exec,  true,  "in"},
+                    {SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataIn,      PinType::Float, true,  "dx"},
+                    {SlotDataIn + 1,  PinType::Float, true,  "dy"}};
+        case NodeKind::DrawValue:
+            return {{SlotExecIn,      PinType::Exec,  true,  "in"},
+                    {SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataIn,      PinType::Float, true,  "value"},
+                    {SlotDataIn + 1,  PinType::Float, true,  "dx"},
+                    {SlotDataIn + 2,  PinType::Float, true,  "dy"}};
+        case NodeKind::DrawBar:
+            return {{SlotExecIn,      PinType::Exec,  true,  "in"},
+                    {SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataIn,      PinType::Float, true,  "fill"},
+                    {SlotDataIn + 1,  PinType::Float, true,  "dx"},
+                    {SlotDataIn + 2,  PinType::Float, true,  "dy"},
+                    {SlotDataIn + 3,  PinType::Float, true,  "width"},
+                    {SlotDataIn + 4,  PinType::Float, true,  "height"}};
+        case NodeKind::DrawRect:
+            return {{SlotExecIn,      PinType::Exec,  true,  "in"},
+                    {SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataIn,      PinType::Float, true,  "dx"},
+                    {SlotDataIn + 1,  PinType::Float, true,  "dy"},
+                    {SlotDataIn + 2,  PinType::Float, true,  "width"},
+                    {SlotDataIn + 3,  PinType::Float, true,  "height"}};
+        case NodeKind::DrawLine:
+            return {{SlotExecIn,      PinType::Exec,  true,  "in"},
+                    {SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataIn,      PinType::Float, true,  "x1"},
+                    {SlotDataIn + 1,  PinType::Float, true,  "y1"},
+                    {SlotDataIn + 2,  PinType::Float, true,  "x2"},
+                    {SlotDataIn + 3,  PinType::Float, true,  "y2"}};
+        case NodeKind::DrawCircle:
+            return {{SlotExecIn,      PinType::Exec,  true,  "in"},
+                    {SlotExecOut,     PinType::Exec,  false, "then"},
+                    {SlotDataIn,      PinType::Float, true,  "dx"},
+                    {SlotDataIn + 1,  PinType::Float, true,  "dy"},
+                    {SlotDataIn + 2,  PinType::Float, true,  "radius"}};
 
         case NodeKind::Number:
         case NodeKind::Param:
@@ -418,7 +476,67 @@ PinType ScriptGraph::PinTypeOf(int pin) const {
 
 static bool IsEvent(NodeKind k) {
     return k == NodeKind::EventCreate || k == NodeKind::EventUpdate ||
-           k == NodeKind::EventDestroy || k == NodeKind::EventCollision;
+           k == NodeKind::EventDestroy || k == NodeKind::EventCollision ||
+           k == NodeKind::EventDrawHud;
+}
+
+// ---- HUD anchors -----------------------------------------------------------
+//
+// A HUD element must NOT be positioned with fixed coordinates. The surface it is
+// drawn into is the Game panel, which can be dragged to any size, so an element
+// written as "x = 24, y = 300" sits correctly at one size and wrong at every
+// other. Instead each drawing node picks an anchor - a named point on the
+// surface - and offsets from it. The generated code works the anchor out from the
+// `w` and `h` that on_draw_hud receives, so it follows any resize.
+//
+// The names are stored in the node, so they must stay stable: renaming one would
+// silently reset every graph using it back to the first entry.
+static const char* const kAnchorNames[] = {
+    "top-left", "top", "top-right",
+    "left",     "center", "right",
+    "bottom-left", "bottom", "bottom-right",
+};
+static constexpr int kAnchorCount = 9;
+
+// The Lua expressions for an anchor's x and y. `w` and `h` are in scope inside
+// the generated on_draw_hud, so they can be referred to directly.
+static void AnchorExpr(const char* name, std::string& ax, std::string& ay) {
+    std::string a = (name && name[0]) ? name : "top-left";
+    ax = "0";  ay = "0";
+    if (a == "top")          { ax = "w*0.5"; ay = "0"; }
+    else if (a == "top-right")    { ax = "w";     ay = "0"; }
+    else if (a == "left")         { ax = "0";     ay = "h*0.5"; }
+    else if (a == "center")       { ax = "w*0.5"; ay = "h*0.5"; }
+    else if (a == "right")        { ax = "w";     ay = "h*0.5"; }
+    else if (a == "bottom-left")  { ax = "0";     ay = "h"; }
+    else if (a == "bottom")       { ax = "w*0.5"; ay = "h"; }
+    else if (a == "bottom-right") { ax = "w";     ay = "h"; }
+}
+
+// Whether an anchor sits on the right edge or the horizontal middle. Text is
+// drawn from its LEFT edge, so anchoring a readout to the right without
+// subtracting its width leaves it hanging off the screen - and because digits
+// change width as a number grows, the amount to subtract has to be measured at
+// draw time rather than baked in.
+static int AnchorAlign(const char* name) {
+    std::string a = (name && name[0]) ? name : "top-left";
+    if (a == "top-right" || a == "right" || a == "bottom-right") return 2;  // right
+    if (a == "top" || a == "center" || a == "bottom")            return 1;  // centre
+    return 0;                                                              // left
+}
+
+// The colour names a drawing node may choose from. These match the palette the
+// engine defines for `draw.*`; a script may add more with draw.define_color, but
+// a dropdown can only offer what is known here.
+static const char* const kHudColors[] = {"hud", "warn", "bad", "white", "dim", "dark"};
+static constexpr int kHudColorCount = 6;
+
+// The colour argument for a generated draw call, or nothing when the node uses
+// the default - so an untouched node produces `draw.text(s, x, y, 20)` rather
+// than a noisier call with a redundant argument.
+static std::string ColorArg(const char* name) {
+    if (!name || !name[0] || std::strcmp(name, "hud") == 0) return "";
+    return std::string(", \"") + name + "\"";
 }
 
 // ---- Construction ----------------------------------------------------------
@@ -634,6 +752,37 @@ void ScriptGraph::DrawNode(GraphNode& n) {
     }
     else if (n.kind == NodeKind::HudAdd || n.kind == NodeKind::HudGet)
         ImGui::InputText("##hudname", n.text, sizeof(n.text));  // which HUD value
+    else if (n.kind == NodeKind::DrawText  || n.kind == NodeKind::DrawValue ||
+             n.kind == NodeKind::DrawBar   || n.kind == NodeKind::DrawRect  ||
+             n.kind == NodeKind::DrawLine  || n.kind == NodeKind::DrawCircle) {
+        // Text nodes carry the label (Draw Value appends the number to it).
+        if (n.kind == NodeKind::DrawText || n.kind == NodeKind::DrawValue) {
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::InputText("##dlabel", n.text, sizeof(n.text));
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::DragFloat("##dsize", &n.value, 0.5f, 6.0f, 96.0f, "size %.0f");
+        }
+        // Filled or outlined, for the shapes that can be either.
+        if (n.kind == NodeKind::DrawRect || n.kind == NodeKind::DrawCircle) {
+            bool filled = n.value > 0.5f;
+            if (ImGui::Checkbox("filled", &filled)) n.value = filled ? 1.0f : 0.0f;
+        }
+        // The anchor. This is the field that keeps an element in place when the
+        // Game panel is resized, so it is offered on every drawing node.
+        int a = 0;
+        for (int k = 0; k < kAnchorCount; ++k)
+            if (std::strcmp(n.text2, kAnchorNames[k]) == 0) a = k;
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Combo("##danchor", &a, kAnchorNames, kAnchorCount))
+            std::strncpy(n.text2, kAnchorNames[a], sizeof(n.text2) - 1);
+        // The colour, by name from the engine's HUD palette.
+        int c = 0;
+        for (int k = 0; k < kHudColorCount; ++k)
+            if (std::strcmp(n.text3, kHudColors[k]) == 0) c = k;
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Combo("##dcolor", &c, kHudColors, kHudColorCount))
+            std::strncpy(n.text3, kHudColors[c], sizeof(n.text3) - 1);
+    }
     else if (n.kind == NodeKind::SetCollider) {
         static const char* kShapes[] = { "sphere", "box", "capsule" };
         int cur = 0;
@@ -955,6 +1104,25 @@ void ScriptGraph::HandleContextMenu() {
             item("Set Collider",      NodeKind::SetCollider);
             ImGui::EndMenu();
         }
+        // Everything needed to build a HUD element without writing any C++.
+        // All of it belongs under On Draw HUD: the draw calls are only legal
+        // inside that pass and do nothing anywhere else.
+        if (ImGui::BeginMenu("HUD")) {
+            item("On Draw HUD", NodeKind::EventDrawHud);
+            ImGui::Separator();
+            item("Draw Value",  NodeKind::DrawValue);
+            item("Draw Text",   NodeKind::DrawText);
+            item("Draw Bar",    NodeKind::DrawBar);
+            ImGui::Separator();
+            item("Draw Rect",   NodeKind::DrawRect);
+            item("Draw Circle", NodeKind::DrawCircle);
+            item("Draw Line",   NodeKind::DrawLine);
+            ImGui::Separator();
+            item("HUD Get",     NodeKind::HudGet);
+            item("HUD Set",     NodeKind::HudSet);
+            item("HUD Add",     NodeKind::HudAdd);
+            ImGui::EndMenu();
+        }
         if (add) {
             GraphNode n;
             n.id   = m_nextID++;
@@ -967,8 +1135,27 @@ void ScriptGraph::HandleContextMenu() {
             }
             if (picked == NodeKind::KeyDown)
                 std::strncpy(n.text, "W", sizeof(n.text) - 1);   // default key
-            if (picked == NodeKind::Fire)
+            if (picked == NodeKind::Fire) {
                 std::strncpy(n.text, "assets/scripts/bullet.lua", sizeof(n.text) - 1);
+                n.value = 10.0f;   // muzzle distance; must clear the shooter's collider
+            }
+            // The drawing nodes all want an anchor and a colour from the moment
+            // they exist. Leaving these blank would put a new node at the top-left
+            // corner in the default colour anyway, but writing the names in means
+            // the dropdowns show what is actually in force rather than an empty box.
+            if (picked == NodeKind::DrawText  || picked == NodeKind::DrawValue ||
+                picked == NodeKind::DrawBar   || picked == NodeKind::DrawRect  ||
+                picked == NodeKind::DrawLine  || picked == NodeKind::DrawCircle) {
+                std::strncpy(n.text2, "top-left", sizeof(n.text2) - 1);
+                std::strncpy(n.text3, "hud",      sizeof(n.text3) - 1);
+                if (picked == NodeKind::DrawText || picked == NodeKind::DrawValue) {
+                    std::strncpy(n.text, "LABEL ", sizeof(n.text) - 1);
+                    n.value = 20.0f;                 // readable text size
+                } else if (picked == NodeKind::DrawRect ||
+                           picked == NodeKind::DrawCircle) {
+                    n.value = 0.0f;                  // outlined by default
+                }
+            }
             if (picked == NodeKind::TurnToPlayer) n.value = 65.0f;   // (unused, but tidy)
             if (picked == NodeKind::HitNearest) {
                 std::strncpy(n.text, "enemy", sizeof(n.text) - 1);   // default target tag
@@ -1275,7 +1462,19 @@ std::string ScriptGraph::ExprForInput(int inputPin) const {
             }
         }
     }
+    // On Draw HUD is the other multi-output event, for the same reason: it hands
+    // out the surface width and height, and only the wire says which.
+    if (src->kind == NodeKind::EventDrawHud) {
+        for (const auto& l : m_links) {
+            if (l.toPin != inputPin) continue;
+            return (PinToSlot(l.fromPin) - SlotDataOut == 0) ? "w" : "h";
+        }
+    }
     return ExprForNode(*src);
+}
+
+std::string ScriptGraph::ExprForInputOr(int inputPin, const char* fallback) const {
+    return SourceOf(inputPin) ? ExprForInput(inputPin) : std::string(fallback);
 }
 
 // Emit every action wired to `fromExecPin`, in order. An exec output may fan
@@ -1630,6 +1829,121 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
+            // ---- HUD drawing ------------------------------------------------
+            // Each of these resolves its anchor into `w`/`h` arithmetic, so the
+            // element follows the view when it is resized instead of sitting at
+            // a coordinate that was only ever right at one size.
+            case NodeKind::DrawText:
+            case NodeKind::DrawValue: {
+                const bool isValue = (n->kind == NodeKind::DrawValue);
+                std::string label(n->text), esc;
+                for (char c : label) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
+
+                std::string ax, ay;
+                AnchorExpr(n->text2, ax, ay);
+                const int align = AnchorAlign(n->text2);
+                // The text size lives in the node's own value; a size of 0 means
+                // the node predates the field, so it gets a readable default
+                // rather than being drawn invisibly small.
+                const float sz = (n->value > 0.5f) ? n->value : 20.0f;
+
+                const int base = isValue ? 1 : 0;   // Draw Value's first input is the number
+                const std::string dx = ExprForInput(PinId(n->id, SlotDataIn + base));
+                const std::string dy = ExprForInput(PinId(n->id, SlotDataIn + base + 1));
+
+                const std::string i = std::to_string(n->id);
+                char buf[64];
+                snprintf(buf, sizeof(buf), "%.7g", sz);
+                const std::string szs = buf;
+
+                // Build the string first, then position it: right- and
+                // centre-anchored text needs its own measured width, which is
+                // only knowable once the text exists.
+                if (isValue) {
+                    const std::string v = ExprForInput(PinId(n->id, SlotDataIn));
+                    lua += "    local ds" + i + " = \"" + esc + "\" .. string.format(\"%.0f\", " + v + ")\n";
+                } else {
+                    lua += "    local ds" + i + " = \"" + esc + "\"\n";
+                }
+                lua += "    local dw" + i + " = draw.text_width(ds" + i + ", " + szs + ")\n";
+                std::string xExpr = ax + " + (" + dx + ")";
+                if (align == 2)      xExpr += " - dw" + i;
+                else if (align == 1) xExpr += " - dw" + i + "*0.5";
+                lua += "    draw.text(ds" + i + ", " + xExpr + ", " + ay + " + (" + dy + "), "
+                     + szs + ColorArg(n->text3) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::DrawBar: {
+                // An outline plus a fill clamped to 0..1. Two calls rather than
+                // one node per piece, because a bar is always both and wiring
+                // them separately every time would be busywork.
+                std::string ax, ay;
+                AnchorExpr(n->text2, ax, ay);
+                const std::string i  = std::to_string(n->id);
+                const std::string f  = ExprForInput(PinId(n->id, SlotDataIn));
+                const std::string dx = ExprForInput(PinId(n->id, SlotDataIn + 1));
+                const std::string dy = ExprForInput(PinId(n->id, SlotDataIn + 2));
+                // Sizes fall back to something visible rather than to zero.
+                const std::string bw = ExprForInputOr(PinId(n->id, SlotDataIn + 3), "150");
+                const std::string bh = ExprForInputOr(PinId(n->id, SlotDataIn + 4), "12");
+                lua += "    local bx" + i + " = " + ax + " + (" + dx + ")\n";
+                lua += "    local by" + i + " = " + ay + " + (" + dy + ")\n";
+                lua += "    local bw" + i + " = " + bw + "\n";
+                lua += "    local bh" + i + " = " + bh + "\n";
+                // Clamped, because a fraction outside 0..1 would draw a fill
+                // spilling past its own outline.
+                lua += "    local bf" + i + " = " + f + "\n";
+                lua += "    if bf" + i + " < 0 then bf" + i + " = 0 elseif bf" + i + " > 1 then bf" + i + " = 1 end\n";
+                lua += "    draw.rect_lines(bx" + i + ", by" + i + ", bw" + i + ", bh" + i + ColorArg(n->text3) + ")\n";
+                lua += "    draw.rect(bx" + i + "+2, by" + i + "+2, (bw" + i + "-4)*bf" + i
+                     + ", bh" + i + "-4" + ColorArg(n->text3) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::DrawRect: {
+                std::string ax, ay;
+                AnchorExpr(n->text2, ax, ay);
+                const std::string dx = ExprForInput(PinId(n->id, SlotDataIn));
+                const std::string dy = ExprForInput(PinId(n->id, SlotDataIn + 1));
+                const std::string rw = ExprForInputOr(PinId(n->id, SlotDataIn + 2), "100");
+                const std::string rh = ExprForInputOr(PinId(n->id, SlotDataIn + 3), "20");
+                // The value field doubles as the filled/outline switch, so the
+                // two do not need separate node kinds.
+                const char* fn = (n->value > 0.5f) ? "draw.rect" : "draw.rect_lines";
+                lua += std::string("    ") + fn + "(" + ax + " + (" + dx + "), "
+                     + ay + " + (" + dy + "), " + rw + ", " + rh
+                     + ColorArg(n->text3) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::DrawLine: {
+                std::string ax, ay;
+                AnchorExpr(n->text2, ax, ay);
+                const std::string x1 = ExprForInput(PinId(n->id, SlotDataIn));
+                const std::string y1 = ExprForInput(PinId(n->id, SlotDataIn + 1));
+                // A line with both ends at the anchor would be invisible, so the
+                // far end defaults to a short horizontal stroke.
+                const std::string x2 = ExprForInputOr(PinId(n->id, SlotDataIn + 2), "24");
+                const std::string y2 = ExprForInputOr(PinId(n->id, SlotDataIn + 3), "0");
+                lua += "    draw.line(" + ax + " + (" + x1 + "), " + ay + " + (" + y1 + "), "
+                     + ax + " + (" + x2 + "), " + ay + " + (" + y2 + ")"
+                     + ColorArg(n->text3) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
+            case NodeKind::DrawCircle: {
+                std::string ax, ay;
+                AnchorExpr(n->text2, ax, ay);
+                const std::string dx = ExprForInput(PinId(n->id, SlotDataIn));
+                const std::string dy = ExprForInput(PinId(n->id, SlotDataIn + 1));
+                const std::string r  = ExprForInputOr(PinId(n->id, SlotDataIn + 2), "6");
+                const char* fn = (n->value > 0.5f) ? "draw.circle" : "draw.circle_lines";
+                lua += std::string("    ") + fn + "(" + ax + " + (" + dx + "), "
+                     + ay + " + (" + dy + "), " + r + ColorArg(n->text3) + ")\n";
+                EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
+                break;
+            }
             case NodeKind::SetCollider: {
                 std::string shape(n->text);
                 if (shape.empty()) shape = "sphere";
@@ -1834,6 +2148,11 @@ std::string ScriptGraph::GenerateLuaSource() const {
     // output pins generate, so the two have to agree.
     EmitEvent(lua, NodeKind::EventCollision,
               "function on_collision(entity, other, speed, hx, hy, hz)\n", false);
+    // The HUD pass. `w` and `h` are the surface size in pixels, and the drawing
+    // nodes refer to them by name when they resolve an anchor - which is why the
+    // parameters must be called exactly this.
+    EmitEvent(lua, NodeKind::EventDrawHud,
+              "function on_draw_hud(entity, w, h)\n", false);
 
     return lua;
 }

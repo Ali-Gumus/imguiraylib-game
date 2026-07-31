@@ -333,25 +333,7 @@ public:
                 // forces produce. Stepping first would act on last frame's
                 // decisions and leave the controls feeling a frame late.
                 eng::UpdatePhysics(m_scene, dt);
-
-                // Track the player's speed for the HUD by measuring how far it
-                // moved this frame (distance / time). This avoids reaching into
-                // the flight script for its internal velocity.
-                if (eng::Entity* pl = FindPlayer()) {
-                    Vector3 p = pl->transform.position;
-                    if (m_hasLastPos && dt > 0.0001f) {
-                        float dx = p.x - m_lastPlayerPos.x;
-                        float dy = p.y - m_lastPlayerPos.y;
-                        float dz = p.z - m_lastPlayerPos.z;
-                        m_playerSpeed = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
-                    }
-                    m_lastPlayerPos = p;
-                    m_hasLastPos = true;
-                }
             }
-        } else {
-            m_hasLastPos  = false;   // reset so speed doesn't jump when play resumes
-            m_playerSpeed = 0.0f;
         }
 
         // --- Render the Game view -------------------------------------------
@@ -385,101 +367,35 @@ public:
             // sun: fire and sparks give off their own light.
             eng::DrawParticles(cam);
             EndMode3D();
-            // Draw the 2D HUD on top of the 3D view (after EndMode3D so it's
-            // flat screen-space, not in the world).
-            if (eng::Entity* player = FindPlayer())
-                DrawGameHud(player);
-            // The game-over banner draws even with no player left alive.
-            if (eng::GetHudValue("game_over", 0.0f) > 0.0f)
-                DrawGameOverOverlay();
+
+            // Screen-space component overlays (the minimap, and anything else
+            // that draws in pixels rather than metres). Run here, after
+            // EndMode3D, because that is what "screen space" means: the 3D pass
+            // is finished, so there is no camera or matrix left to fight.
+            //
+            // The size passed is the game TEXTURE's, not the window's - the Game
+            // panel is whatever size it has been dragged to, and an overlay
+            // placed against the window's corner would drift off the edge.
+            // The scene must be marked ACTIVE here. An overlay looks up other
+            // entities through Scene::Current() - a radar has to find its
+            // contacts - and outside Update nothing has marked one, so that
+            // returns null and every overlay silently draws nothing. See the
+            // rule on ActiveScene in Scene.h.
+            {
+                eng::ActiveScene active(m_scene);
+                // Opens the window in which the scripting `draw.*` calls work.
+                // Outside it they do nothing, so a script drawing from the wrong
+                // hook fails quietly instead of scribbling pixel-space shapes
+                // into the middle of the 3D pass.
+                eng::BeginHudPass();
+                for (const eng::Entity& e : m_scene.Entities())
+                    for (const auto& c : e.components)
+                        c->OnDrawHud(e, m_gameRT.texture.width,
+                                     m_gameRT.texture.height);
+                eng::EndHudPass();
+            }
             EndTextureMode();
         }
-    }
-
-    // Draw the heads-up display over the Game view: a crosshair in the middle,
-    // airspeed on the left, altitude on the right, and a health bar at the
-    // bottom. Coordinates are in the game texture's pixels.
-    void DrawGameHud(eng::Entity* player) {
-        const int   w   = m_gameRT.texture.width;
-        const int   h   = m_gameRT.texture.height;
-        const int   cx  = w / 2;
-        const int   cy  = h / 2;
-        const Color hud = {90, 255, 130, 220};   // translucent green
-
-        // Crosshair: four short ticks and a small center ring.
-        DrawLine(cx - 16, cy, cx - 5, cy, hud);
-        DrawLine(cx + 5, cy, cx + 16, cy, hud);
-        DrawLine(cx, cy - 16, cx, cy - 5, hud);
-        DrawLine(cx, cy + 5, cx, cy + 16, hud);
-        DrawCircleLines(cx, cy, 3, hud);
-
-        // Score across the top center, wave number just below it. Scripts
-        // publish these via hud.add("score",n) / hud.set("wave",n). Each is only
-        // drawn once it has actually been set (fallback -1 means "never set"),
-        // so a plain scene without a game manager isn't cluttered with them.
-        float score = eng::GetHudValue("score", -1.0f);
-        if (score >= 0.0f) {
-            const char* sc = TextFormat("SCORE %d", (int)score);
-            DrawText(sc, cx - MeasureText(sc, 24) / 2, 18, 24, hud);
-        }
-        float wavev = eng::GetHudValue("wave", -1.0f);
-        if (wavev >= 0.0f) {
-            const char* wv = TextFormat("WAVE %d", (int)wavev);
-            DrawText(wv, cx - MeasureText(wv, 18) / 2, 44, 18, hud);
-        }
-
-        // Airspeed (units per second) on the left, vertically centered.
-        DrawText(TextFormat("SPD %3.0f", m_playerSpeed), 24, cy - 10, 20, hud);
-
-        // Engine power (throttle) below the speed, if the flight script posted
-        // it. Shown as a percentage and a small bar so the player can fine-tune
-        // their speed with the throttle keys.
-        float throttle = eng::GetHudValue("throttle", -1.0f);
-        if (throttle >= 0.0f) {
-            if (throttle > 1.0f) throttle = 1.0f;
-            DrawText(TextFormat("PWR %3.0f%%", throttle * 100.0f), 24, cy + 16, 20, hud);
-            const int bx = 24, by = cy + 40, bw = 150, bh = 10;
-            DrawRectangleLines(bx, by, bw, bh, hud);
-            DrawRectangle(bx + 2, by + 2, (int)((bw - 4) * throttle), bh - 4,
-                          Color{90, 255, 130, 170});
-        }
-
-        // Altitude (the jet's world height) on the right, right-aligned.
-        const char* alt = TextFormat("ALT %4.0f", player->transform.position.y);
-        DrawText(alt, w - 24 - MeasureText(alt, 20), cy - 10, 20, hud);
-
-        // Health bar along the bottom, if the player has a Health component.
-        if (auto* hpc = player->GetComponent<eng::HealthComponent>()) {
-            float frac = (hpc->max > 0.0f) ? hpc->hp / hpc->max : 0.0f;
-            if (frac < 0) frac = 0;
-            if (frac > 1) frac = 1;
-            const int bw = 220, bh = 16;
-            const int bx = cx - bw / 2, by = h - 44;
-            DrawText("HP", bx - 34, by - 2, 20, hud);
-            DrawRectangleLines(bx, by, bw, bh, hud);                     // outline
-            DrawRectangle(bx + 2, by + 2, (int)((bw - 4) * frac), bh - 4, // fill
-                          Color{90, 255, 130, 170});
-        }
-    }
-
-    // A full-screen "GAME OVER" banner over the Game view, shown while the
-    // "game_over" HUD flag is set. Dims the frozen scene, states the final
-    // score, and prompts for the restart key.
-    void DrawGameOverOverlay() {
-        const int w = m_gameRT.texture.width;
-        const int h = m_gameRT.texture.height;
-        DrawRectangle(0, 0, w, h, Color{0, 0, 0, 150});   // dim the frozen world
-
-        const char* t1 = "GAME OVER";
-        DrawText(t1, w / 2 - MeasureText(t1, 48) / 2, h / 2 - 70, 48,
-                 Color{255, 80, 80, 255});
-
-        const char* t2 = TextFormat("SCORE %d", (int)eng::GetHudValue("score", 0.0f));
-        DrawText(t2, w / 2 - MeasureText(t2, 28) / 2, h / 2 - 6, 28, RAYWHITE);
-
-        const char* t3 = "Press R to restart";
-        DrawText(t3, w / 2 - MeasureText(t3, 20) / 2, h / 2 + 36, 20,
-                 Color{200, 200, 200, 255});
     }
 
     // Draw the gradient sky as a backdrop. Call right after BeginMode3D, while
@@ -678,13 +594,6 @@ private:
     eng::Entity* FindCameraEntity() {
         for (auto& e : m_scene.Entities())
             if (e.GetComponent<eng::CameraComponent>()) return &e;
-        return nullptr;
-    }
-
-    // Return the first entity tagged "player" (the one the HUD reports on).
-    eng::Entity* FindPlayer() {
-        for (auto& e : m_scene.Entities())
-            if (e.tag == "player") return &e;
         return nullptr;
     }
 
@@ -1241,6 +1150,9 @@ private:
             bool hasTerrain = e->GetComponent<eng::TerrainComponent>() != nullptr;
             if (ImGui::MenuItem("Terrain", nullptr, false, !hasTerrain))
                 e->AddComponent<eng::TerrainComponent>();
+            bool hasMinimap = e->GetComponent<eng::MinimapComponent>() != nullptr;
+            if (ImGui::MenuItem("Minimap", nullptr, false, !hasMinimap))
+                e->AddComponent<eng::MinimapComponent>();
             ImGui::EndPopup();
         }
 
@@ -1304,11 +1216,6 @@ private:
     float m_viewNear = 0.3f;
     float m_viewFar  = 25000.0f;
 
-    // HUD state: the player's position last frame and its measured speed, used
-    // to show airspeed without reading the flight script's internal velocity.
-    Vector3 m_lastPlayerPos{};
-    bool    m_hasLastPos  = false;
-    float   m_playerSpeed = 0.0f;
 };
 
 // The program's entry point.

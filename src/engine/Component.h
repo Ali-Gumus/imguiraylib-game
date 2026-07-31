@@ -102,6 +102,24 @@ public:
     // entity's data.
     virtual void OnDraw(const Entity& owner) {}
 
+    // Called every frame AFTER the 3D world has been drawn, to draw over it in
+    // flat screen space - a minimap, a lock-on marker, a damage indicator.
+    //
+    // This is a separate hook from OnDraw rather than a flag on it, because the
+    // two run in genuinely different worlds. OnDraw is called inside the 3D pass
+    // with the entity's world matrix already pushed onto the matrix stack, so
+    // its coordinates are metres in the scene. This one is called once the 3D
+    // pass has ended: there is no matrix, no camera and no depth, and its
+    // coordinates are PIXELS. Drawing a flat overlay from inside OnDraw would
+    // mean fighting the very transform that makes OnDraw useful.
+    //
+    // `width` and `height` are the size of the surface being drawn into, which
+    // is NOT the window: the game view renders into its own texture, and a
+    // panel can be any size the developer drags it to. Anything positioned
+    // relative to a corner or the centre has to use these rather than asking
+    // the window how big it is.
+    virtual void OnDrawHud(const Entity& owner, int width, int height) {}
+
     // Called while the Inspector panel is open, so the component can draw
     // its own editing widgets (sliders, colors, ...). The Inspector loops
     // over a component list and calls this on each, never needing to know
