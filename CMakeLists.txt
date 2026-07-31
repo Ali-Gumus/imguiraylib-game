@@ -164,6 +164,20 @@ add_library(engine STATIC
     src/engine/Application.cpp
     src/engine/Scene.cpp
     src/engine/Components.cpp
+    # The scripting API. One file per subject, each carrying both the sol2
+    # bindings and the description of what they expose, so the two cannot drift
+    # apart. LuaBindings.h declares them; LuaApiRegistry collects the docs.
+    src/engine/LuaApiRegistry.cpp
+    src/engine/bindings/TransformBindings.cpp
+    src/engine/bindings/EntityBindings.cpp
+    src/engine/bindings/InputBindings.cpp
+    src/engine/bindings/HudBindings.cpp
+    src/engine/bindings/DrawBindings.cpp
+    src/engine/bindings/FxBindings.cpp
+    src/engine/bindings/AudioBindings.cpp
+    src/engine/bindings/PhysicsBindings.cpp
+    src/engine/bindings/LightBindings.cpp
+    src/engine/bindings/SceneBindings.cpp
     src/engine/FileDialog.cpp
     src/engine/Lighting.cpp
     src/engine/Particles.cpp
