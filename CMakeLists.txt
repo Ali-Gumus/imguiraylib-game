@@ -164,6 +164,19 @@ add_library(engine STATIC
     src/engine/Application.cpp
     src/engine/Scene.cpp
     src/engine/Components.cpp
+    # One file per component. Components.h remains as an umbrella that includes
+    # them all, for the factory and for callers that genuinely want every type.
+    src/engine/components/Script.cpp
+    src/engine/components/Graph.cpp
+    src/engine/components/Shape.cpp
+    src/engine/components/Camera.cpp
+    src/engine/components/Health.cpp
+    src/engine/components/Collider.cpp
+    src/engine/components/RigidBody.cpp
+    src/engine/components/Light.cpp
+    src/engine/components/Model.cpp
+    src/engine/components/Terrain.cpp
+    src/engine/components/Minimap.cpp
     # The scripting API. One file per subject, each carrying both the sol2
     # bindings and the description of what they expose, so the two cannot drift
     # apart. LuaBindings.h declares them; LuaApiRegistry collects the docs.
