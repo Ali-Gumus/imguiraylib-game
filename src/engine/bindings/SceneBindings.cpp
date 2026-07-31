@@ -23,6 +23,26 @@ void RegisterSceneBindings(sol::state& lua) {
     };
     // Find another entity by name, or nil. Call it fresh each frame; never
     // store the result, because the entity it points to may be destroyed.
+    // Scene.createEntity([name]) -> entity, existing NOW rather than at the end
+    // of the frame.
+    //
+    // This is the one creation call that is not queued, and it can only work
+    // because entities live in a deque: appending to one leaves references to
+    // every existing entity valid, so a script creating an entity from inside
+    // its own update does not pull the ground out from under the loop running
+    // it. Scene::Update and Scene::Start walk by index over a count taken
+    // before they start, so the new entity simply waits for the next frame to
+    // begin updating - the same rule a queued spawn follows.
+    //
+    // Returning it straight away is the whole point: the script can add
+    // components and set the transform there and then, instead of creating
+    // something blind and hunting for it next frame.
+    scn["createEntity"] = [](sol::optional<std::string> name) -> Entity* {
+        Scene* s = Scene::Current();
+        if (!s) return nullptr;
+        return s->Find(s->CreateEntity(name.value_or(std::string("Entity"))));
+    };
+
     scn["find"] = [](const std::string& name) -> Entity* {
         return Scene::Current() ? Scene::Current()->FindByName(name) : nullptr;
     };
@@ -150,6 +170,9 @@ void RegisterSceneBindings(sol::state& lua) {
 
 void DescribeSceneBindings(LuaApiRegistry& api) {
     auto s = api.Table("Scene");
+    s.Fn("createEntity([name]) -> entity",
+         "Create an empty entity and return it IMMEDIATELY, ready to have "
+         "components added. It begins updating next frame");
     s.Fn("find(name) -> entity",  "The first entity with this name, or nil");
     s.Fn("count(tag) -> number",  "How many live entities carry a tag");
     s.Fn("nearest(tag, x, y, z, radius) -> entity",

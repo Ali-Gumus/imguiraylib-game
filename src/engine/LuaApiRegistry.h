@@ -87,6 +87,7 @@ void DescribeFxBindings(LuaApiRegistry& api);
 void DescribeAudioBindings(LuaApiRegistry& api);
 void DescribePhysicsBindings(LuaApiRegistry& api);
 void DescribeLightBindings(LuaApiRegistry& api);
+void DescribeCameraBindings(LuaApiRegistry& api);
 
 // The whole catalogue, built once on first call. Anything that wants to show or
 // print the scripting API reads this rather than assembling its own list.

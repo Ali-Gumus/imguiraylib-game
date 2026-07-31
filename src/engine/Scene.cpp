@@ -85,7 +85,9 @@ bool Scene::Load(const std::string& path) {
     if (doc.is_discarded()) return false;
 
     // Build the new entity list in a separate vector first.
-    std::vector<Entity> loaded;
+    // A deque, to match m_entities - the whole point of the swap below is that
+    // nothing is left half-loaded if the parse fails partway through.
+    std::deque<Entity> loaded;
     for (const json& je : doc.value("entities", json::array())) {
         Entity e;
         // .value(key, fallback) reads a field or uses the fallback if absent,
@@ -325,7 +327,15 @@ Entity* Scene::FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
 
 // Fire OnStart on every component of every entity (called once at Play).
 void Scene::Start() {
-    for (Entity& e : m_entities) {
+    // By INDEX over a count taken now, not a range-for. A script's onStart may
+    // CREATE an entity, which appends to the deque and invalidates iterators.
+    // Taking the count first also settles what should happen to the new one:
+    // it is not started in this pass, it starts next frame like anything else
+    // spawned during play. Starting it here would mean an entity's onStart
+    // could run before the entity that made it had finished its own.
+    const size_t count = m_entities.size();
+    for (size_t i = 0; i < count; ++i) {
+        Entity& e = m_entities[i];
         // Snapshot the component pointers first: a script's on_start may ADD a
         // component (e.g. scene.set_hitbox), which can reallocate e.components
         // and invalidate an iterator mid-loop. The Component objects themselves
@@ -368,7 +378,14 @@ void Scene::Update(float dt) {
     // and spawn passes at the end - both of those run script hooks too.
     ActiveScene active(*this);
 
-    for (Entity& e : m_entities) {
+    // By INDEX over a count taken now, for the same reason as Start(): a
+    // script's onUpdate may create an entity, and appending to the deque
+    // invalidates iterators even though it leaves existing entities put. An
+    // entity created this frame is therefore not updated until the next one,
+    // which is the same rule a queued spawn has always followed.
+    const size_t count = m_entities.size();
+    for (size_t i = 0; i < count; ++i) {
+        Entity& e = m_entities[i];
         // Snapshot component pointers so a script that adds a component during
         // its update can't invalidate this loop (see the note in Start()).
         std::vector<Component*> comps;

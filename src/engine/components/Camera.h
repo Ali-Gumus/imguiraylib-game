@@ -25,8 +25,11 @@ public:
     void Serialize(nlohmann::json& out) const override {
         out["fovy"] = fovy;
         out["nearClip"] = nearClip;  out["farClip"] = farClip;
+        out["orthographic"] = orthographic;  out["orthoSize"] = orthoSize;
     }
     void Deserialize(const nlohmann::json& in) override {
+        orthographic = in.value("orthographic", orthographic);
+        orthoSize    = in.value("orthoSize", orthoSize);
         fovy     = in.value("fovy", fovy);
         // Scenes saved before clipping planes existed carry neither key, so they
         // fall back to the defaults below and keep rendering as they always did.
@@ -74,5 +77,28 @@ public:
     // close-up object gets sliced open by the front of the frustum.
     float nearClip = 0.3f;      // nothing closer than this is drawn
     float farClip  = 25000.0f;  // nothing further than this is drawn
+
+    // ---- Projection: how the frustum is shaped ----------------------------
+    //
+    // PERSPECTIVE is what an eye or a lens does - things shrink with distance,
+    // parallel lines converge. It is what almost every camera in a game wants,
+    // and it is the default here.
+    //
+    // ORTHOGRAPHIC throws that away: the view is a BOX rather than a pyramid,
+    // so an object is drawn the same size however far away it is and parallel
+    // lines stay parallel. That sounds wrong for a world, and it is - but it is
+    // exactly right for a MAP. Looking straight down through an orthographic
+    // camera gives a true plan view where distance across the ground is the
+    // same number of pixels everywhere, which is what makes it usable as a
+    // minimap or a tactical display. It is also the standard choice for
+    // isometric games and for any 2D layer drawn in a 3D world.
+    //
+    // The two are described by different numbers, which is why both are kept:
+    // a perspective camera has an ANGLE (fovy), and an orthographic one has a
+    // SIZE (orthoSize), because a box has no angle to speak of. Switching
+    // between them therefore does not translate one into the other - each keeps
+    // its own setting, and switching back finds it as it was left.
+    bool  orthographic = false;   // false = perspective
+    float orthoSize    = 1000.0f; // how many world units TALL the view is
 };
 } // namespace eng

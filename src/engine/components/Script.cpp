@@ -64,6 +64,8 @@ void ScriptComponent::Load() {
     RegisterPhysicsBindings(m_lua);
     RegisterLightBindings(m_lua);
     RegisterSceneBindings(m_lua);
+    // Camera last: it hangs createCamera off the Scene table, which must exist.
+    RegisterCameraBindings(m_lua);
 
     // --- Actually run the script -------------------------------------------
     // Either from a string in memory or from a file on disk. The "pass on

@@ -68,13 +68,35 @@ Camera3D CameraComponent::ToCamera3D(const Matrix& world) const {
     cam.position   = pos;                   // where the eye is
     cam.target     = tgt;                   // the point it looks at
     cam.up         = up;                    // which way is "up" for the view
-    cam.fovy       = fovy;                  // field of view (zoom)
-    cam.projection = CAMERA_PERSPECTIVE;    // normal 3D perspective
+    // The graphics layer reads ONE field for both projections, and reads it as
+    // a different quantity for each: an angle in degrees when perspective, and
+    // a height in world units when orthographic. Keeping the two apart on the
+    // component and choosing here means neither setting is destroyed by
+    // switching, and nothing else has to know about the overload.
+    cam.projection = orthographic ? CAMERA_ORTHOGRAPHIC : CAMERA_PERSPECTIVE;
+    cam.fovy       = orthographic ? orthoSize : fovy;
     return cam;
 }
 
 void CameraComponent::OnInspector() {
-    ImGui::DragFloat("FOV", &fovy, 0.5f, 10.0f, 140.0f);
+    // Projection first: it decides which of the two size fields below means
+    // anything, so showing it after them would invite tuning the one that is
+    // currently ignored.
+    const char* kProjections[] = {"Perspective", "Orthographic"};
+    int proj = orthographic ? 1 : 0;
+    if (ImGui::Combo("Projection", &proj, kProjections, 2)) orthographic = (proj == 1);
+
+    if (orthographic) {
+        ImGui::DragFloat("Ortho Size", &orthoSize, 1.0f, 1.0f, 200000.0f, "%.0f",
+                         ImGuiSliderFlags_Logarithmic);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How many world units TALL the view is.\n"
+                              "An orthographic camera has no angle - everything\n"
+                              "is drawn the same size however far away it is.");
+        ImGui::TextDisabled("FOV is unused while orthographic");
+    } else {
+        ImGui::DragFloat("FOV", &fovy, 0.5f, 10.0f, 140.0f);
+    }
 
     // Clipping planes. Far is the view distance, so it is dragged on a
     // LOGARITHMIC scale: the useful range runs from a few hundred units for an

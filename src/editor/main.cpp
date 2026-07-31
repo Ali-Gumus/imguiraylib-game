@@ -26,6 +26,7 @@ namespace ed = ax::NodeEditor;     // a shorter alias for the node-editor namesp
 #include <algorithm>    // std::clamp
 #include <cmath>        // sinf / cosf for the orbit camera
 #include <cstring>      // strncpy for text-edit buffers
+#include <deque>        // the Play/Stop snapshot mirrors Scene's entity store
 #include <filesystem>   // set the working directory at startup
 
 // EditorApp is our program. It inherits Application (which owns the window and
@@ -1173,7 +1174,7 @@ private:
 
     // --- Editor state -------------------------------------------------------
     eng::Scene    m_scene;                              // the world being edited
-    std::vector<eng::Entity> m_backup;                  // saved scene while playing
+    std::deque<eng::Entity>  m_backup;   // matches Scene::Entities(); see the note on m_entities                  // saved scene while playing
     bool          m_playing  = false;                   // are we in play mode?
     eng::EntityID m_selected = eng::kInvalidEntity;     // the selected entity (or none)
     Camera3D      m_camera{};                            // the editor's orbit camera

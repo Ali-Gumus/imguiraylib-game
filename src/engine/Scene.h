@@ -8,6 +8,7 @@
 
 #include <memory>      // std::unique_ptr
 #include <string>      // std::string
+#include <deque>       // std::deque - the entity store; see the note on m_entities
 #include <vector>      // std::vector (a growable array)
 #include <cstdint>     // fixed-width integer types like std::uint32_t
 
@@ -242,11 +243,25 @@ public:
 
     // Direct access to the entity list, for the editor's panels to iterate.
     // Two versions: a writable one and a read-only (const) one.
-    std::vector<Entity>&       Entities()       { return m_entities; }
-    const std::vector<Entity>& Entities() const { return m_entities; }
+    std::deque<Entity>&       Entities()       { return m_entities; }
+    const std::deque<Entity>& Entities() const { return m_entities; }
 
 private:
-    std::vector<Entity> m_entities;    // every entity in the world
+    // Every entity in the world.
+    //
+    // A DEQUE rather than a vector, and the difference is load-bearing. A
+    // vector moves its whole contents when it grows, so creating an entity
+    // while something holds an `Entity&` - which is exactly what a script does
+    // when it creates one from inside its own update - leaves that reference
+    // pointing at freed memory. A deque only ever appends to a new block, so
+    // references to entities that already exist stay valid however many are
+    // added after them.
+    //
+    // That is what allows Scene.createEntity to hand a script a usable entity
+    // immediately, instead of the queue-it-and-hope-for-next-frame arrangement
+    // a vector would force. Iterators are still invalidated, so the loops that
+    // can run script hooks walk by INDEX over a count taken before they start.
+    std::deque<Entity> m_entities;
     EntityID m_nextID = 1;             // next id to hand out (0 stays "invalid")
 
     // One queued spawn request: what to create once Update()'s loop is done.
