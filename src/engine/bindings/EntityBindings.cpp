@@ -12,21 +12,15 @@ void RegisterEntityBindings(sol::state& lua) {
         "tag",       &Entity::tag,
         "transform", &Entity::transform);
 
-    // Reaching an entity's components. One line per type, and the type list is
-    // the honest statement of what a script can touch: anything not here is
-    // simply not reachable, rather than reachable-but-broken.
+    // Component access is registered by each component's OWN binding file, next
+    // to the usertype it hands back. The two are useless apart: an accessor
+    // that returns a type Lua was never told about gives back opaque userdata
+    // with no readable fields, which looks like it works until you touch it.
     //
-    // Camera is registered in CameraBindings instead, next to its own usertype
-    // and the Projection enum, so everything about cameras is in one file.
-    RegisterComponentAccess<HealthComponent>(lua, "Health");
-    RegisterComponentAccess<ScriptComponent>(lua, "Script");
-    RegisterComponentAccess<ShapeComponent>(lua, "Shape");
-    RegisterComponentAccess<ColliderComponent>(lua, "Collider");
-    RegisterComponentAccess<RigidBodyComponent>(lua, "RigidBody");
+    // Light is the exception and stays here, because its component's settings
+    // are reached through the `Light` table rather than through the component -
+    // there is only ever one sun, so there is nothing to look up per entity.
     RegisterComponentAccess<LightComponent>(lua, "Light");
-    RegisterComponentAccess<ModelComponent>(lua, "Model");
-    RegisterComponentAccess<TerrainComponent>(lua, "Terrain");
-    RegisterComponentAccess<MinimapComponent>(lua, "Minimap");
 }
 
 void DescribeEntityBindings(LuaApiRegistry& api) {

@@ -191,6 +191,14 @@ add_library(engine STATIC
     src/engine/bindings/PhysicsBindings.cpp
     src/engine/bindings/LightBindings.cpp
     src/engine/bindings/SceneBindings.cpp
+    src/engine/bindings/HealthBindings.cpp
+    src/engine/bindings/RigidBodyBindings.cpp
+    src/engine/bindings/ColliderBindings.cpp
+    src/engine/bindings/ModelBindings.cpp
+    src/engine/bindings/ShapeBindings.cpp
+    src/engine/bindings/TerrainBindings.cpp
+    src/engine/bindings/MinimapBindings.cpp
+    src/engine/bindings/ScriptBindings.cpp
     src/engine/bindings/CameraBindings.cpp
     src/engine/FileDialog.cpp
     src/engine/Lighting.cpp

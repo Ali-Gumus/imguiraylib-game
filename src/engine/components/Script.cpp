@@ -65,6 +65,14 @@ void ScriptComponent::Load() {
     RegisterLightBindings(m_lua);
     RegisterSceneBindings(m_lua);
     // Camera last: it hangs createCamera off the Scene table, which must exist.
+    RegisterHealthBindings(m_lua);
+    RegisterRigidBodyBindings(m_lua);
+    RegisterColliderBindings(m_lua);
+    RegisterModelBindings(m_lua);
+    RegisterShapeBindings(m_lua);
+    RegisterTerrainBindings(m_lua);
+    RegisterMinimapBindings(m_lua);
+    RegisterScriptBindings(m_lua);
     RegisterCameraBindings(m_lua);
 
     // --- Actually run the script -------------------------------------------

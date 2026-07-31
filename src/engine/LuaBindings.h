@@ -61,6 +61,20 @@ void RegisterLightBindings(sol::state& lua);
 // The world: finding, spawning, destroying and damaging entities.
 void RegisterSceneBindings(sol::state& lua);
 
+// ---- One per component ------------------------------------------------------
+// Each registers its component's usertype AND the entity accessors that hand
+// that type back. The two belong together: an accessor returning a type Lua has
+// never been told about gives a script opaque userdata with no readable fields,
+// which looks like it works right up until you touch it.
+void RegisterHealthBindings(sol::state& lua);
+void RegisterRigidBodyBindings(sol::state& lua);
+void RegisterColliderBindings(sol::state& lua);
+void RegisterModelBindings(sol::state& lua);
+void RegisterShapeBindings(sol::state& lua);
+void RegisterTerrainBindings(sol::state& lua);
+void RegisterMinimapBindings(sol::state& lua);
+void RegisterScriptBindings(sol::state& lua);
+
 // The camera component, its projection enum, and Scene.createCamera.
 void RegisterCameraBindings(sol::state& lua);
 

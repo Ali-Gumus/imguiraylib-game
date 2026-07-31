@@ -7,6 +7,26 @@
 namespace eng {
 
 void RegisterTransformBindings(sol::state& lua) {
+    // Colour, registered here with the other plain value types.
+    //
+    // It has to exist as a usertype or every `tint` field on every component
+    // hands Lua an opaque lump it can hold but not read - the same trap that
+    // an unregistered component type sets one level up.
+    //
+    // Channels are 0..255 and stored as bytes, so they are exposed through
+    // properties that convert: Lua has one number type and would otherwise
+    // force the caller to think about the storage.
+    lua.new_usertype<Color>("Color",
+        "r", sol::property([](const Color& c) { return (int)c.r; },
+                           [](Color& c, int v) { c.r = (unsigned char)v; }),
+        "g", sol::property([](const Color& c) { return (int)c.g; },
+                           [](Color& c, int v) { c.g = (unsigned char)v; }),
+        "b", sol::property([](const Color& c) { return (int)c.b; },
+                           [](Color& c, int v) { c.b = (unsigned char)v; }),
+        "a", sol::property([](const Color& c) { return (int)c.a; },
+                           [](Color& c, int v) { c.a = (unsigned char)v; })
+    );
+
     // --- Expose C++ types to Lua ------------------------------------------
     // new_usertype tells sol2 how a C++ type looks from Lua: which fields and
     // methods are reachable. After this, Lua code can read and write these
@@ -133,6 +153,12 @@ void RegisterTransformBindings(sol::state& lua) {
 }
 
 void DescribeTransformBindings(LuaApiRegistry& api) {
+    api.Usertype("Color", "color")
+        .Prop("r", "Red, 0 to 255")
+        .Prop("g", "Green, 0 to 255")
+        .Prop("b", "Blue, 0 to 255")
+        .Prop("a", "Alpha, 0 to 255");
+
     api.Usertype("Vector3", "v")
         .Prop("x", "The X component")
         .Prop("y", "The Y component")

@@ -87,6 +87,14 @@ void DescribeFxBindings(LuaApiRegistry& api);
 void DescribeAudioBindings(LuaApiRegistry& api);
 void DescribePhysicsBindings(LuaApiRegistry& api);
 void DescribeLightBindings(LuaApiRegistry& api);
+void DescribeHealthBindings(LuaApiRegistry& api);
+void DescribeRigidBodyBindings(LuaApiRegistry& api);
+void DescribeColliderBindings(LuaApiRegistry& api);
+void DescribeModelBindings(LuaApiRegistry& api);
+void DescribeShapeBindings(LuaApiRegistry& api);
+void DescribeTerrainBindings(LuaApiRegistry& api);
+void DescribeMinimapBindings(LuaApiRegistry& api);
+void DescribeScriptBindings(LuaApiRegistry& api);
 void DescribeCameraBindings(LuaApiRegistry& api);
 
 // The whole catalogue, built once on first call. Anything that wants to show or

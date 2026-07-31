@@ -76,6 +76,14 @@ const std::vector<LuaApiEntry>& GetLuaApiEntries() {
         DescribePhysicsBindings(reg);
         DescribeLightBindings(reg);
         DescribeSceneBindings(reg);
+        DescribeHealthBindings(reg);
+        DescribeRigidBodyBindings(reg);
+        DescribeColliderBindings(reg);
+        DescribeModelBindings(reg);
+        DescribeShapeBindings(reg);
+        DescribeTerrainBindings(reg);
+        DescribeMinimapBindings(reg);
+        DescribeScriptBindings(reg);
         DescribeCameraBindings(reg);
         return reg.Entries();
     }();
