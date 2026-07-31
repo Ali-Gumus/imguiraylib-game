@@ -394,7 +394,7 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotExecOut, PinType::Exec,  false, "out"},
                     {SlotDataIn,  PinType::Float, true,  "value"}};
         // Impact test: the tag to hit and the hit points are node fields; the
-        // reach is the "radius" data input.
+        // reach is the "radius" data Input.
         // "on hit" is a second exec output that runs ONLY when something was
         // actually struck, and runs inside that test. Anything chained to the
         // ordinary "out" runs every frame, hit or not - which is why a sound or
@@ -441,7 +441,7 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotDataIn,     PinType::Float, true, "volume"},
                     {SlotDataIn + 1, PinType::Float, true, "pitch"}};
         // Separation: the neighbour tag and push strength are node fields; the
-        // reach is the "range" data input.
+        // reach is the "range" data Input.
         case NodeKind::AvoidCrowd:
             return {{SlotExecIn,  PinType::Exec,  true,  "in"},
                     {SlotExecOut, PinType::Exec,  false, "out"},
@@ -487,7 +487,7 @@ static bool IsEvent(NodeKind k) {
 // written as "x = 24, y = 300" sits correctly at one size and wrong at every
 // other. Instead each drawing node picks an anchor - a named point on the
 // surface - and offsets from it. The generated code works the anchor out from the
-// `w` and `h` that on_draw_hud receives, so it follows any resize.
+// `w` and `h` that onDrawHud receives, so it follows any resize.
 //
 // The names are stored in the node, so they must stay stable: renaming one would
 // silently reset every graph using it back to the first entry.
@@ -499,7 +499,7 @@ static const char* const kAnchorNames[] = {
 static constexpr int kAnchorCount = 9;
 
 // The Lua expressions for an anchor's x and y. `w` and `h` are in scope inside
-// the generated on_draw_hud, so they can be referred to directly.
+// the generated onDrawHud, so they can be referred to directly.
 static void AnchorExpr(const char* name, std::string& ax, std::string& ay) {
     std::string a = (name && name[0]) ? name : "top-left";
     ax = "0";  ay = "0";
@@ -526,13 +526,13 @@ static int AnchorAlign(const char* name) {
 }
 
 // The colour names a drawing node may choose from. These match the palette the
-// engine defines for `draw.*`; a script may add more with draw.define_color, but
+// engine defines for `Draw.*`; a script may add more with Draw.defineColor, but
 // a dropdown can only offer what is known here.
 static const char* const kHudColors[] = {"hud", "warn", "bad", "white", "dim", "dark"};
 static constexpr int kHudColorCount = 6;
 
 // The colour argument for a generated draw call, or nothing when the node uses
-// the default - so an untouched node produces `draw.text(s, x, y, 20)` rather
+// the default - so an untouched node produces `Draw.text(s, x, y, 20)` rather
 // than a noisier call with a redundant argument.
 static std::string ColorArg(const char* name) {
     if (!name || !name[0] || std::strcmp(name, "hud") == 0) return "";
@@ -941,7 +941,7 @@ void ScriptGraph::HandleFxPicker() {
                     break;
                 default:
                     ImGui::TextDisabled("No effects defined.");
-                    ImGui::TextDisabled("Add one with fx.define in");
+                    ImGui::TextDisabled("Add one with Fx.define in");
                     ImGui::TextDisabled("assets/scripts/effects.lua");
                     break;
             }
@@ -1357,7 +1357,7 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         case NodeKind::KeyDown: {
             std::string key(n.text), esc;
             for (char c : key) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-            return "input.key_down(\"" + esc + "\")";
+            return "Input.keyDown(\"" + esc + "\")";
         }
         case NodeKind::GetVar:
             return n.text[0] ? std::string(n.text) : "0";   // the variable's name
@@ -1370,13 +1370,13 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             return "other.tag == \"" + esc + "\"";
         }
         case NodeKind::Speed:
-            return "physics.speed(entity)";
+            return "Physics.speed(entity)";
         case NodeKind::HudGet: {
             std::string name(n.text), esc;
             for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
             // A HUD value that was never set reads as 0, which is what makes a
             // guard like "game_over > 0" work before anything has set it.
-            return "hud.get(\"" + esc + "\", 0)";
+            return "Hud.get(\"" + esc + "\", 0)";
         }
         case NodeKind::Param:
             // Read the tunable back from the generated properties table.
@@ -1408,10 +1408,10 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
         case NodeKind::CountTag: {
             std::string tag(n.text), esc;
             for (char c : tag) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-            return "scene.count(\"" + esc + "\")";
+            return "Scene.count(\"" + esc + "\")";
         }
         case NodeKind::IsPlayerNear:
-            return "(scene.nearest(\"player\", entity.transform.position.x, "
+            return "(Scene.nearest(\"player\", entity.transform.position.x, "
                    "entity.transform.position.y, entity.transform.position.z, " +
                    ExprForInput(PinId(n.id, SlotDataIn)) + ") ~= nil)";
         case NodeKind::AimedAtPlayer: {
@@ -1422,7 +1422,7 @@ std::string ScriptGraph::ExprForNode(const GraphNode& n) const {
             std::string angle = ExprForInput(PinId(n.id, SlotDataIn + 1));
             return
               "(function() "
-              "local tp = scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000) "
+              "local tp = Scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000) "
               "if tp == nil then return false end "
               "local dx = tp.transform.position.x - entity.transform.position.x "
               "local dy = tp.transform.position.y - entity.transform.position.y "
@@ -1506,7 +1506,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             case NodeKind::MoveForward:
-                lua += "    entity.transform:translate_local(0, 0, -(" +
+                lua += "    entity.transform:translateLocal(0, 0, -(" +
                        ExprForInput(PinId(n->id, SlotDataIn)) + "))\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1518,7 +1518,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 break;
             }
             case NodeKind::DestroySelf:
-                lua += "    scene.destroy(entity)\n";
+                lua += "    Scene.destroy(entity)\n";
                 break;
             case NodeKind::SetVar:
                 if (n->text[0])
@@ -1546,8 +1546,8 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // unique local (by node id) avoids clashes between two of these.
                 char buf[320];
                 snprintf(buf, sizeof(buf),
-                    "    local tgt%d = scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000)\n"
-                    "    if tgt%d ~= nil then entity.transform:rotate_toward(tgt%d.transform.position.x, tgt%d.transform.position.y, tgt%d.transform.position.z, %s) end\n",
+                    "    local tgt%d = Scene.nearest(\"player\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, 100000)\n"
+                    "    if tgt%d ~= nil then entity.transform:rotateToward(tgt%d.transform.position.x, tgt%d.transform.position.y, tgt%d.transform.position.z, %s) end\n",
                     n->id, n->id, n->id, n->id, n->id,
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str());
                 lua += buf;
@@ -1568,7 +1568,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 snprintf(buf, sizeof(buf),
                     "    local ff%d = entity.transform:forward()\n"
                     "    local pp%d = entity.transform.position\n"
-                    "    scene.spawn(\"Bullet\", pp%d.x+ff%d.x*%.7g, pp%d.y+ff%d.y*%.7g, pp%d.z+ff%d.z*%.7g, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
+                    "    Scene.spawn(\"Bullet\", pp%d.x+ff%d.x*%.7g, pp%d.y+ff%d.y*%.7g, pp%d.z+ff%d.z*%.7g, ff%d.x, ff%d.y, ff%d.z, \"%s\")\n",
                     n->id, n->id,
                     n->id, n->id, n->value, n->id, n->id, n->value, n->id, n->id, n->value,
                     n->id, n->id, n->id,
@@ -1602,16 +1602,16 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 if (n->text2[0] != '\0') {
                     std::string fxName(n->text2), esc2;
                     for (char c : fxName) { if (c == '"' || c == '\\') esc2 += '\\'; esc2 += c; }
-                    effect = "\n    fx.burst(\"" + esc2 +
+                    effect = "\n    Fx.burst(\"" + esc2 +
                              "\", entity.transform.position.x, entity.transform.position.y,"
                              " entity.transform.position.z)";
                 }
 
                 char buf[600];
                 snprintf(buf, sizeof(buf),
-                    "    local hit%d = scene.hit(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
+                    "    local hit%d = Scene.hit(\"%s\", entity.transform.position.x, entity.transform.position.y, entity.transform.position.z, %s)\n"
                     "    if hit%d ~= nil then\n"
-                    "    scene.damage(hit%d, %.7g)%s\n",
+                    "    Scene.damage(hit%d, %.7g)%s\n",
                     n->id, esc.c_str(),
                     ExprForInput(PinId(n->id, SlotDataIn)).c_str(),
                     n->id, n->id, n->value, effect.c_str());
@@ -1622,7 +1622,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // destroyed should not still be doing things.
                 EmitExecChain(lua, PinId(n->id, SlotExecOut2), depth + 1);
 
-                lua += "    scene.destroy(entity)\n    end\n";
+                lua += "    Scene.destroy(entity)\n    end\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
@@ -1638,7 +1638,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string force = fbuf;
                 lua +=
                   "    local rng" + i + " = " + rng + "\n"
-                  "    local oth" + i + " = scene.nearest_other(entity, \"" + esc + "\", rng" + i + ")\n"
+                  "    local oth" + i + " = Scene.nearestOther(entity, \"" + esc + "\", rng" + i + ")\n"
                   "    if oth" + i + " ~= nil then\n"
                   "        local sx" + i + " = entity.transform.position.x - oth" + i + ".transform.position.x\n"
                   "        local sy" + i + " = entity.transform.position.y - oth" + i + ".transform.position.y\n"
@@ -1675,7 +1675,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string hgt  = ExprForInput(PinId(n->id, SlotDataIn + 1));
                 std::string stf  = ExprForInput(PinId(n->id, SlotDataIn + 2));
                 lua +=
-                  "    local jet" + i + " = scene.find(\"" + esc + "\")\n"
+                  "    local jet" + i + " = Scene.find(\"" + esc + "\")\n"
                   "    if jet" + i + " ~= nil then\n"
                   "        local cd" + i + " = " + dist + "\n"
                   "        local ch" + i + " = " + hgt + "\n"
@@ -1692,7 +1692,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                   "        entity.transform.position.x = jet" + i + ".transform.position.x + cox" + i + "\n"
                   "        entity.transform.position.y = jet" + i + ".transform.position.y + coy" + i + "\n"
                   "        entity.transform.position.z = jet" + i + ".transform.position.z + coz" + i + "\n"
-                  "        entity.transform:look_at(jet" + i + ".transform.position.x, jet" + i + ".transform.position.y, jet" + i + ".transform.position.z)\n"
+                  "        entity.transform:lookAt(jet" + i + ".transform.position.x, jet" + i + ".transform.position.y, jet" + i + ".transform.position.z)\n"
                   "    end\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1701,7 +1701,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // Publish a number for the C++ HUD to read by name.
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                lua += "    hud.set(\"" + esc + "\", " +
+                lua += "    Hud.set(\"" + esc + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1726,7 +1726,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 snprintf(buf, sizeof(buf),
                     "    local fxf%d = entity.transform:forward()\n"
                     "    local fxp%d = entity.transform.position\n"
-                    "    fx.burst(\"%s\", fxp%d.x+fxf%d.x*%.7g, fxp%d.y+fxf%d.y*%.7g, fxp%d.z+fxf%d.z*%.7g, %s)\n",
+                    "    Fx.burst(\"%s\", fxp%d.x+fxf%d.x*%.7g, fxp%d.y+fxf%d.y*%.7g, fxp%d.z+fxf%d.z*%.7g, %s)\n",
                     n->id, n->id, esc.c_str(),
                     n->id, n->id, n->value, n->id, n->id, n->value,
                     n->id, n->id, n->value,
@@ -1743,7 +1743,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string vol = SourceOf(PinId(n->id, SlotDataIn))
                                       ? ExprForInput(PinId(n->id, SlotDataIn))
                                       : std::string("1");
-                lua += "    audio.play(\"" + esc + "\", " + vol + ")\n";
+                lua += "    Audio.play(\"" + esc + "\", " + vol + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
@@ -1751,9 +1751,9 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::LoopStop: {
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                const char* fn = (n->kind == NodeKind::LoopStart) ? "loop_start"
-                                                                  : "loop_stop";
-                lua += std::string("    audio.") + fn + "(\"" + esc + "\")\n";
+                const char* fn = (n->kind == NodeKind::LoopStart) ? "loopStart"
+                                                                  : "loopStop";
+                lua += std::string("    Audio.") + fn + "(\"" + esc + "\")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
@@ -1768,14 +1768,14 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string pit = SourceOf(PinId(n->id, SlotDataIn + 1))
                                       ? ExprForInput(PinId(n->id, SlotDataIn + 1))
                                       : std::string("1");
-                lua += "    audio.loop_set(\"" + esc + "\", " + vol + ", " + pit + ")\n";
+                lua += "    Audio.loopSet(\"" + esc + "\", " + vol + ", " + pit + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }
             case NodeKind::SetLightIntensity: {
                 // Set the scene light's brightness. It writes to the light
                 // entity's component, so the change sticks frame to frame.
-                lua += "    light.set_intensity(" +
+                lua += "    Light.setIntensity(" +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1795,7 +1795,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::SpawnCube: {
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                lua += "    scene.spawn_cube(\"" + esc + "\", " +
+                lua += "    Scene.spawnCube(\"" + esc + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 2)) + ")\n";
@@ -1803,7 +1803,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 break;
             }
             case NodeKind::Spawn: {
-                // scene.spawn(name, x,y,z, dx,dy,dz, script, tag, hp). The tag
+                // Scene.spawn(name, x,y,z, dx,dy,dz, script, tag, hp). The tag
                 // doubles as the entity name (gameplay identifies by tag).
                 std::string script(n->text), es1;
                 for (char c : script) { if (c == '"' || c == '\\') es1 += '\\'; es1 += c; }
@@ -1812,7 +1812,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string model(n->text3), es3;
                 for (char c : model) { if (c == '"' || c == '\\') es3 += '\\'; es3 += c; }
                 char hp[32]; snprintf(hp, sizeof(hp), "%.7g", n->value);
-                lua += "    scene.spawn(\"" + es2 + "\", " +
+                lua += "    Scene.spawn(\"" + es2 + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 2)) + ", " +
@@ -1865,11 +1865,11 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 } else {
                     lua += "    local ds" + i + " = \"" + esc + "\"\n";
                 }
-                lua += "    local dw" + i + " = draw.text_width(ds" + i + ", " + szs + ")\n";
+                lua += "    local dw" + i + " = Draw.textWidth(ds" + i + ", " + szs + ")\n";
                 std::string xExpr = ax + " + (" + dx + ")";
                 if (align == 2)      xExpr += " - dw" + i;
                 else if (align == 1) xExpr += " - dw" + i + "*0.5";
-                lua += "    draw.text(ds" + i + ", " + xExpr + ", " + ay + " + (" + dy + "), "
+                lua += "    Draw.text(ds" + i + ", " + xExpr + ", " + ay + " + (" + dy + "), "
                      + szs + ColorArg(n->text3) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1895,8 +1895,8 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // spilling past its own outline.
                 lua += "    local bf" + i + " = " + f + "\n";
                 lua += "    if bf" + i + " < 0 then bf" + i + " = 0 elseif bf" + i + " > 1 then bf" + i + " = 1 end\n";
-                lua += "    draw.rect_lines(bx" + i + ", by" + i + ", bw" + i + ", bh" + i + ColorArg(n->text3) + ")\n";
-                lua += "    draw.rect(bx" + i + "+2, by" + i + "+2, (bw" + i + "-4)*bf" + i
+                lua += "    Draw.rectLines(bx" + i + ", by" + i + ", bw" + i + ", bh" + i + ColorArg(n->text3) + ")\n";
+                lua += "    Draw.rect(bx" + i + "+2, by" + i + "+2, (bw" + i + "-4)*bf" + i
                      + ", bh" + i + "-4" + ColorArg(n->text3) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1910,7 +1910,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 const std::string rh = ExprForInputOr(PinId(n->id, SlotDataIn + 3), "20");
                 // The value field doubles as the filled/outline switch, so the
                 // two do not need separate node kinds.
-                const char* fn = (n->value > 0.5f) ? "draw.rect" : "draw.rect_lines";
+                const char* fn = (n->value > 0.5f) ? "Draw.rect" : "Draw.rectLines";
                 lua += std::string("    ") + fn + "(" + ax + " + (" + dx + "), "
                      + ay + " + (" + dy + "), " + rw + ", " + rh
                      + ColorArg(n->text3) + ")\n";
@@ -1926,7 +1926,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 // far end defaults to a short horizontal stroke.
                 const std::string x2 = ExprForInputOr(PinId(n->id, SlotDataIn + 2), "24");
                 const std::string y2 = ExprForInputOr(PinId(n->id, SlotDataIn + 3), "0");
-                lua += "    draw.line(" + ax + " + (" + x1 + "), " + ay + " + (" + y1 + "), "
+                lua += "    Draw.line(" + ax + " + (" + x1 + "), " + ay + " + (" + y1 + "), "
                      + ax + " + (" + x2 + "), " + ay + " + (" + y2 + ")"
                      + ColorArg(n->text3) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
@@ -1938,7 +1938,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 const std::string dx = ExprForInput(PinId(n->id, SlotDataIn));
                 const std::string dy = ExprForInput(PinId(n->id, SlotDataIn + 1));
                 const std::string r  = ExprForInputOr(PinId(n->id, SlotDataIn + 2), "6");
-                const char* fn = (n->value > 0.5f) ? "draw.circle" : "draw.circle_lines";
+                const char* fn = (n->value > 0.5f) ? "Draw.circle" : "Draw.circleLines";
                 lua += std::string("    ") + fn + "(" + ax + " + (" + dx + "), "
                      + ay + " + (" + dy + "), " + r + ColorArg(n->text3) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
@@ -1947,7 +1947,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::SetCollider: {
                 std::string shape(n->text);
                 if (shape.empty()) shape = "sphere";
-                lua += "    scene.set_collider(entity, \"" + shape + "\", " +
+                lua += "    Scene.setCollider(entity, \"" + shape + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1955,7 +1955,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::HudAdd: {
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                lua += "    hud.add(\"" + esc + "\", " +
+                lua += "    Hud.add(\"" + esc + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1963,7 +1963,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
 
             // --- Stage 13: physics and collisions ------------------------
             case NodeKind::DamageOther:
-                lua += "    scene.damage(other, " +
+                lua += "    Scene.damage(other, " +
                        ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
@@ -1975,14 +1975,14 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
 
                 // Only pass the optional arguments that were actually wired.
                 // Emitting an unwired input as 0 would not be a harmless
-                // default: physics.set_body treats every argument it receives
+                // default: Physics.setBody treats every argument it receives
                 // as a decision, so a literal 0 would set the mass to zero
                 // rather than leave the component's own value alone.
                 const bool hasMass    = SourceOf(PinId(n->id, SlotDataIn))     != nullptr;
                 const bool hasGravity = SourceOf(PinId(n->id, SlotDataIn + 1)) != nullptr;
                 const bool sweep      = (n->value != 0.0f);
 
-                lua += "    physics.set_body(entity, \"" + motion + "\"";
+                lua += "    Physics.setBody(entity, \"" + motion + "\"";
                 if (hasMass || hasGravity || sweep)
                     lua += ", " + ExprForInput(PinId(n->id, SlotDataIn));
                 if (hasGravity || sweep)
@@ -1995,10 +1995,10 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::SetVelocity:
             case NodeKind::ApplyForce:
             case NodeKind::ApplyLocalForce: {
-                const char* fn = (n->kind == NodeKind::SetVelocity) ? "set_velocity"
-                               : (n->kind == NodeKind::ApplyForce)  ? "apply_force"
-                                                                    : "apply_local_force";
-                lua += std::string("    physics.") + fn + "(entity, " +
+                const char* fn = (n->kind == NodeKind::SetVelocity) ? "setVelocity"
+                               : (n->kind == NodeKind::ApplyForce)  ? "applyForce"
+                                                                    : "applyLocalForce";
+                lua += std::string("    Physics.") + fn + "(entity, " +
                        ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 2)) + ")\n";
@@ -2010,7 +2010,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
                 const bool sound = (n->kind == NodeKind::PlaySoundAt);
-                lua += std::string("    ") + (sound ? "audio.play_at(\"" : "fx.burst(\"") +
+                lua += std::string("    ") + (sound ? "Audio.playAt(\"" : "Fx.burst(\"") +
                        esc + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
@@ -2028,7 +2028,7 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
             case NodeKind::LoopAt: {
                 std::string name(n->text), esc;
                 for (char c : name) { if (c == '"' || c == '\\') esc += '\\'; esc += c; }
-                lua += "    audio.loop_at(\"" + esc + "\", " +
+                lua += "    Audio.loopAt(\"" + esc + "\", " +
                        ExprForInput(PinId(n->id, SlotDataIn))     + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 1)) + ", " +
                        ExprForInput(PinId(n->id, SlotDataIn + 2)) + ", " +
@@ -2072,7 +2072,7 @@ void ScriptGraph::EmitEvent(std::string& lua, NodeKind ev,
     for (const auto& l : m_links) if (l.fromPin == execOut) { hasChain = true; break; }
     if (!hasChain) return;
 
-    (void)provideDt;   // dt is already the on_update parameter; nothing to add
+    (void)provideDt;   // dt is already the onUpdate parameter; nothing to add
     lua += header;
     EmitExecChain(lua, execOut);
     lua += "end\n\n";
@@ -2118,7 +2118,7 @@ std::string ScriptGraph::GenerateLuaSource() const {
     if (!m_vars.empty()) lua += "\n";
 
     // Chase Target keeps its camera OFFSET from one frame to the next, so each
-    // such node needs its own file-scope storage - a local inside on_update would
+    // such node needs its own file-scope storage - a local inside onUpdate would
     // be forgotten every frame and the smoothing would have nothing to smooth
     // from. They start as nil, which the node's own code reads as "no previous
     // offset yet" and snaps into place on the first frame.
@@ -2140,19 +2140,19 @@ std::string ScriptGraph::GenerateLuaSource() const {
     }
     if (anyChase) lua += "\n";
 
-    EmitEvent(lua, NodeKind::EventCreate,  "function on_start(entity)\n",      false);
-    EmitEvent(lua, NodeKind::EventUpdate,  "function on_update(entity, dt)\n", true);
-    EmitEvent(lua, NodeKind::EventDestroy, "function on_destroy(entity)\n",    false);
+    EmitEvent(lua, NodeKind::EventCreate,  "function onStart(entity)\n",      false);
+    EmitEvent(lua, NodeKind::EventUpdate,  "function onUpdate(entity, dt)\n", true);
+    EmitEvent(lua, NodeKind::EventDestroy, "function onDestroy(entity)\n",    false);
     // The collision handler takes more parameters than the others: what was
     // hit, how hard, and where. These names are exactly what On Collision's
     // output pins generate, so the two have to agree.
     EmitEvent(lua, NodeKind::EventCollision,
-              "function on_collision(entity, other, speed, hx, hy, hz)\n", false);
+              "function onCollision(entity, other, speed, hx, hy, hz)\n", false);
     // The HUD pass. `w` and `h` are the surface size in pixels, and the drawing
     // nodes refer to them by name when they resolve an anchor - which is why the
     // parameters must be called exactly this.
     EmitEvent(lua, NodeKind::EventDrawHud,
-              "function on_draw_hud(entity, w, h)\n", false);
+              "function onDrawHud(entity, w, h)\n", false);
 
     return lua;
 }

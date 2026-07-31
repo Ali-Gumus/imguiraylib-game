@@ -45,14 +45,14 @@ public:
     }
 
     // Lifecycle hooks (bodies are in the .cpp). OnStart loads the file and
-    // calls the script's on_start; OnUpdate calls its on_update each frame;
-    // OnDestroy calls its on_destroy.
+    // calls the script's onStart; OnUpdate calls its onUpdate each frame;
+    // OnDestroy calls its onDestroy.
     void OnStart(Entity& owner) override;
     void OnDestroy(Entity& owner) override;
     void OnUpdate(float dt, Entity& owner) override;
     void OnCollision(Entity& owner, Entity& other, float speed,
                      Vector3 point) override;
-    // Calls the script's optional on_draw_hud(entity, w, h), where it may use
+    // Calls the script's optional onDrawHud(entity, w, h), where it may use
     // the `draw.*` API to put things on screen over the finished 3D view. This
     // is what lets a HUD element be authored in a script - and, because
     // GraphComponent derives from this class, in a node graph - instead of
@@ -967,7 +967,7 @@ private:
 // --- HUD drawing support (used by the `draw.*` script API) -------------------
 
 // Named colours for HUD drawing. A script may add to the palette with
-// draw.define_color, so a HUD's colours are data rather than compiled in.
+// draw.defineColor, so a HUD's colours are data rather than compiled in.
 // An unknown name resolves to the default HUD green rather than failing.
 void  DefineHudColor(const std::string& name, Color c);
 Color HudColor(const std::string& name);   // empty name = the default HUD colour

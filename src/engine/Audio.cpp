@@ -205,7 +205,7 @@ bool ReloadSoundDefs() {
     sol::state lua;
     lua.open_libraries(sol::lib::base, sol::lib::math);
 
-    sol::table snd = lua.create_named_table("sound");
+    sol::table snd = lua.create_named_table("Sound");
     // sound.define(name, settings): register one sound. Any field left out
     // keeps a sensible default, so a definition can be a single file path.
     snd["define"] = [](const std::string& name, sol::table t) {

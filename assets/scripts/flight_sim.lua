@@ -75,7 +75,7 @@ properties = {
 local vx, vy, vz = 0, 0, 0    -- velocity in world space
 local throttle   = 0.65       -- engine setting, 0..1
 
-function on_start(entity)
+function onStart(entity)
     -- Launch already moving forward at the cruise speed, so the plane is
     -- flying (not stalling) from the first frame.
     local f = entity.transform:forward()
@@ -84,25 +84,25 @@ function on_start(entity)
 
     -- Start the engine note. It runs for as long as the jet exists; the volume
     -- and pitch are set every frame below from the throttle.
-    audio.loop_start("jet")
+    Audio.loopStart("jet")
 end
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     local t = entity.transform
     local P = properties      -- shorthand for the tunable values
 
     -- --- Steer the nose. Note this only rotates the aircraft; the velocity
     --     reacts through the aerodynamics below, not instantly. ---------------
-    if input.key_down("W") then t:rotate(1, 0, 0,  P.pitch_rate * dt) end
-    if input.key_down("S") then t:rotate(1, 0, 0, -P.pitch_rate * dt) end
-    if input.key_down("A") then t:rotate(0, 0, 1,  P.roll_rate  * dt) end
-    if input.key_down("D") then t:rotate(0, 0, 1, -P.roll_rate  * dt) end
-    if input.key_down("Q") then t:rotate(0, 1, 0,  P.yaw_rate   * dt) end
-    if input.key_down("E") then t:rotate(0, 1, 0, -P.yaw_rate   * dt) end
+    if Input.keyDown("W") then t:rotate(1, 0, 0,  P.pitch_rate * dt) end
+    if Input.keyDown("S") then t:rotate(1, 0, 0, -P.pitch_rate * dt) end
+    if Input.keyDown("A") then t:rotate(0, 0, 1,  P.roll_rate  * dt) end
+    if Input.keyDown("D") then t:rotate(0, 0, 1, -P.roll_rate  * dt) end
+    if Input.keyDown("Q") then t:rotate(0, 1, 0,  P.yaw_rate   * dt) end
+    if Input.keyDown("E") then t:rotate(0, 1, 0, -P.yaw_rate   * dt) end
 
     -- --- Throttle -----------------------------------------------------------
-    if input.key_down("SHIFT") then throttle = throttle + 0.4 * dt end
-    if input.key_down("CTRL")  then throttle = throttle - 0.4 * dt end
+    if Input.keyDown("SHIFT") then throttle = throttle + 0.4 * dt end
+    if Input.keyDown("CTRL")  then throttle = throttle - 0.4 * dt end
     if throttle < 0 then throttle = 0 end
     if throttle > 1 then throttle = 1 end
 
@@ -141,8 +141,8 @@ function on_update(entity, dt)
     t.position.z = t.position.z + vz * dt
 
     -- Publish flight values for the HUD to display.
-    hud.set("throttle", throttle)   -- 0..1 engine power
-    hud.set("speed", speed)         -- current airspeed
+    Hud.set("throttle", throttle)   -- 0..1 engine power
+    Hud.set("speed", speed)         -- current airspeed
 
     -- Tie the engine note to the throttle. Both volume and pitch rise with
     -- power, which is what makes opening the throttle *feel* like acceleration
@@ -154,6 +154,6 @@ function on_update(entity, dt)
     -- it stays loud and centred, but the same script on an enemy jet is heard
     -- from wherever that jet is.
     local ep = entity.transform.position
-    audio.loop_at("jet", ep.x, ep.y, ep.z,
+    Audio.loopAt("jet", ep.x, ep.y, ep.z,
                   1 + throttle * 1, 1.5 + throttle * 1)
 end

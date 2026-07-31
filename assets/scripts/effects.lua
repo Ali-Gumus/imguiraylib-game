@@ -6,10 +6,10 @@
 -- Play, so tuning an explosion means editing a number here and pressing Play --
 -- no rebuild, no restart. Gameplay scripts fire these by name:
 --
---     fx.burst("explosion", x, y, z)        -- at a world position
---     fx.burst("spark", x, y, z, 0.5)       -- at half size and speed
+--     Fx.burst("explosion", x, y, z)        -- at a world position
+--     Fx.burst("spark", x, y, z, 0.5)       -- at half size and speed
 --
--- To invent a new effect, call fx.define with a new name and fire it from a
+-- To invent a new effect, call Fx.define with a new name and fire it from a
 -- script by that name. Nothing in C++ needs to change.
 --
 -- Every field is optional. Anything you leave out keeps the value the effect
@@ -40,7 +40,7 @@
 
 -- Something died: a fireball that throws embers outward and burns down to a
 -- dark red as it falls.
-fx.define("explosion", {
+Fx.define("explosion", {
     count       = 60,
     speed_min   = 4.0,
     speed_max   = 26.0,
@@ -57,7 +57,7 @@ fx.define("explosion", {
 
 -- A bullet connected: a few fast white-hot flecks, gone almost at once. They
 -- are over before gravity has time to matter.
-fx.define("spark", {
+Fx.define("spark", {
     count       = 14,
     speed_min   = 6.0,
     speed_max   = 20.0,
@@ -76,7 +76,7 @@ fx.define("spark", {
 -- against a bright sky, and at sixty frames a second an effect lasting a tenth
 -- of a second is only six frames on screen. Too few, too small or too brief and
 -- it disappears entirely.
-fx.define("muzzle", {
+Fx.define("muzzle", {
     count       = 22,
     speed_min   = 1.0,
     speed_max   = 8.0,

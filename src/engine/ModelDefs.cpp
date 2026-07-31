@@ -38,7 +38,7 @@ bool ReloadModelDefs() {
     // defined and half missing, which is harder to diagnose than none.
     std::unordered_map<std::string, ModelDef> parsed;
 
-    sol::table mdl = lua.create_named_table("model");
+    sol::table mdl = lua.create_named_table("Model");
     // model.define(name, settings). Any field left out keeps a sensible
     // default, so the simplest definition is a name and a file.
     mdl["define"] = [&parsed](const std::string& name, sol::table t) {

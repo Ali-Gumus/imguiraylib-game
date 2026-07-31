@@ -33,38 +33,38 @@ properties = {
 
 local age = 0           -- seconds this bullet has existed (runtime state)
 
-function on_start(entity)
+function onStart(entity)
     entity.transform.scale.x = 0.25
     entity.transform.scale.y = 0.25
     entity.transform.scale.z = 0.25
 end
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     local P = properties
 
-    entity.transform:translate_local(0, 0, -P.speed * dt)
+    entity.transform:translateLocal(0, 0, -P.speed * dt)
 
     local p = entity.transform.position
-    -- scene.hit adds the player's hitRadius to our reach (sphere-vs-sphere).
-    local target = scene.hit("player", p.x, p.y, p.z, P.hit_radius)
+    -- Scene.hit adds the player's hitRadius to our reach (sphere-vs-sphere).
+    local target = Scene.hit("player", p.x, p.y, p.z, P.hit_radius)
     if target ~= nil then
-        scene.damage(target, P.damage)
+        Scene.damage(target, P.damage)
         -- Sparks on the player, so being hit is visible and not just a number
         -- dropping on the health bar.
-        fx.burst("spark", p.x, p.y, p.z)
+        Fx.burst("spark", p.x, p.y, p.z)
         -- A distinct sound from the player's own hits: being shot has to be
         -- unmistakable, not something to work out from the health bar.
         -- Left unpositioned on purpose. This one is not a sound happening
         -- somewhere in the world so much as a message to the player that they
         -- are being hit, and it must never be faint or off to one side - it
         -- always fires right where the player is anyway.
-        audio.play("hit_taken")
-        scene.destroy(entity)
+        Audio.play("hit_taken")
+        Scene.destroy(entity)
         return
     end
 
     age = age + dt
     if age > P.life then
-        scene.destroy(entity)
+        Scene.destroy(entity)
     end
 end

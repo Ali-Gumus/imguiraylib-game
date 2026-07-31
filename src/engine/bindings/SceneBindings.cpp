@@ -13,12 +13,12 @@ void RegisterSceneBindings(sol::state& lua) {
     // The `scene` table lets scripts change the world. Creating and destroying
     // entities only ENQUEUES the request; the scene carries it out after the
     // update loop, so it is safe even to destroy the very entity that asked.
-    sol::table scn = lua.create_named_table("scene");
+    sol::table scn = lua.create_named_table("Scene");
 
     scn["destroy"] = [](Entity& e) {
         if (Scene::Current()) Scene::Current()->QueueDestroy(e.id);
     };
-    scn["spawn_cube"] = [](const std::string& name, float x, float y, float z) {
+    scn["spawnCube"] = [](const std::string& name, float x, float y, float z) {
         if (Scene::Current()) Scene::Current()->QueueSpawnCube(name, {x, y, z});
     };
     // Find another entity by name, or nil. Call it fresh each frame; never
@@ -51,7 +51,7 @@ void RegisterSceneBindings(sol::state& lua) {
                                      model.value_or(std::string()));
     };
     // count(tag): how many live entities carry `tag`. A wave is cleared when
-    // scene.count("enemy") reaches zero.
+    // Scene.count("enemy") reaches zero.
     scn["count"] = [](const std::string& tag) -> int {
         return Scene::Current() ? Scene::Current()->CountWithTag(tag) : 0;
     };
@@ -72,27 +72,27 @@ void RegisterSceneBindings(sol::state& lua) {
                    ? Scene::Current()->FindHitWithTag(tag, {x, y, z}, reach)
                    : nullptr;
     };
-    // set_hitbox(entity, radius): ensure the entity is hittable, giving it a
+    // setHitbox(entity, radius): ensure the entity is hittable, giving it a
     // SPHERE collider of `radius` only when it has no collider at all (e.g. a
     // freshly spawned enemy). If one already exists -- added and sized in the
     // editor -- it is left alone, so pressing Play never resets authored values.
-    scn["set_hitbox"] = [](Entity& e, float radius) {
+    scn["setHitbox"] = [](Entity& e, float radius) {
         if (!e.GetComponent<ColliderComponent>()) {
             ColliderComponent& c = e.AddComponent<ColliderComponent>();
             c.shape  = ColliderShape::Sphere;
             c.radius = radius;
         }
     };
-    // set_collider(entity, shape, a, b, c): the full version of set_hitbox for
+    // setCollider(entity, shape, a, b, c): the full version of setHitbox for
     // shapes other than a sphere. `shape` is "sphere", "box" or "capsule"; the
     // three numbers mean different things per shape:
     //   sphere  -> a = radius              (b, c unused)
     //   box     -> a, b, c = half extents  (half the size on X, Y, Z)
     //   capsule -> a = radius, b = height  (c unused)
-    // Like set_hitbox it only ADDS: an authored collider is never overwritten.
+    // Like setHitbox it only ADDS: an authored collider is never overwritten.
     // `b` and `c` are sol::optional, meaning the script may leave them out:
-    // scene.set_collider(e, "sphere", 2) is valid.
-    scn["set_collider"] = [](Entity& e, const std::string& shape, float a,
+    // Scene.setCollider(e, "sphere", 2) is valid.
+    scn["setCollider"] = [](Entity& e, const std::string& shape, float a,
                              sol::optional<float> b, sol::optional<float> c) {
         if (e.GetComponent<ColliderComponent>()) return;
         // value_or(x) reads the number the script passed, or x if it passed none.
@@ -111,10 +111,10 @@ void RegisterSceneBindings(sol::state& lua) {
             col.radius = a;
         }
     };
-    // nearest_other(self, tag, radius): like nearest, but searches from the
+    // nearestOther(self, tag, radius): like nearest, but searches from the
     // `self` entity's position and never returns `self`. Used so a group of
     // same-tag agents (e.g. enemies) can steer apart instead of overlapping.
-    scn["nearest_other"] = [](Entity& self, const std::string& tag, float radius) -> Entity* {
+    scn["nearestOther"] = [](Entity& self, const std::string& tag, float radius) -> Entity* {
         return Scene::Current()
                    ? Scene::Current()->FindNearestWithTag(tag, self.transform.position,
                                                           radius, self.id)
@@ -134,7 +134,7 @@ void RegisterSceneBindings(sol::state& lua) {
         }
         return false;
     };
-    // scene.health(entity) -> current, maximum. Two values, so a health bar can
+    // Scene.health(entity) -> current, maximum. Two values, so a health bar can
     // be drawn as a fraction without a second call. An entity with no Health
     // component reports 0, 0 - which reads as "nothing to show" rather than as
     // full health, so a HUD hides the bar instead of claiming the thing is fine.
@@ -149,25 +149,25 @@ void RegisterSceneBindings(sol::state& lua) {
 }
 
 void DescribeSceneBindings(LuaApiRegistry& api) {
-    auto s = api.Table("scene");
+    auto s = api.Table("Scene");
     s.Fn("find(name) -> entity",  "The first entity with this name, or nil");
     s.Fn("count(tag) -> number",  "How many live entities carry a tag");
     s.Fn("nearest(tag, x, y, z, radius) -> entity",
          "The closest entity with a tag within a radius, or nil");
-    s.Fn("nearest_other(entity, tag, radius) -> entity",
+    s.Fn("nearestOther(entity, tag, radius) -> entity",
          "The closest OTHER entity with a tag - used to keep a squadron apart");
     s.Fn("hit(tag, x, y, z, reach) -> entity",
          "The first entity whose collider is within reach of a point");
     s.Fn("spawn(name, x, y, z, dx, dy, dz, script [, tag [, hp [, model]]])",
          "Create an entity facing a direction. QUEUED until the update loop ends");
-    s.Fn("spawn_cube(name, x, y, z)", "Create a plain cube, for quick tests");
+    s.Fn("spawnCube(name, x, y, z)", "Create a plain cube, for quick tests");
     s.Fn("destroy(entity)", "Remove an entity. Queued, so it is safe to destroy yourself");
     s.Fn("damage(entity, amount) -> bool",
          "Take hit points off. Returns true if this killed it, so a script can award score");
     s.Fn("health(entity) -> current, max",
          "Its health. An entity with no Health reports 0, 0 - which reads as nothing to show");
-    s.Fn("set_hitbox(entity, radius)", "Give it a sphere collider if it has none");
-    s.Fn("set_collider(entity, shape, a [, b [, c]])",
+    s.Fn("setHitbox(entity, radius)", "Give it a sphere collider if it has none");
+    s.Fn("setCollider(entity, shape, a [, b [, c]])",
          "Give it a collider: \"sphere\", \"box\" or \"capsule\"");
 }
 

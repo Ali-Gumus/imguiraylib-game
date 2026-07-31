@@ -44,43 +44,43 @@ properties = {
     hitbox      = 8.0,   -- radius of its hittable ball (size to the model)
 }
 
-function on_start(entity)
+function onStart(entity)
     -- Ensure this enemy has a hitbox so bullets register on the whole body.
     -- This only sets a default for spawned enemies (which start with none); an
     -- enemy given a Collider component in the editor keeps that authored shape.
-    scene.set_hitbox(entity, properties.hitbox)
+    Scene.setHitbox(entity, properties.hitbox)
 
     -- And a rigid body, or the physics simulation does not know it exists.
     -- Bullets are physical objects now and report their hits through
-    -- on_collision, which only fires between bodies the simulation owns - so
+    -- onCollision, which only fires between bodies the simulation owns - so
     -- without this a spawned enemy is completely bulletproof. KINEMATIC because
     -- this script flies the enemy by setting its transform directly; it still
     -- registers contacts with the dynamic bullets. Add-only-if-missing, so an
     -- enemy set up in the editor keeps whatever was chosen there.
-    physics.set_body(entity, "kinematic")
+    Physics.setBody(entity, "kinematic")
 end
 
 local cooldown = 0       -- seconds until the enemy can fire again (runtime state)
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     local t = entity.transform
     local P = properties
 
     -- Find the player (nearest entity tagged "player"; a huge radius just means
     -- "wherever it is"). Idle if there is no player.
-    local target = scene.nearest("player", t.position.x, t.position.y, t.position.z, 100000)
+    local target = Scene.nearest("player", t.position.x, t.position.y, t.position.z, 100000)
     if target == nil then return end
     local tp = target.transform.position
 
     -- Turn toward the player, but no faster than turn_rate.
-    t:rotate_toward(tp.x, tp.y, tp.z, P.turn_rate * dt)
+    t:rotateToward(tp.x, tp.y, tp.z, P.turn_rate * dt)
 
     -- Always keep flying forward along the nose.
-    t:translate_local(0, 0, -P.speed * dt)
+    t:translateLocal(0, 0, -P.speed * dt)
 
     -- Separation: push away from the nearest OTHER enemy if too close, so the
     -- squadron spreads around the player instead of stacking up.
-    local other = scene.nearest_other(entity, "enemy", P.sep_range)
+    local other = Scene.nearestOther(entity, "enemy", P.sep_range)
     if other ~= nil then
         local op = other.transform.position
         local sx = t.position.x - op.x
@@ -113,7 +113,7 @@ function on_update(entity, dt)
     cooldown = cooldown - dt
     if dist < P.fire_range and aim_angle < P.fire_angle and cooldown <= 0 then
         cooldown = P.fire_rate
-        scene.spawn("EnemyBullet",
+        Scene.spawn("EnemyBullet",
             t.position.x + f.x * P.muzzle, t.position.y + f.y * P.muzzle, t.position.z + f.z * P.muzzle,
             f.x, f.y, f.z,
             "assets/scripts/enemy_bullet.lua")
@@ -123,14 +123,14 @@ end
 -- Runs when this enemy is destroyed (its health reached zero). The enemy grants
 -- its own point value, so scoring stays a property of the target rather than of
 -- whatever weapon killed it.
-function on_destroy(entity)
-    hud.add("score", properties.points)
+function onDestroy(entity)
+    Hud.add("score", properties.points)
 
     -- Blow up where the enemy was standing. This runs for any death, so an
     -- enemy that crashes explodes exactly like one that was shot down.
     local p = entity.transform.position
-    fx.burst("explosion", p.x, p.y, p.z)
+    Fx.burst("explosion", p.x, p.y, p.z)
     -- Heard from where the enemy died. A kill across the valley should sound
     -- distant and off to one side, not like it happened in the cockpit.
-    audio.play_at("explosion", p.x, p.y, p.z)
+    Audio.playAt("explosion", p.x, p.y, p.z)
 end

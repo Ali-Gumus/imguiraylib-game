@@ -41,7 +41,7 @@
 -- than this number would overtake its own fire.
 --
 -- The reason it is not simply fixed here is that a bullet has no way to ask who
--- fired it, and `scene.spawn` queues the new entity for the end of the frame and
+-- fired it, and `Scene.spawn` queues the new entity for the end of the frame and
 -- returns nothing, so the gun cannot reach the bullet to add its velocity
 -- either. Inheriting it properly needs the spawn call to carry a velocity.
 properties = {
@@ -59,7 +59,7 @@ properties = {
 
 local age = 0           -- seconds this bullet has existed (runtime state)
 
-function on_start(entity)
+function onStart(entity)
     local P = properties
 
     -- Spawned entities start as a full unit cube; shrink to a small tracer.
@@ -69,8 +69,8 @@ function on_start(entity)
 
     -- Give it a physical presence. Both calls only add what is missing, so an
     -- authored bullet prefab keeps whatever was set up in the editor.
-    scene.set_collider(entity, "sphere", P.radius)
-    physics.set_body(entity, "dynamic", P.mass, P.gravity, true)
+    Scene.setCollider(entity, "sphere", P.radius)
+    Physics.setBody(entity, "dynamic", P.mass, P.gravity, true)
 
     -- Launch it along the way it is facing. The gun aimed the bullet when it
     -- spawned it, so "forward" is already the direction of the shot.
@@ -80,16 +80,16 @@ function on_start(entity)
     -- bullet will be born with rather than applied to something. The script
     -- does not have to care which of the two happened.
     local f = entity.transform:forward()
-    physics.set_velocity(entity, f.x * P.speed, f.y * P.speed, f.z * P.speed)
+    Physics.setVelocity(entity, f.x * P.speed, f.y * P.speed, f.z * P.speed)
 end
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     -- The only thing left to do each frame: give up eventually. A round that
     -- hits nothing would otherwise fall for ever, and every one still in the
     -- air costs simulation time.
     age = age + dt
     if age > properties.life then
-        scene.destroy(entity)
+        Scene.destroy(entity)
     end
 end
 
@@ -97,7 +97,7 @@ end
 -- struck something. `speed` is how fast the two were closing, and x, y, z is
 -- where on the surfaces they met - which is where the effect belongs, rather
 -- than at the bullet's centre.
-function on_collision(entity, other, speed, x, y, z)
+function onCollision(entity, other, speed, x, y, z)
     -- Never detonate on the aircraft that fired it. A bullet leaves the barrel
     -- close to its own jet, and clipping the nose on the way out should be
     -- harmless rather than fatal.
@@ -106,17 +106,17 @@ function on_collision(entity, other, speed, x, y, z)
     end
 
     if other.tag == "enemy" then
-        -- The enemy awards score itself when it dies (enemy.lua's on_destroy),
+        -- The enemy awards score itself when it dies (enemy.lua's onDestroy),
         -- so the bullet stays a pure projectile.
-        scene.damage(other, properties.damage)
-        fx.burst("spark", x, y, z)
+        Scene.damage(other, properties.damage)
+        Fx.burst("spark", x, y, z)
     else
         -- Anything else - the ground, scenery - throws up a puff instead.
-        fx.burst("explosion", x, y, z, 0.5)
+        Fx.burst("explosion", x, y, z, 0.5)
     end
 
     -- Heard from where it landed, so a shot striking a distant hill is faint
     -- and off to one side rather than going off inside the player's head.
-    audio.play_at("impact", x, y, z)
-    scene.destroy(entity)
+    Audio.playAt("impact", x, y, z)
+    Scene.destroy(entity)
 end

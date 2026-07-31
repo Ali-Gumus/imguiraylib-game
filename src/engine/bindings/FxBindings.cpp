@@ -10,8 +10,8 @@ void RegisterFxBindings(sol::state& lua) {
     // The `fx` table fires visual effects. These are pure decoration: they
     // never touch the world, so a script can call one from anywhere without
     // worrying about what it might disturb.
-    sol::table fx = lua.create_named_table("fx");
-    // fx.burst(preset, x, y, z [, scale [, vx, vy, vz]]): throw a burst of
+    sol::table fx = lua.create_named_table("Fx");
+    // Fx.burst(preset, x, y, z [, scale [, vx, vy, vz]]): throw a burst of
     // particles at a point. `preset` is any effect named in
     // assets/scripts/effects.lua; `scale` sizes the whole effect and defaults
     // to 1.
@@ -31,7 +31,7 @@ void RegisterFxBindings(sol::state& lua) {
 }
 
 void DescribeFxBindings(LuaApiRegistry& api) {
-    api.Table("fx").Fn("burst(preset, x, y, z [, scale [, vx, vy, vz]])",
+    api.Table("Fx").Fn("burst(preset, x, y, z [, scale [, vx, vy, vz]])",
                        "Throw a burst of particles. Presets are whatever effects.lua defines; "
                        "the velocity makes a burst inherit the motion of what made it");
 }

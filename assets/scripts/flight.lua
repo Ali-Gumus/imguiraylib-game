@@ -19,24 +19,24 @@ properties = {
 
 local speed = 8        -- current forward speed (runtime state)
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     local t = entity.transform
     local P = properties
 
     -- Throttle raises/lowers the current speed, clamped to the min/max.
-    if input.key_down("SHIFT") then speed = speed + P.accel * dt end
-    if input.key_down("CTRL")  then speed = speed - P.accel * dt end
+    if Input.keyDown("SHIFT") then speed = speed + P.accel * dt end
+    if Input.keyDown("CTRL")  then speed = speed - P.accel * dt end
     if speed < P.min_speed then speed = P.min_speed end
     if speed > P.max_speed then speed = P.max_speed end
 
     -- Attitude: rotate around the jet's own axes. X = pitch, Z = roll, Y = yaw.
-    if input.key_down("W") then t:rotate(1, 0, 0,  P.pitch_rate * dt) end
-    if input.key_down("S") then t:rotate(1, 0, 0, -P.pitch_rate * dt) end
-    if input.key_down("A") then t:rotate(0, 0, 1,  P.roll_rate  * dt) end
-    if input.key_down("D") then t:rotate(0, 0, 1, -P.roll_rate  * dt) end
-    if input.key_down("Q") then t:rotate(0, 1, 0,  P.yaw_rate   * dt) end
-    if input.key_down("E") then t:rotate(0, 1, 0, -P.yaw_rate   * dt) end
+    if Input.keyDown("W") then t:rotate(1, 0, 0,  P.pitch_rate * dt) end
+    if Input.keyDown("S") then t:rotate(1, 0, 0, -P.pitch_rate * dt) end
+    if Input.keyDown("A") then t:rotate(0, 0, 1,  P.roll_rate  * dt) end
+    if Input.keyDown("D") then t:rotate(0, 0, 1, -P.roll_rate  * dt) end
+    if Input.keyDown("Q") then t:rotate(0, 1, 0,  P.yaw_rate   * dt) end
+    if Input.keyDown("E") then t:rotate(0, 1, 0, -P.yaw_rate   * dt) end
 
     -- Constant forward thrust along the jet's facing (local -Z).
-    t:translate_local(0, 0, -speed * dt)
+    t:translateLocal(0, 0, -speed * dt)
 end

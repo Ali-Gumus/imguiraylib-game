@@ -34,7 +34,7 @@ local cooldown = 0      -- seconds until the gun can fire again (runtime state)
 local lx, ly, lz = 0, 0, 0
 local has_last = false
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     local P = properties
     cooldown = cooldown - dt
 
@@ -50,7 +50,7 @@ function on_update(entity, dt)
     lx, ly, lz = pos.x, pos.y, pos.z
     has_last = true
 
-    if input.key_down("SPACE") and cooldown <= 0 then
+    if Input.keyDown("SPACE") and cooldown <= 0 then
         cooldown = P.fire_rate
         local t = entity.transform
         local f = t:forward()
@@ -58,17 +58,17 @@ function on_update(entity, dt)
         local mx = p.x + f.x * P.muzzle
         local my = p.y + f.y * P.muzzle
         local mz = p.z + f.z * P.muzzle
-        scene.spawn("Bullet", mx, my, mz, f.x, f.y, f.z,
+        Scene.spawn("Bullet", mx, my, mz, f.x, f.y, f.z,
             "assets/scripts/bullet.lua")
         -- A flash where the bullet leaves the gun, at the same point the bullet
         -- itself is created, carrying the jet's velocity so it stays at the
         -- nose instead of falling behind.
-        fx.burst("muzzle", mx, my, mz, 1.0, vx, vy, vz)
+        Fx.burst("muzzle", mx, my, mz, 1.0, vx, vy, vz)
         -- The report. Its pitch varies slightly per shot (set in sounds.lua), so
         -- sustained fire sounds like a gun rather than one repeated sample.
         -- Fired from the muzzle. On the player's own jet that is right beside
         -- the camera and so still loud and central, but the same script on
         -- another aircraft is heard from over there instead.
-        audio.play_at("shot", mx, my, mz)
+        Audio.playAt("shot", mx, my, mz)
     end
 end

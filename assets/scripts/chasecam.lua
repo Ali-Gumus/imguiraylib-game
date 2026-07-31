@@ -72,11 +72,11 @@ properties = {
 -- actually wanted for, which is easing the swing when the aircraft ROTATES.
 local ox, oy, oz = nil, nil, nil
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     local P = properties
 
     -- Find the target by name; do nothing if it doesn't exist yet.
-    local jet = scene.find(target_name)
+    local jet = Scene.find(target_name)
     if jet == nil then return end
 
     local jt = jet.transform
@@ -131,7 +131,7 @@ function on_update(entity, dt)
     t.position.z = jt.position.z + oz
 
     -- Look at the target, banking the horizon by the same blended up used for
-    -- the position. Plain look_at would force world up here and throw the roll
+    -- the position. Plain lookAt would force world up here and throw the roll
     -- away, leaving the camera upright however far the aircraft is over.
-    t:look_at_up(jt.position.x, jt.position.y, jt.position.z, ux, uy, uz)
+    t:lookAtUp(jt.position.x, jt.position.y, jt.position.z, ux, uy, uz)
 end

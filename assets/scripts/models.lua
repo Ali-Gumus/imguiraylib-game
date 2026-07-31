@@ -6,7 +6,7 @@
 -- file, how big, which way it faces, and where its pivot is. Naming that
 -- combination once means a spawning script only has to say the name:
 --
---     scene.spawn("Enemy", x, y, z, dx, dy, dz, script, "enemy", 3, "heli")
+--     Scene.spawn("Enemy", x, y, z, dx, dy, dz, script, "enemy", 3, "heli")
 --
 -- The engine re-reads this file at startup and on every Play, so retuning a
 -- model is a matter of changing a number here and pressing Play - no rebuild.
@@ -35,7 +35,7 @@
 
 -- The enemy helicopter. Its pivot is a long way from its body and it was
 -- authored facing backwards, hence the large offsets.
-model.define("heli", {
+Model.define("heli", {
     file  = "assets/models/hind_attack_helicopter.glb",
     scale = 0.01,
     rot   = {0, 180, 0},
@@ -43,7 +43,7 @@ model.define("heli", {
 })
 
 -- The player's jet, for reference and for spawning allies later.
-model.define("jet", {
+Model.define("jet", {
     file  = "assets/models/f-14_tomcat_top_gun_gear_up_downloadable.glb",
     scale = 8.0,
     rot   = {0, -90, 0},

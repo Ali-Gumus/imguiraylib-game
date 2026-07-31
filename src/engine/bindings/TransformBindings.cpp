@@ -54,17 +54,17 @@ void RegisterTransformBindings(sol::state& lua) {
             return Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, t.rotation);
         },
 
-        // translate_local(dx,dy,dz) — move by an offset given in the object's
+        // translateLocal(dx,dy,dz) — move by an offset given in the object's
         // OWN axes. The offset is rotated by the orientation first, so
-        // translate_local(0,0,-d) always means "d units forward".
-        "translate_local", [](Transform3D& t, float dx, float dy, float dz) {
+        // translateLocal(0,0,-d) always means "d units forward".
+        "translateLocal", [](Transform3D& t, float dx, float dy, float dz) {
             Vector3 o = Vector3RotateByQuaternion({dx, dy, dz}, t.rotation);
             t.position.x += o.x;  t.position.y += o.y;  t.position.z += o.z;
         },
 
-        // look_at(x,y,z) — turn so the object's forward points at a world
+        // lookAt(x,y,z) — turn so the object's forward points at a world
         // point, staying upright. Handy for cameras, turrets, homing missiles.
-        "look_at", [](Transform3D& t, float x, float y, float z) {
+        "lookAt", [](Transform3D& t, float x, float y, float z) {
             float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
             if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // aimed at ourselves: skip
             // MatrixLookAt builds a "view" matrix (world seen from the eye).
@@ -73,10 +73,10 @@ void RegisterTransformBindings(sol::state& lua) {
             Matrix view = MatrixLookAt(t.position, {x, y, z}, {0.0f, 1.0f, 0.0f});
             t.rotation = QuaternionFromMatrix(MatrixInvert(view));
         },
-        // look_at_up(x,y,z, ux,uy,uz) — the same aim, but with the "up"
+        // lookAtUp(x,y,z, ux,uy,uz) — the same aim, but with the "up"
         // direction given rather than assumed to be world up.
         //
-        // This is what makes a rolling camera possible. Plain look_at always
+        // This is what makes a rolling camera possible. Plain lookAt always
         // keeps world up, so the horizon it produces is always level: a camera
         // following a banking aircraft would stay stubbornly upright no matter
         // what the aircraft did. Passing the AIRCRAFT's own up axis instead
@@ -84,11 +84,11 @@ void RegisterTransformBindings(sol::state& lua) {
         // two rolls the view only partly - which is how flight games avoid
         // spinning the whole screen during a fast roll.
         //
-        // It also sidesteps a failure that plain look_at cannot avoid: aiming
+        // It also sidesteps a failure that plain lookAt cannot avoid: aiming
         // straight up or straight down is parallel to world up, the two cross
         // to zero, and the view matrix comes out as NaN. An up axis taken from
         // the aircraft is always square to where it is pointing.
-        "look_at_up", [](Transform3D& t, float x, float y, float z,
+        "lookAtUp", [](Transform3D& t, float x, float y, float z,
                          float ux, float uy, float uz) {
             float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
             if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // aimed at ourselves: skip
@@ -103,12 +103,12 @@ void RegisterTransformBindings(sol::state& lua) {
             Matrix view = MatrixLookAt(t.position, {x, y, z}, up);
             t.rotation = QuaternionFromMatrix(MatrixInvert(view));
         },
-        // rotate_toward(x,y,z, max_degrees) — turn PART-WAY toward facing a
-        // world point, by at most max_degrees this call. Unlike look_at (which
+        // rotateToward(x,y,z, max_degrees) — turn PART-WAY toward facing a
+        // world point, by at most max_degrees this call. Unlike lookAt (which
         // snaps instantly), this gives a limited turn rate, so an AI plane
         // banks toward its target and can overshoot if it can't turn fast
         // enough. Returns having rotated as far as allowed.
-        "rotate_toward", [](Transform3D& t, float x, float y, float z, float maxDeg) {
+        "rotateToward", [](Transform3D& t, float x, float y, float z, float maxDeg) {
             float dx = x - t.position.x, dy = y - t.position.y, dz = z - t.position.z;
             if (dx * dx + dy * dy + dz * dz < 1e-8f) return;   // target is here: skip
             // The orientation we would have if we faced the target directly.
@@ -153,12 +153,12 @@ void DescribeTransformBindings(LuaApiRegistry& api) {
     t.Method("forward() -> Vector3", "The way it faces: local -Z, in world space");
     t.Method("right() -> Vector3",   "Local +X in world space");
     t.Method("up() -> Vector3",      "Local +Y in world space");
-    t.Method("translate_local(dx, dy, dz)",
+    t.Method("translateLocal(dx, dy, dz)",
              "Move along its OWN axes, so (0,0,-d) always means d forward");
-    t.Method("look_at(x, y, z)", "Face a world point, staying upright");
-    t.Method("look_at_up(x, y, z, ux, uy, uz)",
+    t.Method("lookAt(x, y, z)", "Face a world point, staying upright");
+    t.Method("lookAtUp(x, y, z, ux, uy, uz)",
              "Face a world point with a chosen up direction - what lets a view roll");
-    t.Method("rotate_toward(x, y, z, max_degrees)",
+    t.Method("rotateToward(x, y, z, max_degrees)",
              "Turn PART-WAY toward a point, at most this many degrees. A limited turn rate");
 }
 

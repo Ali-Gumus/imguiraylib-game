@@ -14,7 +14,7 @@ void RegisterEntityBindings(sol::state& lua) {
 
 void DescribeEntityBindings(LuaApiRegistry& api) {
     auto e = api.Usertype("Entity", "entity");
-    e.Prop("name",      "The entity's name. Unique enough to find it with scene.find");
+    e.Prop("name",      "The entity's name. Unique enough to find it with Scene.find");
     e.Prop("tag",       "Its group label - \"player\", \"enemy\". What gameplay queries match on");
     e.Prop("transform", "Its Transform: position, rotation and scale");
 }

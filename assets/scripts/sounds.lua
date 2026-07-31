@@ -6,20 +6,20 @@
 -- changing a volume means editing a number here and pressing Play -- no rebuild.
 -- Gameplay scripts trigger these by name:
 --
---     audio.play("shot")               -- a one-shot sound
---     audio.play("shot", 0.5)          -- at half its defined volume
---     audio.loop_start("jet")          -- start a looping sound
---     audio.loop_set("jet", 0.6, 1.3)  -- its volume and pitch, per frame
---     audio.loop_stop("jet")
+--     Audio.play("shot")               -- a one-shot sound
+--     Audio.play("shot", 0.5)          -- at half its defined volume
+--     Audio.loopStart("jet")          -- start a looping sound
+--     Audio.loopSet("jet", 0.6, 1.3)  -- its volume and pitch, per frame
+--     Audio.loopStop("jet")
 --
 -- ...or, for anything that happens SOMEWHERE in the world:
 --
---     audio.play_at("impact", x, y, z)          -- heard from that point
---     audio.loop_at("jet", x, y, z, 0.6, 1.3)   -- a loop that moves with it
+--     Audio.playAt("impact", x, y, z)          -- heard from that point
+--     Audio.loopAt("jet", x, y, z, 0.6, 1.3)   -- a loop that moves with it
 --
 -- A positioned sound gets quieter with distance and leans towards the ear it
 -- is on. Prefer it for everything that physically happens - guns, impacts,
--- explosions, engines - and keep the plain audio.play for sounds aimed at the
+-- explosions, engines - and keep the plain Audio.play for sounds aimed at the
 -- PLAYER rather than the pilot, such as a warning tone or the cue that you
 -- have been hit, which must never be faint or off to one side.
 --
@@ -30,9 +30,9 @@
 -- .wav, .ogg, .mp3 and .flac.
 --
 -- A LOOP IS ONE STREAM, SHARED BY NAME. Two entities that both call
--- loop_start("heli") get the same single stream, not one each. It can now be
--- given a position with loop_at, but there is still only ONE of it: with two
--- helicopters, whichever calls loop_at last that frame decides where the sound
+-- loopStart("heli") get the same single stream, not one each. It can now be
+-- given a position with loopAt, but there is still only ONE of it: with two
+-- helicopters, whichever calls loopAt last that frame decides where the sound
 -- appears to come from. That is fine for the player's own engine note, and for
 -- a single enemy; several at once would need a stream per source.
 --
@@ -47,7 +47,7 @@
 --   range       how far away it can still be heard, in world units. Past this
 --               a positioned sound is silent and is not played at all. Set it
 --               by what the sound IS: gunfire and explosions carry a long way,
---               a bullet striking dirt does not. Ignored by audio.play.
+--               a bullet striking dirt does not. Ignored by Audio.play.
 --   ref_dist    how close it can get before it stops growing louder. Without
 --               it, a sound rushes towards deafening as its source reaches the
 --               camera; it also fades the left-right split near the listener,
@@ -62,7 +62,7 @@
 
 -- The player's gun. Fires many times a second, so it needs several voices and a
 -- little pitch variation to sound like a gun rather than a loop.
-sound.define("shot", {
+Sound.define("shot", {
     file      = "assets/sounds/heavy-machine-gun-50-caliber.mp3",
     volume    = 0.5,
     pitch_min = 0.94,
@@ -71,7 +71,7 @@ sound.define("shot", {
 })
 
 -- A bullet striking an enemy. Short, and several can land close together.
-sound.define("impact", {
+Sound.define("impact", {
     file      = "assets/sounds/finntastico-impact.mp3",
     volume    = 0.6,
     pitch_min = 0.9,
@@ -81,7 +81,7 @@ sound.define("impact", {
 
 -- Something being destroyed. Louder, with a wider pitch spread so a wave of
 -- kills does not sound mechanical.
-sound.define("explosion", {
+Sound.define("explosion", {
     file      = "assets/sounds/explosion.mp3",
     volume    = 3,
     pitch_min = 0.85,
@@ -91,7 +91,7 @@ sound.define("explosion", {
 
 -- The player being hit. Deliberately distinct from "impact": the player needs to
 -- know instantly that the damage was theirs.
-sound.define("hit_taken", {
+Sound.define("hit_taken", {
     file      = "assets/sounds/hit_taken.wav",
     volume    = 0.8,
     pitch_min = 0.95,
@@ -102,13 +102,13 @@ sound.define("hit_taken", {
 -- The jet's engine. A LOOP: it never stops while flying, and flight_sim.lua
 -- raises its pitch and volume with the throttle. Use a sample that loops
 -- seamlessly, or the seam will be audible every few seconds.
-sound.define("jet", {
+Sound.define("jet", {
     file   = "assets/sounds/jet-loop-01.mp3",
     volume = 0.35,
     loop   = true,
 })
 
-sound.define("heli", {
+Sound.define("heli", {
     file   = "assets/sounds/helicopter-blades.mp3",
     volume = 0.35,
     loop   = true,

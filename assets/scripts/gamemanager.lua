@@ -1,8 +1,8 @@
 -- gamemanager.lua
 -- =============================================================================
 -- The game's rules live here, separate from any single jet or bullet. Attach it
--- to one empty entity in the scene. It uses the shared HUD value store (hud.set
--- / hud.get / hud.add) as game state, so other scripts and the C++ HUD can read
+-- to one empty entity in the Scene. It uses the shared HUD value store (Hud.set
+-- / Hud.get / Hud.add) as game state, so other scripts and the C++ HUD can read
 -- the same numbers:
 --   * "score" -- points earned; bullets add to it on a kill
 --   * "wave"  -- the current wave number
@@ -27,33 +27,33 @@ local wave       = 0      -- current wave number (runtime state)
 local timer      = 0      -- seconds until the next wave may start
 local had_player = false  -- have we seen the player alive yet?
 
-function on_start(entity)
-    -- A fresh run starts at zero. Play deep-clones the scene and runs on_start,
+function onStart(entity)
+    -- A fresh run starts at zero. Play deep-clones the scene and runs onStart,
     -- so this resets every time you press Play.
-    hud.set("score", 0)
-    hud.set("wave", 0)
-    hud.set("game_over", 0)
+    Hud.set("score", 0)
+    Hud.set("wave", 0)
+    Hud.set("game_over", 0)
     wave       = 0
     timer      = 1        -- a short beat before the first wave
     had_player = false
 end
 
-function on_update(entity, dt)
+function onUpdate(entity, dt)
     -- Nothing more to do once the game is over (the engine freezes the world
     -- and waits for the restart key).
-    if hud.get("game_over") > 0 then return end
+    if Hud.get("game_over") > 0 then return end
 
     -- Watch the player: once one has existed, its disappearance (health gone,
     -- entity destroyed) means the player died -> game over.
-    if scene.count("player") > 0 then
+    if Scene.count("player") > 0 then
         had_player = true
     elseif had_player then
-        hud.set("game_over", 1)
+        Hud.set("game_over", 1)
         return
     end
 
     -- Waves only advance when the field is clear. While enemies remain, wait.
-    if scene.count("enemy") > 0 then return end
+    if Scene.count("enemy") > 0 then return end
 
     -- Field is clear: count down the between-waves delay.
     timer = timer - dt
@@ -62,7 +62,7 @@ function on_update(entity, dt)
     -- Start the next wave.
     wave  = wave + 1
     timer = properties.respawn_delay
-    hud.set("wave", wave)
+    Hud.set("wave", wave)
 
     local count = properties.base_count + (wave - 1) * properties.per_wave
     local r     = properties.spawn_radius
@@ -77,7 +77,7 @@ function on_update(entity, dt)
         -- which carries the file, the scale and the pivot/facing offsets. That
         -- is why this line does not mention any of them: change what an enemy
         -- looks like by editing models.lua, not here.
-        scene.spawn("Enemy", x, properties.spawn_height, z, -x, 0, -z,
+        Scene.spawn("Enemy", x, properties.spawn_height, z, -x, 0, -z,
                     "assets/scripts/enemy.lua", "enemy", properties.enemy_hp,
                     "heli")
     end

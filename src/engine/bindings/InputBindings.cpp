@@ -38,18 +38,18 @@ static int KeyFromName(const std::string& name) {
 }
 
 void RegisterInputBindings(sol::state& lua) {
-    sol::table input = lua.create_named_table("input");
+    sol::table input = lua.create_named_table("Input");
     // Each key query is ANDed with ScriptInputEnabled(), so when the editor
     // has closed the gate (you're typing, etc.) every key reads as not pressed.
-    input["key_down"]    = [](const std::string& k) { return ScriptInputEnabled() && IsKeyDown(KeyFromName(k)); };
-    input["key_pressed"] = [](const std::string& k) { return ScriptInputEnabled() && IsKeyPressed(KeyFromName(k)); };
+    input["keyDown"]    = [](const std::string& k) { return ScriptInputEnabled() && IsKeyDown(KeyFromName(k)); };
+    input["keyPressed"] = [](const std::string& k) { return ScriptInputEnabled() && IsKeyPressed(KeyFromName(k)); };
 }
 
 void DescribeInputBindings(LuaApiRegistry& api) {
-    auto in = api.Table("input");
-    in.Fn("key_down(key) -> bool",
+    auto in = api.Table("Input");
+    in.Fn("keyDown(key) -> bool",
           "Whether a key is held right now. \"W\", \"SPACE\", \"SHIFT\", \"CTRL\", \"UP\"...");
-    in.Fn("key_pressed(key) -> bool",
+    in.Fn("keyPressed(key) -> bool",
           "Whether a key went down THIS frame. For one-shot actions, not for movement");
 }
 

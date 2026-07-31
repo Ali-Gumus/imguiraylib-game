@@ -2,7 +2,7 @@
 -- your changes here are overwritten on the next generate.
 
 
-function on_update(entity, dt)
-    entity.transform:translate_local(0, 0, -3.000 * dt)
+function onUpdate(entity, dt)
+    entity.transform:translateLocal(0, 0, -3.000 * dt)
 end
 

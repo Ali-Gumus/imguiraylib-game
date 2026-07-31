@@ -30,7 +30,7 @@ static std::unordered_map<std::string, float>& HudValues() {
 // Named colours rather than raw numbers at every call site, for two reasons:
 // a script reading `draw.text(s, x, y, 20, "warn")` says what it MEANS, and
 // retinting the whole HUD is then one definition instead of an edit everywhere.
-// draw.define_color adds to this, so a palette can live in a script.
+// draw.defineColor adds to this, so a palette can live in a script.
 static std::unordered_map<std::string, Color>& HudPalette() {
     static std::unordered_map<std::string, Color> p = {
         {"hud",   Color{ 90, 255, 130, 220}},   // the established HUD green
@@ -1212,11 +1212,11 @@ void ScriptComponent::Load() {
     // Fetch the optional lifecycle functions the script may have defined.
     // Any that the script didn't define come back empty and are simply never
     // called.
-    m_onStart   = m_lua["on_start"];
-    m_onUpdate  = m_lua["on_update"];
-    m_onDestroy = m_lua["on_destroy"];
-    m_onCollision = m_lua["on_collision"];
-    m_onDrawHud   = m_lua["on_draw_hud"];
+    m_onStart   = m_lua["onStart"];
+    m_onUpdate  = m_lua["onUpdate"];
+    m_onDestroy = m_lua["onDestroy"];
+    m_onCollision = m_lua["onCollision"];
+    m_onDrawHud   = m_lua["onDrawHud"];
 
     // Read the optional global `properties` table: each numeric entry becomes
     // an editable field in the Inspector. We keep any value the user already
@@ -1273,7 +1273,7 @@ static void CallHook(sol::protected_function& fn, bool& loaded,
 }
 
 void ScriptComponent::OnStart(Entity& owner) {
-    Load();   // (re)load the file first, then run its on_start
+    Load();   // (re)load the file first, then run its onStart
     // `owner` is passed by reference, so the script edits the real entity.
     CallHook(m_onStart, m_loaded, m_error, owner);
 }
@@ -1301,9 +1301,9 @@ void ScriptComponent::OnCollision(Entity& owner, Entity& other, float speed,
     // The contact point is passed as three plain numbers rather than a Vector3
     // usertype, matching how the rest of this API talks to Lua (fx.burst and
     // scene.spawn both take loose x, y, z). A script signature therefore reads
-    //     function on_collision(entity, other, speed, x, y, z)
+    //     function onCollision(entity, other, speed, x, y, z)
     // and may ignore any trailing argument it does not need - Lua simply drops
-    // extra arguments, so an on_collision(entity, other, speed) works too.
+    // extra arguments, so an onCollision(entity, other, speed) works too.
     CallHook(m_onCollision, m_loaded, m_error, owner, other, speed,
              point.x, point.y, point.z);
 }

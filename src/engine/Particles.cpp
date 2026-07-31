@@ -142,7 +142,7 @@ bool ReloadEffectPresets() {
     sol::state lua;
     lua.open_libraries(sol::lib::base, sol::lib::math);
 
-    sol::table fx = lua.create_named_table("fx");
+    sol::table fx = lua.create_named_table("Fx");
     // fx.define(name, settings): create or retune an effect. Every field is
     // optional and anything left out keeps its present value, so a file can
     // adjust one number without restating the whole recipe.
