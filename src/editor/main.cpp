@@ -1221,7 +1221,7 @@ private:
 
 // The program's entry point.
 int main() {
-    // Make every relative path (like "assets/scripts/flight.lua") resolve
+    // Make every relative path (like "assets/scripts/flight_sim.lua") resolve
     // against the project folder, regardless of where the built .exe sits.
     // PROJECT_ROOT_DIR is a string baked in at build time by CMake.
     std::filesystem::current_path(PROJECT_ROOT_DIR);
