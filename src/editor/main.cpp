@@ -11,6 +11,7 @@
 #include "engine/Particles.h"     // explosion / spark / muzzle-flash effects
 #include "engine/Audio.h"         // sound playback and the mute toggle
 #include "engine/Physics.h"       // the rigid-body simulation (Jolt)
+#include "engine/LuaApiRegistry.h" // the scripting API catalogue, for the Script API panel
 
 #include "imgui.h"      // the UI library
 #include "raylib.h"     // window, input, drawing, camera
@@ -25,6 +26,7 @@ namespace ed = ax::NodeEditor;     // a shorter alias for the node-editor namesp
 
 #include <algorithm>    // std::clamp
 #include <cmath>        // sinf / cosf for the orbit camera
+#include <cctype>       // tolower, for the case-insensitive API filter
 #include <cstring>      // strncpy for text-edit buffers
 #include <deque>        // the Play/Stop snapshot mirrors Scene's entity store
 #include <filesystem>   // set the working directory at startup
@@ -588,6 +590,62 @@ public:
         DrawHierarchyPanel();
         DrawInspectorPanel();
         DrawNodeEditorPanel();
+        DrawScriptApiPanel();
+    }
+
+    // A searchable reference for everything a script can call.
+    //
+    // The list is not written here: it comes from the catalogue each binding
+    // file builds beside its own registrations (LuaApiRegistry). That is the
+    // whole reason the catalogue exists - a list of calls maintained separately
+    // from the calls themselves goes stale the first time somebody adds one,
+    // and this project has watched exactly that happen to a hand-written API
+    // section in its notes.
+    void DrawScriptApiPanel() {
+        ImGui::Begin("Script API");
+
+        const auto& entries = eng::GetLuaApiEntries();
+
+        // Filter first, and by SUBSTRING rather than prefix. Someone hunting
+        // for the call that fires a bullet types "spawn", not "Scene." - the
+        // useful search is on what you remember, which is rarely the namespace.
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##apifilter", "filter, e.g. spawn / force / draw",
+                                 m_apiFilter, sizeof(m_apiFilter));
+
+        std::string needle = m_apiFilter;
+        for (char& c : needle) c = (char)tolower((unsigned char)c);
+
+        int shown = 0;
+        ImGui::BeginChild("##apilist", ImVec2(0, 0), false);
+        for (const eng::LuaApiEntry& e : entries) {
+            if (!needle.empty()) {
+                std::string hay = e.signature + " " + e.description;
+                for (char& c : hay) c = (char)tolower((unsigned char)c);
+                if (hay.find(needle) == std::string::npos) continue;
+            }
+            ++shown;
+
+            // The signature is the clickable part. Clicking copies the
+            // insertable NAME rather than the whole signature, because that is
+            // what you paste into a script - the argument list is documentation,
+            // not something you want in your editor.
+            if (ImGui::Selectable(e.signature.c_str()))
+                ImGui::SetClipboardText(e.name.c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\n\nClick to copy \"%s\"",
+                                  e.description.c_str(), e.name.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", e.description.c_str());
+        }
+
+        // Say so rather than showing an empty panel, which reads as the list
+        // having failed to load rather than the filter having excluded it all.
+        if (shown == 0)
+            ImGui::TextDisabled("nothing matches \"%s\"", m_apiFilter);
+
+        ImGui::EndChild();
+        ImGui::End();
     }
 
 private:
@@ -788,6 +846,34 @@ private:
                 }
                 ImGui::EndTooltip();
             }
+        }
+
+        // models.lua, same idea. A model definition that failed to load means a
+        // spawned enemy silently arrives as a plain cube, which reads as "the
+        // spawner is broken" rather than "the file has a syntax error in it".
+        const char* mdlErr = eng::ModelDefError();
+        if (mdlErr && mdlErr[0] != '\0') {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "mdl?");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("models.lua: %s\n\n"
+                                  "Anything spawned by name will be a cube until this is fixed.",
+                                  mdlErr);
+        }
+
+        // And the simulation. This one matters most of all: if the physics
+        // world failed to start, every rigid body in the scene is inert and
+        // nothing collides with anything. Without a badge that looks exactly
+        // like a gameplay bug, and it is the last place anyone would think to
+        // look.
+        const char* physErr = eng::PhysicsError();
+        if (physErr && physErr[0] != '\0') {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "phys!");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Physics: %s\n\n"
+                                  "Nothing is being simulated: bodies will not fall or collide.",
+                                  physErr);
         }
     }
 
@@ -1203,6 +1289,8 @@ private:
     // to label the panel, so nothing breaks if that entity is deleted.
     eng::EntityID      m_graphOwner = eng::kInvalidEntity;
     RenderTexture2D    m_gameRT{};                       // the Game view's texture
+
+    char m_apiFilter[64] = "";  // Script API panel search box
 
     Shader m_skyShader{};      // procedural gradient skybox shader
     Model  m_sky{};            // the unit cube it draws on
