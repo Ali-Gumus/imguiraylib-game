@@ -75,6 +75,24 @@ void RegisterSceneBindings(sol::state& lua) {
     scn["count"] = [](const std::string& tag) -> int {
         return Scene::Current() ? Scene::Current()->CountWithTag(tag) : 0;
     };
+    // findByTag(tag): the first entity carrying `tag`, or nil.
+    //
+    // Scene.find matches a NAME, which is per-entity, and Scene.nearest wants a
+    // position and a radius it does not always have anything sensible to put in.
+    // What was missing was the plain question "where is the player" - asked by
+    // anything that reports on the player without being attached to it, which is
+    // exactly what a HUD must be if it is to outlive the player's death.
+    //
+    // Returns nil when nothing matches, and a caller has to handle that: the
+    // player being GONE is a normal state in a game with a game-over screen, not
+    // an error.
+    scn["findByTag"] = [](const std::string& tag) -> Entity* {
+        Scene* s = Scene::Current();
+        if (!s) return nullptr;
+        for (Entity& e : s->Entities())
+            if (e.tag == tag) return &e;
+        return nullptr;
+    };
     // nearest(tag, x,y,z, radius): the closest entity carrying `tag` within
     // `radius`, or nil. This is the bullet's simple hit test.
     scn["nearest"] = [](const std::string& tag, float x, float y, float z,
@@ -174,6 +192,9 @@ void DescribeSceneBindings(LuaApiRegistry& api) {
          "Create an empty entity and return it IMMEDIATELY, ready to have "
          "components added. It begins updating next frame");
     s.Fn("find(name) -> entity",  "The first entity with this name, or nil");
+    s.Fn("findByTag(tag) -> entity",
+         "The first entity carrying this tag, or nil. How something reports on the "
+         "player without being attached to it");
     s.Fn("count(tag) -> number",  "How many live entities carry a tag");
     s.Fn("nearest(tag, x, y, z, radius) -> entity",
          "The closest entity with a tag within a radius, or nil");

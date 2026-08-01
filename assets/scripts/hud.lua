@@ -2,11 +2,21 @@
 -- =============================================================================
 -- The heads-up display, drawn from a SCRIPT instead of from C++.
 --
--- Put this on any entity in the scene - the player's aircraft is the natural
--- home, since some readings come from it. Everything below is drawn through the
--- `Draw.*` API from the onDrawHud hook, which runs once the 3D world has been
--- drawn, so adding, moving or restyling an element means editing this file and
--- pressing Play. No rebuild.
+-- PUT THIS ON SOMETHING THAT OUTLIVES THE PLAYER - the Game Manager, not the
+-- aircraft. That is not a style preference, it is the difference between having
+-- a game-over screen and not having one.
+--
+-- When the player dies the entity is DESTROYED, and a component on a destroyed
+-- entity stops being drawn. A HUD living on the aircraft therefore vanishes at
+-- the exact moment it has something important to say. So this script does not
+-- assume it owns the player: it looks one up with Scene.findByTag("player") and
+-- copes with there being none, which is a normal state here rather than an
+-- error - the readings that need an aircraft hide themselves, and everything
+-- else, game over included, carries on.
+--
+-- Everything below is drawn through the `Draw.*` API from the onDrawHud hook,
+-- which runs once the 3D world has been drawn, so adding, moving or restyling an
+-- element means editing this file and pressing Play. No rebuild.
 --
 -- WHAT THE ARGUMENTS MEAN. onDrawHud(entity, w, h) hands over the size of the
 -- surface being drawn into, in pixels, with (0,0) at the top left. That surface
@@ -36,6 +46,11 @@ function onDrawHud(entity, w, h)
     local P  = properties
     local cx = w * 0.5
     local cy = h * 0.5
+
+    -- The aircraft this HUD reports on, which is NOT the entity this script is
+    -- attached to. It may be nil - the player is dead - and everything below
+    -- that needs it checks first.
+    local player = Scene.findByTag("player")
 
     -- --- Crosshair ----------------------------------------------------------
     -- Four short ticks with a gap in the middle rather than a solid cross: the
@@ -74,9 +89,14 @@ function onDrawHud(entity, w, h)
     -- Right-aligned, so the text is measured rather than guessed: the digits
     -- change width as the number grows, and a fixed offset would leave the
     -- readout creeping in and out from the edge as the aircraft climbs.
-    local alt = entity.transform.position.y
-    local txt = string.format("ALT %4.0f", alt)
-    Draw.text(txt, w - 24 - Draw.textWidth(txt, P.text_size), cy - 10, P.text_size)
+    --
+    -- Skipped entirely when there is no aircraft. An altitude of zero would be
+    -- a lie, and a blank gauge says "not applicable" more honestly than a
+    -- number that happens to be wrong.
+    if player ~= nil then
+        local txt = string.format("ALT %4.0f", player.transform.position.y)
+        Draw.text(txt, w - 24 - Draw.textWidth(txt, P.text_size), cy - 10, P.text_size)
+    end
 
     -- --- Score and wave, across the top ------------------------------------
     local score = Hud.get("score", -1)
@@ -95,7 +115,10 @@ function onDrawHud(entity, w, h)
     -- Health component reports 0, 0 - which is why the guard is on the MAXIMUM:
     -- a maximum of zero means there is nothing to show, whereas a current of
     -- zero is a real reading and means dead.
-    local hp, hpmax = Scene.health(entity)
+    -- Nil player means the bar hides, same as the altitude - and the same as it
+    -- would for an aircraft with no Health component.
+    local hp, hpmax = 0, 0
+    if player ~= nil then hp, hpmax = Scene.health(player) end
     if hpmax > 0 then
         local frac = hp / hpmax
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
