@@ -199,10 +199,24 @@ public:
     // `model` optionally names an entry in assets/scripts/models.lua; the new
     // entity is given that model, with its offsets and scale already set, in
     // place of the default cube. An empty or unknown name leaves the cube.
+    //
+    // `velocity` is the motion of whatever created the entity, and it is ADDED
+    // to whatever the new entity's own script launches it with, after that
+    // script's OnStart has run. That ordering is the whole point: a gun's muzzle
+    // velocity is measured RELATIVE TO THE GUN, so a round leaves a moving
+    // aircraft at its muzzle speed PLUS the aircraft's, exactly as it does in
+    // the air. Without it a projectile's speed is measured against the ground,
+    // and the faster the shooter flies the less its own fire outruns it.
+    //
+    // It needs the new entity to end up with a RigidBodyComponent - normally
+    // added by its own script during OnStart - because it is applied as that
+    // body's starting velocity. An entity that is not simulated ignores it,
+    // since there is nothing for a velocity to mean.
     void QueueSpawn(const std::string& name, Vector3 position,
                     Quaternion rotation, const std::string& script,
                     const std::string& tag = "", float hp = 0.0f,
-                    const std::string& model = "");
+                    const std::string& model = "",
+                    Vector3 velocity = {0.0f, 0.0f, 0.0f});
 
     // How many live entities carry `tag`. Used to tell when a wave is cleared.
     int CountWithTag(const std::string& tag) const;
@@ -273,6 +287,7 @@ private:
         std::string tag;                    // "" means untagged
         float       hp = 0.0f;              // > 0 adds a Health component
         std::string model;                  // "" means the default cube
+        Vector3     velocity{};             // the spawner's motion, added on top
     };
     std::vector<EntityID>     m_destroyQueue;   // entities to remove after the loop
     std::vector<SpawnRequest> m_spawnQueue;     // entities to create after the loop

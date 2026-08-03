@@ -31,19 +31,25 @@
 -- Modelled on the M61 Vulcan, the 20 mm rotary cannon an F-16 actually carries:
 -- a muzzle velocity of 1036 metres per second and a round of about 0.1 kg.
 --
--- ONE IMPORTANT LIMITATION. `speed` is the bullet's velocity through the WORLD,
--- not its speed relative to the aircraft that fired it. A real gun adds its
--- muzzle velocity to the aircraft's own, so a round always leaves at 1036
--- metres per second RELATIVE to the jet no matter how fast the jet is going.
--- Here the aircraft's velocity is not inherited, so the faster the jet flies the
--- less the round outruns it: at a 250 m/s cruise it pulls away at nearly 800
--- m/s, but at the 685 m/s top speed it gains only about 350, and a jet faster
--- than this number would overtake its own fire.
+-- `speed` IS THE SPEED RELATIVE TO WHATEVER FIRED THE ROUND, not through the
+-- world, and that distinction is worth understanding because this script does
+-- not appear to do anything about it.
 --
--- The reason it is not simply fixed here is that a bullet has no way to ask who
--- fired it, and `Scene.spawn` queues the new entity for the end of the frame and
--- returns nothing, so the gun cannot reach the bullet to add its velocity
--- either. Inheriting it properly needs the spawn call to carry a velocity.
+-- A real gun's muzzle velocity is measured against the gun, so a round leaves a
+-- moving aircraft at 1036 metres per second PLUS the aircraft's own velocity.
+-- What is launched below is only the first half of that. The second half is
+-- added by the engine: `Scene.spawn` takes the spawner's velocity as its last
+-- three arguments, and the scene adds it to this bullet's rigid body AFTER this
+-- script's onStart has run. gun.lua measures the jet's motion and passes it.
+--
+-- The ordering is what makes it work, and it is also why the addition cannot
+-- live in this file: a bullet has no way to ask who fired it, and Scene.spawn
+-- queues the new entity for the end of the frame and returns nothing, so the gun
+-- cannot reach the bullet afterwards either. The engine is the only party that
+-- holds both.
+--
+-- Fired from something standing still - a ground turret - nothing is added and
+-- the round simply leaves at `speed`, which is the same answer.
 properties = {
     speed   = 1036,   -- muzzle velocity in metres per second (M61 Vulcan)
     life    = 5.0,    -- seconds before it gives up and removes itself
@@ -79,6 +85,10 @@ function onStart(entity)
     -- simulation at the end of it - so this is recorded as the velocity the
     -- bullet will be born with rather than applied to something. The script
     -- does not have to care which of the two happened.
+    --
+    -- This is the MUZZLE velocity only. The velocity of whatever fired the round
+    -- is added to it once this function returns - see the note at the top - so
+    -- setting it outright here does not throw that away.
     local f = entity.transform:forward()
     Physics.setVelocity(entity, f.x * P.speed, f.y * P.speed, f.z * P.speed)
 end

@@ -49,13 +49,27 @@ void RegisterSceneBindings(sol::state& lua) {
     // spawn(name, x,y,z, dx,dy,dz, script): create an entity at a position,
     // oriented so its forward faces the direction (dx,dy,dz), running `script`.
     // Firing a bullet spawns it facing the shot direction.
-    // The last two arguments are optional: a tag (e.g. "enemy") and starting
+    // The next two arguments are optional: a tag (e.g. "enemy") and starting
     // health. Bullets omit them; a wave spawner passes them so the new enemy is
     // tagged and killable.
+    //
+    // The LAST THREE are the velocity of whatever is doing the spawning, and
+    // they are added to whatever the new entity's own script launches it with.
+    // A gun on a moving aircraft passes the aircraft's velocity here, which is
+    // what makes its rounds leave at their muzzle speed relative to the JET
+    // rather than relative to the ground.
+    //
+    // They come last because they were added last, and everything before them
+    // had to keep working untouched - including the Lua the node editor
+    // generates. A caller that wants a velocity but no tag, health or model
+    // therefore passes nil for those three, which is ugly but honest: the
+    // alternative was renumbering arguments that existing graphs already emit.
     scn["spawn"] = [](const std::string& name, float x, float y, float z,
                       float dx, float dy, float dz, const std::string& script,
                       sol::optional<std::string> tag, sol::optional<float> hp,
-                      sol::optional<std::string> model) {
+                      sol::optional<std::string> model,
+                      sol::optional<float> vx, sol::optional<float> vy,
+                      sol::optional<float> vz) {
         if (!Scene::Current()) return;
         Quaternion rot = QuaternionIdentity();       // default: unrotated
         if (dx * dx + dy * dy + dz * dz > 1e-4f) {   // if a real direction was given
@@ -68,7 +82,9 @@ void RegisterSceneBindings(sol::state& lua) {
         // is the usual cube.
         Scene::Current()->QueueSpawn(name, {x, y, z}, rot, script,
                                      tag.value_or(std::string()), hp.value_or(0.0f),
-                                     model.value_or(std::string()));
+                                     model.value_or(std::string()),
+                                     {vx.value_or(0.0f), vy.value_or(0.0f),
+                                      vz.value_or(0.0f)});
     };
     // count(tag): how many live entities carry `tag`. A wave is cleared when
     // Scene.count("enemy") reaches zero.
@@ -130,6 +146,20 @@ void RegisterSceneBindings(sol::state& lua) {
     // Like setHitbox it only ADDS: an authored collider is never overwritten.
     // `b` and `c` are sol::optional, meaning the script may leave them out:
     // Scene.setCollider(e, "sphere", 2) is valid.
+    //
+    // A capsule is laid along the entity's FORWARD axis, which is worth
+    // spelling out because it is not what the raw shape does. A capsule is a
+    // cylinder with a hemisphere on each end, and it is defined along its OWN
+    // Y axis -- straight up. That is the right shape for something built
+    // upright, like a walking character, and exactly wrong for anything built
+    // long, like an aircraft or a vehicle: left alone it stands a tall pole
+    // through the middle of the airframe, so a round passing the nose or the
+    // tail misses while one passing well above the cockpit hits.
+    //
+    // Turning it a quarter circle about X tips that axis over onto Z, which is
+    // this engine's forward direction. There is no vertical-capsule caller to
+    // preserve, and a script that wants one can set the component's `rotation`
+    // itself afterwards.
     scn["setCollider"] = [](Entity& e, const std::string& shape, float a,
                              sol::optional<float> b, sol::optional<float> c) {
         if (e.GetComponent<ColliderComponent>()) return;
@@ -141,9 +171,13 @@ void RegisterSceneBindings(sol::state& lua) {
             col.shape       = ColliderShape::Box;
             col.halfExtents = {a, bv, cv};
         } else if (shape == "capsule") {
-            col.shape  = ColliderShape::Capsule;
-            col.radius = a;
-            col.height = bv;
+            col.shape    = ColliderShape::Capsule;
+            col.radius   = a;
+            col.height   = bv;
+            // Lay it nose to tail. This is the same 90 degrees the Inspector's
+            // "Lay Along Forward" button writes, so a capsule built by a script
+            // and one built by hand in the editor describe the same volume.
+            col.rotation = {90.0f, 0.0f, 0.0f};
         } else {                       // anything else is treated as a sphere
             col.shape  = ColliderShape::Sphere;
             col.radius = a;
@@ -202,8 +236,11 @@ void DescribeSceneBindings(LuaApiRegistry& api) {
          "The closest OTHER entity with a tag - used to keep a squadron apart");
     s.Fn("hit(tag, x, y, z, reach) -> entity",
          "The first entity whose collider is within reach of a point");
-    s.Fn("spawn(name, x, y, z, dx, dy, dz, script [, tag [, hp [, model]]])",
-         "Create an entity facing a direction. QUEUED until the update loop ends");
+    s.Fn("spawn(name, x, y, z, dx, dy, dz, script [, tag [, hp [, model [, vx, vy, vz]]]])",
+         "Create an entity facing a direction. QUEUED until the update loop ends. "
+         "vx, vy, vz is the spawner's own velocity, ADDED to whatever the new "
+         "entity launches itself with - how a gun on a jet gives its rounds the "
+         "jet's motion");
     s.Fn("spawnCube(name, x, y, z)", "Create a plain cube, for quick tests");
     s.Fn("destroy(entity)", "Remove an entity. Queued, so it is safe to destroy yourself");
     s.Fn("damage(entity, amount) -> bool",
@@ -212,7 +249,8 @@ void DescribeSceneBindings(LuaApiRegistry& api) {
          "Its health. An entity with no Health reports 0, 0 - which reads as nothing to show");
     s.Fn("setHitbox(entity, radius)", "Give it a sphere collider if it has none");
     s.Fn("setCollider(entity, shape, a [, b [, c]])",
-         "Give it a collider: \"sphere\", \"box\" or \"capsule\"");
+         "Give it a collider: \"sphere\" a=radius, \"box\" a,b,c=half extents, "
+         "\"capsule\" a=radius b=height (laid along forward)");
 }
 
 } // namespace eng

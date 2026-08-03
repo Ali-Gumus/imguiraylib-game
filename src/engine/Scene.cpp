@@ -361,8 +361,9 @@ void Scene::QueueSpawnCube(const std::string& name, Vector3 position) {
 void Scene::QueueSpawn(const std::string& name, Vector3 position,
                        Quaternion rotation, const std::string& script,
                        const std::string& tag, float hp,
-                       const std::string& model) {
-    m_spawnQueue.push_back({name, position, rotation, script, tag, hp, model});
+                       const std::string& model, Vector3 velocity) {
+    m_spawnQueue.push_back({name, position, rotation, script, tag, hp, model,
+                            velocity});
 }
 
 int Scene::CountWithTag(const std::string& tag) const {
@@ -424,6 +425,36 @@ void Scene::Update(float dt) {
             auto& sc = e->AddComponent<ScriptComponent>();
             sc.path = req.script;
             sc.OnStart(*e);   // load + start it immediately, since play is under way
+        }
+
+        // Finally, the motion of whatever spawned it, added ON TOP of whatever
+        // the script above launched it with.
+        //
+        // AFTER OnStart, and that order is the entire meaning of this. A gun's
+        // muzzle velocity is quoted relative to the gun, so a round leaves a
+        // moving aircraft at its muzzle speed PLUS the aircraft's - which is why
+        // this ADDS rather than sets, and why it must run after the script has
+        // had its say. Reversed, the script would simply overwrite it and a
+        // shot's speed would be measured against the ground instead: the faster
+        // the shooter flew, the less its own fire would outrun it, until a fast
+        // enough aircraft caught up with its own rounds.
+        //
+        // The script's OnStart is also where a spawned projectile gives itself a
+        // rigid body, so by this point there is one to write to. An entity that
+        // never asked to be simulated has nowhere to keep a velocity and simply
+        // ignores it.
+        //
+        // It is written to initialVelocity rather than applied to a body,
+        // because the body itself does not exist yet: an entity spawned this
+        // frame joins the simulation at the end of it, and this is the velocity
+        // it will be born holding.
+        const Vector3& iv = req.velocity;
+        if (iv.x != 0.0f || iv.y != 0.0f || iv.z != 0.0f) {
+            if (auto* rb = e->GetComponent<RigidBodyComponent>()) {
+                rb->initialVelocity.x += iv.x;
+                rb->initialVelocity.y += iv.y;
+                rb->initialVelocity.z += iv.z;
+            }
         }
     }
     m_spawnQueue.clear();

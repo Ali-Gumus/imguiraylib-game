@@ -27,10 +27,18 @@ properties = {
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)
 
 -- Where this entity was on the previous frame, and whether we have one yet.
--- Comparing it with the current position gives the jet's velocity, which the
--- muzzle flash needs: an effect is born standing still, so on a jet moving 200
--- units a second a flash lasting a fifth of a second would be left 40 units
--- behind the nose. Handing the flash the jet's own motion keeps it at the gun.
+-- Comparing it with the current position gives the jet's velocity, and BOTH
+-- things this script creates need it:
+--
+--   * The muzzle flash. An effect is born standing still, so on a jet moving
+--     200 units a second a flash lasting a fifth of a second would be left 40
+--     units behind the nose. Handing it the jet's motion keeps it at the gun.
+--
+--   * The bullet. A gun's muzzle velocity is quoted RELATIVE TO THE GUN, so a
+--     round leaves a moving aircraft at its muzzle speed plus the aircraft's.
+--     Measured against the ground instead, the faster the jet flies the less
+--     its own fire outruns it - and a jet faster than its muzzle velocity would
+--     overtake its own rounds.
 local lx, ly, lz = 0, 0, 0
 local has_last = false
 
@@ -58,8 +66,12 @@ function onUpdate(entity, dt)
         local mx = p.x + f.x * P.muzzle
         local my = p.y + f.y * P.muzzle
         local mz = p.z + f.z * P.muzzle
+        -- The three nils are the tag, health and model a bullet does not want;
+        -- the velocity has to come after them because it was added to the call
+        -- last, and renumbering the arguments would have broken every existing
+        -- caller and every graph that generates one.
         Scene.spawn("Bullet", mx, my, mz, f.x, f.y, f.z,
-            "assets/scripts/bullet.lua")
+            "assets/scripts/bullet.lua", nil, nil, nil, vx, vy, vz)
         -- A flash where the bullet leaves the gun, at the same point the bullet
         -- itself is created, carrying the jet's velocity so it stays at the
         -- nose instead of falling behind.
