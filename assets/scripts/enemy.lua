@@ -31,6 +31,15 @@
 --             It has to be measured against how big these are: two 18-metre
 --             aircraft holding 8 metres apart are overlapping, so this scales
 --             with the airframe, not with the old placeholder cubes.
+--
+--   hit_*     The shape bullets test against. These are not chosen by feel:
+--             they are the helicopter's real proportions. Measuring the model
+--             file gives a mesh 1675 units across the rotor disc, which at the
+--             0.0103 scale in models.lua is the Mi-24's true 17.3-metre rotor
+--             and a 19.8-metre overall length. A capsule of radius 2.95 and
+--             body length 12.75 spans 18.65 metres nose to tail (the two
+--             hemisphere ends add a radius each), which covers the airframe
+--             without claiming the empty air the spinning rotor sweeps.
 properties = {
     speed       = 80,    -- constant forward flight speed (metres/sec)
     turn_rate   = 30,    -- most degrees per second it can rotate toward the target
@@ -41,14 +50,23 @@ properties = {
     sep_range   = 60,    -- start avoiding other enemies within this distance
     sep_force   = 40,    -- how strongly to push apart from a crowding neighbor
     points      = 1,     -- score awarded to the player when this enemy dies
-    hitbox      = 8.0,   -- radius of its hittable ball (size to the model)
+    hit_radius  = 2.95,  -- half the width of its hittable capsule (metres)
+    hit_length  = 12.75, -- the capsule's straight section, ends added on top
 }
 
 function onStart(entity)
     -- Ensure this enemy has a hitbox so bullets register on the whole body.
     -- This only sets a default for spawned enemies (which start with none); an
     -- enemy given a Collider component in the editor keeps that authored shape.
-    Scene.setHitbox(entity, properties.hitbox)
+    --
+    -- A CAPSULE rather than a ball, because the shape has to resemble the
+    -- aircraft. A helicopter is roughly six metres across and twenty long, so
+    -- the ball that encloses it is twenty metres wide in every direction and
+    -- three quarters of it is empty sky: rounds passing well clear of the
+    -- fuselage count as hits. The capsule follows the body instead, and is
+    -- laid nose to tail automatically.
+    Scene.setCollider(entity, "capsule", properties.hit_radius,
+                      properties.hit_length)
 
     -- And a rigid body, or the physics simulation does not know it exists.
     -- Bullets are physical objects now and report their hits through
@@ -113,10 +131,21 @@ function onUpdate(entity, dt)
     cooldown = cooldown - dt
     if dist < P.fire_range and aim_angle < P.fire_angle and cooldown <= 0 then
         cooldown = P.fire_rate
+        -- The last three arguments are this helicopter's own velocity, which the
+        -- engine adds to the round's muzzle velocity after enemy_bullet.lua has
+        -- launched it - a gun's muzzle speed is measured against the gun, not
+        -- against the ground. It needs no frame-to-frame measurement here: this
+        -- script flies the enemy by pushing it along its nose at a constant
+        -- speed, so forward x speed IS its velocity, exactly.
+        --
+        -- The three nils before them are the tag, health and model a bullet does
+        -- not want. They are in the way because the velocity was added to
+        -- Scene.spawn last, after those three already existed.
         Scene.spawn("EnemyBullet",
             t.position.x + f.x * P.muzzle, t.position.y + f.y * P.muzzle, t.position.z + f.z * P.muzzle,
             f.x, f.y, f.z,
-            "assets/scripts/enemy_bullet.lua")
+            "assets/scripts/enemy_bullet.lua", nil, nil, nil,
+            f.x * P.speed, f.y * P.speed, f.z * P.speed)
     end
 end
 
