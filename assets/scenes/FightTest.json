@@ -1,429 +1,429 @@
-﻿{
-    "entities":  [
-                     {
-                         "components":  [
-                                            {
-                                                "path":  "assets/scripts/flight_sim.lua",
-                                                "props":  {
-                                                              "roll_rate":  80.0
-                                                          },
-                                                "type":  "Script"
-                                            },
-                                            {
-                                                "path":  "assets/scripts/gun.lua",
-                                                "props":  {
-                                                              "fire_rate":  0.05000000074505806
-                                                          },
-                                                "type":  "Script"
-                                            },
-                                            {
-                                                "hp":  10.0,
-                                                "max":  10.0,
-                                                "type":  "Health"
-                                            },
-                                            {
-                                                "path":  "assets/models/f16-c_falcon.glb",
-                                                "positionOffset":  [
-                                                                       0.0,
-                                                                       -10.0,
-                                                                       0.800000011920929
-                                                                   ],
-                                                "rotationOffset":  [
-                                                                       0.0,
-                                                                       0.0,
-                                                                       0.0
-                                                                   ],
-                                                "scale":  [
-                                                              1.7100000381469727,
-                                                              1.7100000381469727,
-                                                              1.7100000381469727
-                                                          ],
-                                                "tint":  [
-                                                             253,
-                                                             255,
-                                                             255,
-                                                             255
-                                                         ],
-                                                "type":  "Model"
-                                            },
-                                            {
-                                                "halfExtents":  [
-                                                                    1.0,
-                                                                    1.0,
-                                                                    1.0
-                                                                ],
-                                                "height":  12.600000381469727,
-                                                "offset":  [
-                                                               0.0,
-                                                               0.0,
-                                                               0.0
-                                                           ],
-                                                "radius":  1.2000000476837158,
-                                                "rotation":  [
-                                                                 90.0,
-                                                                 0.0,
-                                                                 0.0
-                                                             ],
-                                                "shape":  2,
-                                                "type":  "Collider"
-                                            },
-                                            {
-                                                "angularDamping":  0.10000000149011612,
-                                                "continuous":  false,
-                                                "friction":  0.20000000298023224,
-                                                "gravityFactor":  1.0,
-                                                "initialVelocity":  [
-                                                                        0.0,
-                                                                        0.0,
-                                                                        0.0
-                                                                    ],
-                                                "linearDamping":  0.05000000074505806,
-                                                "mass":  12000.0,
-                                                "motion":  1,
-                                                "restitution":  0.10000000149011612,
-                                                "type":  "RigidBody"
-                                            },
-                                            {
-                                                "corner":  3,
-                                                "range":  5000.0,
-                                                "size":  200,
-                                                "tag":  "enemy",
-                                                "terrain":  true,
-                                                "type":  "Minimap"
-                                            }
-                                        ],
-                         "id":  1,
-                         "name":  "Jet",
-                         "parent":  0,
-                         "tag":  "player",
-                         "transform":  {
-                                           "position":  [
-                                                            0.0,
-                                                            1000.0,
-                                                            0.0
-                                                        ],
-                                           "rotation":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0,
-                                                            1.0
-                                                        ],
-                                           "scale":  [
-                                                         1.0,
-                                                         1.0,
-                                                         1.0
-                                                     ]
-                                       }
-                     },
-                     {
-                         "components":  [
-                                            {
-                                                "hp":  3.0,
-                                                "max":  3.0,
-                                                "type":  "Health"
-                                            },
-                                            {
-                                                "path":  "assets/scripts/enemy.lua",
-                                                "props":  {
-
-                                                          },
-                                                "type":  "Script"
-                                            },
-                                            {
-                                                "path":  "assets/models/hind_attack_helicopter.glb",
-                                                "positionOffset":  [
-                                                                       0.0,
-                                                                       -240.0,
-                                                                       250.0
-                                                                   ],
-                                                "rotationOffset":  [
-                                                                       0.0,
-                                                                       180.0,
-                                                                       0.0
-                                                                   ],
-                                                "scale":  [
-                                                              0.009999999776482582,
-                                                              0.009999999776482582,
-                                                              0.009999999776482582
-                                                          ],
-                                                "tint":  [
-                                                             255,
-                                                             255,
-                                                             255,
-                                                             255
-                                                         ],
-                                                "type":  "Model"
-                                            },
-                                            {
-                                                "halfExtents":  [
-                                                                    1.0,
-                                                                    1.0,
-                                                                    1.0
-                                                                ],
-                                                "height":  12.75,
-                                                "offset":  [
-                                                               0.0,
-                                                               0.0,
-                                                               0.0
-                                                           ],
-                                                "radius":  2.950000047683716,
-                                                "rotation":  [
-                                                                 90.0,
-                                                                 0.0,
-                                                                 0.0
-                                                             ],
-                                                "shape":  2,
-                                                "type":  "Collider"
-                                            },
-                                            {
-                                                "angularDamping":  0.10000000149011612,
-                                                "continuous":  false,
-                                                "friction":  0.20000000298023224,
-                                                "gravityFactor":  1.0,
-                                                "initialVelocity":  [
-                                                                        0.0,
-                                                                        0.0,
-                                                                        0.0
-                                                                    ],
-                                                "linearDamping":  0.05000000074505806,
-                                                "mass":  100.0,
-                                                "motion":  1,
-                                                "restitution":  0.10000000149011612,
-                                                "type":  "RigidBody"
-                                            }
-                                        ],
-                         "id":  2,
-                         "name":  "Enemy",
-                         "parent":  0,
-                         "tag":  "enemy",
-                         "transform":  {
-                                           "position":  [
-                                                            0.0,
-                                                            1000.0,
-                                                            -300.0
-                                                        ],
-                                           "rotation":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0,
-                                                            1.0
-                                                        ],
-                                           "scale":  [
-                                                         1.0,
-                                                         1.0,
-                                                         1.0
-                                                     ]
-                                       }
-                     },
-                     {
-                         "components":  [
-                                            {
-                                                "path":  "assets/scripts/chasecam.lua",
-                                                "props":  {
-                                                              "distance":  22.0,
-                                                              "height":  6.0,
-                                                              "stiffness":  6.0
-                                                          },
-                                                "type":  "Script"
-                                            },
-                                            {
-                                                "farClip":  30000.0,
-                                                "fovy":  60.0,
-                                                "nearClip":  0.30000001192092896,
-                                                "type":  "Camera"
-                                            }
-                                        ],
-                         "id":  3,
-                         "name":  "Cam",
-                         "parent":  0,
-                         "tag":  "",
-                         "transform":  {
-                                           "position":  [
-                                                            0.0,
-                                                            1005.0,
-                                                            20.0
-                                                        ],
-                                           "rotation":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0,
-                                                            1.0
-                                                        ],
-                                           "scale":  [
-                                                         1.0,
-                                                         1.0,
-                                                         1.0
-                                                     ]
-                                       }
-                     },
-                     {
-                         "components":  [
-                                            {
-                                                "maxHeight":  900.0,
-                                                "noiseScale":  8.0,
-                                                "resolution":  256,
-                                                "seed":  0,
-                                                "tint":  [
-                                                             255,
-                                                             255,
-                                                             255,
-                                                             255
-                                                         ],
-                                                "type":  "Terrain",
-                                                "wire":  false,
-                                                "worldSize":  40000.0
-                                            },
-                                            {
-                                                "angularDamping":  0.10000000149011612,
-                                                "continuous":  false,
-                                                "friction":  0.20000000298023224,
-                                                "gravityFactor":  1.0,
-                                                "initialVelocity":  [
-                                                                        0.0,
-                                                                        0.0,
-                                                                        0.0
-                                                                    ],
-                                                "linearDamping":  0.05000000074505806,
-                                                "mass":  100.0,
-                                                "motion":  0,
-                                                "restitution":  0.10000000149011612,
-                                                "type":  "RigidBody"
-                                            },
-                                            {
-                                                "halfExtents":  [
-                                                                    1.0,
-                                                                    1.0,
-                                                                    1.0
-                                                                ],
-                                                "height":  2.0,
-                                                "offset":  [
-                                                               0.0,
-                                                               0.0,
-                                                               0.0
-                                                           ],
-                                                "radius":  1.0,
-                                                "rotation":  [
-                                                                 0.0,
-                                                                 0.0,
-                                                                 0.0
-                                                             ],
-                                                "shape":  3,
-                                                "type":  "Collider"
-                                            }
-                                        ],
-                         "id":  29,
-                         "name":  "Terrain",
-                         "parent":  0,
-                         "tag":  "",
-                         "transform":  {
-                                           "position":  [
-                                                            0.0,
-                                                            -10.0,
-                                                            0.0
-                                                        ],
-                                           "rotation":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0,
-                                                            1.0
-                                                        ],
-                                           "scale":  [
-                                                         1.0,
-                                                         1.0,
-                                                         1.0
-                                                     ]
-                                       }
-                     },
-                     {
-                         "components":  [
-                                            {
-                                                "path":  "assets/scripts/gamemanager.lua",
-                                                "props":  {
-
-                                                          },
-                                                "type":  "Script"
-                                            },
-                                            {
-                                                "path":  "assets/scripts/hud.lua",
-                                                "props":  {
-
-                                                          },
-                                                "type":  "Script"
-                                            }
-                                        ],
-                         "id":  798,
-                         "name":  "Game Manager",
-                         "parent":  0,
-                         "tag":  "",
-                         "transform":  {
-                                           "position":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0
-                                                        ],
-                                           "rotation":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0,
-                                                            1.0
-                                                        ],
-                                           "scale":  [
-                                                         1.0,
-                                                         1.0,
-                                                         1.0
-                                                     ]
-                                       }
-                     },
-                     {
-                         "components":  [
-                                            {
-                                                "ambient":  [
-                                                                0.25,
-                                                                0.25999999046325684,
-                                                                0.30000001192092896
-                                                            ],
-                                                "color":  [
-                                                              1.0,
-                                                              0.9599999785423279,
-                                                              0.8799999952316284
-                                                          ],
-                                                "ground":  [
-                                                               0.07999999821186066,
-                                                               0.05999999865889549,
-                                                               0.03999999910593033
-                                                           ],
-                                                "intensity":  1.100000023841858,
-                                                "sky":  [
-                                                            0.05000000074505806,
-                                                            0.07000000029802322,
-                                                            0.11999999731779099
-                                                        ],
-                                                "type":  "Light"
-                                            }
-                                        ],
-                         "id":  1134,
-                         "name":  "Sun",
-                         "parent":  0,
-                         "tag":  "",
-                         "transform":  {
-                                           "position":  [
-                                                            0.0,
-                                                            0.0,
-                                                            0.0
-                                                        ],
-                                           "rotation":  [
-                                                            -0.20404484868049622,
-                                                            -0.786805272102356,
-                                                            -0.21475669741630554,
-                                                            0.5414634943008423
-                                                        ],
-                                           "scale":  [
-                                                         1.0,
-                                                         1.0,
-                                                         1.0
-                                                     ]
-                                       }
-                     }
-                 ],
-    "nextID":  8559
+{
+  "entities": [
+    {
+      "components": [
+        {
+          "path": "assets/scripts/flight_sim.lua",
+          "props": {
+            "roll_rate": 100.0
+          },
+          "type": "Script"
+        },
+        {
+          "path": "assets/scripts/gun.lua",
+          "props": {
+            "fire_rate": 0.05000000074505806
+          },
+          "type": "Script"
+        },
+        {
+          "hp": 10.0,
+          "max": 10.0,
+          "type": "Health"
+        },
+        {
+          "path": "assets/models/f16-c_falcon.glb",
+          "positionOffset": [
+            0.0,
+            -10.0,
+            0.800000011920929
+          ],
+          "rotationOffset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.7100000381469727,
+            1.7100000381469727,
+            1.7100000381469727
+          ],
+          "tint": [
+            253,
+            255,
+            255,
+            255
+          ],
+          "type": "Model"
+        },
+        {
+          "halfExtents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "height": 12.600000381469727,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "radius": 1.2000000476837158,
+          "rotation": [
+            90.0,
+            0.0,
+            0.0
+          ],
+          "shape": 2,
+          "type": "Collider"
+        },
+        {
+          "angularDamping": 0.10000000149011612,
+          "continuous": false,
+          "friction": 0.20000000298023224,
+          "gravityFactor": 1.0,
+          "initialVelocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "linearDamping": 0.05000000074505806,
+          "mass": 12000.0,
+          "motion": 1,
+          "restitution": 0.10000000149011612,
+          "type": "RigidBody"
+        },
+        {
+          "corner": 3,
+          "range": 5000.0,
+          "size": 200,
+          "tag": "enemy",
+          "terrain": true,
+          "type": "Minimap"
+        }
+      ],
+      "id": 1,
+      "name": "Jet",
+      "parent": 0,
+      "tag": "player",
+      "transform": {
+        "position": [
+          0.0,
+          1000.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "components": [
+        {
+          "hp": 3.0,
+          "max": 3.0,
+          "type": "Health"
+        },
+        {
+          "path": "assets/scripts/enemy.lua",
+          "props": {},
+          "type": "Script"
+        },
+        {
+          "path": "assets/models/hind_attack_helicopter.glb",
+          "positionOffset": [
+            0.0,
+            -240.0,
+            250.0
+          ],
+          "rotationOffset": [
+            0.0,
+            180.0,
+            0.0
+          ],
+          "scale": [
+            0.009999999776482582,
+            0.009999999776482582,
+            0.009999999776482582
+          ],
+          "tint": [
+            255,
+            255,
+            255,
+            255
+          ],
+          "type": "Model"
+        },
+        {
+          "halfExtents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "height": 12.75,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "radius": 2.950000047683716,
+          "rotation": [
+            90.0,
+            0.0,
+            0.0
+          ],
+          "shape": 2,
+          "type": "Collider"
+        },
+        {
+          "angularDamping": 0.10000000149011612,
+          "continuous": false,
+          "friction": 0.20000000298023224,
+          "gravityFactor": 1.0,
+          "initialVelocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "linearDamping": 0.05000000074505806,
+          "mass": 100.0,
+          "motion": 1,
+          "restitution": 0.10000000149011612,
+          "type": "RigidBody"
+        }
+      ],
+      "id": 2,
+      "name": "Enemy",
+      "parent": 0,
+      "tag": "enemy",
+      "transform": {
+        "position": [
+          0.0,
+          1000.0,
+          -300.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "components": [
+        {
+          "path": "assets/scripts/chasecam.lua",
+          "props": {
+            "distance": 15.0,
+            "height": 4.0,
+            "stiffness": 2.0
+          },
+          "type": "Script"
+        },
+        {
+          "farClip": 30000.0,
+          "fovy": 60.0,
+          "nearClip": 0.30000001192092896,
+          "orthoSize": 1000.0,
+          "orthographic": false,
+          "type": "Camera"
+        }
+      ],
+      "id": 3,
+      "name": "Cam",
+      "parent": 0,
+      "tag": "",
+      "transform": {
+        "position": [
+          0.0,
+          1005.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "components": [
+        {
+          "maxHeight": 900.0,
+          "naturalColor": true,
+          "noiseScale": 8.0,
+          "octaves": 5,
+          "resolution": 256,
+          "ridge": 0.44999998807907104,
+          "seed": 0,
+          "smooth": true,
+          "tint": [
+            255,
+            255,
+            255,
+            255
+          ],
+          "type": "Terrain",
+          "wire": false,
+          "worldSize": 40000.0
+        },
+        {
+          "angularDamping": 0.10000000149011612,
+          "continuous": false,
+          "friction": 0.20000000298023224,
+          "gravityFactor": 1.0,
+          "initialVelocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "linearDamping": 0.05000000074505806,
+          "mass": 100.0,
+          "motion": 0,
+          "restitution": 0.10000000149011612,
+          "type": "RigidBody"
+        },
+        {
+          "halfExtents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "height": 2.0,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "radius": 1.0,
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shape": 3,
+          "type": "Collider"
+        }
+      ],
+      "id": 29,
+      "name": "Terrain",
+      "parent": 0,
+      "tag": "",
+      "transform": {
+        "position": [
+          0.0,
+          -10.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "components": [
+        {
+          "path": "assets/scripts/gamemanager.lua",
+          "props": {},
+          "type": "Script"
+        },
+        {
+          "path": "assets/scripts/hud.lua",
+          "props": {},
+          "type": "Script"
+        }
+      ],
+      "id": 798,
+      "name": "Game Manager",
+      "parent": 0,
+      "tag": "",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "components": [
+        {
+          "ambient": [
+            0.25,
+            0.25999999046325684,
+            0.30000001192092896
+          ],
+          "color": [
+            1.0,
+            0.9599999785423279,
+            0.8799999952316284
+          ],
+          "ground": [
+            0.07999999821186066,
+            0.05999999865889549,
+            0.03999999910593033
+          ],
+          "intensity": 1.100000023841858,
+          "sky": [
+            0.05000000074505806,
+            0.07000000029802322,
+            0.11999999731779099
+          ],
+          "type": "Light"
+        }
+      ],
+      "id": 1134,
+      "name": "Sun",
+      "parent": 0,
+      "tag": "",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          -0.20404484868049622,
+          -0.786805272102356,
+          -0.21475669741630554,
+          0.5414634943008423
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "nextID": 9160
 }
