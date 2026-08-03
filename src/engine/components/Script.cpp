@@ -110,7 +110,8 @@ void ScriptComponent::Load() {
         for (auto& kv : pt) {
             if (kv.first.is<std::string>() && kv.second.is<double>()) {
                 std::string name  = kv.first.as<std::string>();
-                float       value = kv.second.as<float>();   // the script's default
+                const float def   = kv.second.as<float>();   // the script's default
+                float       value = def;
                 bool        over  = false;
 
                 // An OVERRIDDEN property keeps the value this entity was given.
@@ -125,7 +126,7 @@ void ScriptComponent::Load() {
                 }
 
                 pt[name] = value;                    // the script reads this back
-                merged.push_back({name, value, over});
+                merged.push_back({name, value, over, def});
             }
         }
         // Sort by name so the fields keep a stable order in the Inspector
@@ -187,6 +188,63 @@ void ScriptComponent::OnCollision(Entity& owner, Entity& other, float speed,
     // extra arguments, so an onCollision(entity, other, speed) works too.
     CallHook(m_onCollision, m_loaded, m_error, owner, other, speed,
              point.x, point.y, point.z);
+}
+
+// ---- Tunable properties ----------------------------------------------------
+//
+// NONE OF THESE RELOAD THE SCRIPT, and that is the whole point of them existing.
+//
+// Reloading re-runs the file, which resets every file-scope local the script was
+// using to remember things between frames - and a Lua script keeps its actual
+// state in exactly those locals. Reverting a property mid-play used to call
+// Load(), which zeroed the aircraft's velocity: flight_sim.lua holds it in
+// `local vx, vy, vz`, and nothing calls onStart a second time to relaunch it at
+// cruise speed, so the jet simply stopped and accelerated again from nothing.
+// The same reload restarted gun cooldowns, snapped the chase camera to its
+// target and reset the wave counter.
+//
+// Writing into the live `properties` table instead makes every one of these
+// behave the way editing a field does: the one value changes and nothing else
+// moves. "Load / Reload" remains the way to pick up defaults edited on disk.
+
+void ScriptComponent::SetProperty(const std::string& name, float value) {
+    for (auto& pr : m_props) {
+        if (pr.name != name) continue;
+        pr.value      = value;
+        pr.overridden = true;      // having a value of its own IS the override
+        m_lua["properties"][pr.name] = pr.value;
+        return;
+    }
+}
+
+void ScriptComponent::RevertProperty(const std::string& name) {
+    for (auto& pr : m_props) {
+        if (pr.name != name) continue;
+        pr.overridden = false;
+        pr.value      = pr.scriptDefault;
+        m_lua["properties"][pr.name] = pr.value;
+        return;
+    }
+}
+
+void ScriptComponent::RevertAllProperties() {
+    for (auto& pr : m_props) {
+        pr.overridden = false;
+        pr.value      = pr.scriptDefault;
+        m_lua["properties"][pr.name] = pr.value;
+    }
+}
+
+float ScriptComponent::GetProperty(const std::string& name) const {
+    for (const auto& pr : m_props)
+        if (pr.name == name) return pr.value;
+    return 0.0f;
+}
+
+bool ScriptComponent::IsPropertyOverridden(const std::string& name) const {
+    for (const auto& pr : m_props)
+        if (pr.name == name) return pr.overridden;
+    return false;
 }
 
 void ScriptComponent::OnInspector() {
@@ -254,15 +312,9 @@ void ScriptComponent::DrawPropertiesInspector() {
             // The revert button, drawn first so the numbers still line up.
             if (pr.overridden) {
                 anyOverride = true;
-                if (ImGui::SmallButton("<")) {
-                    // Drop the override and take the script's value again. The
-                    // script is reloaded so the default is re-read from the
-                    // file rather than remembered from before.
-                    pr.overridden = false;
-                    Load();
-                    ImGui::PopID();
-                    break;         // Load() rebuilt m_props; stop walking it
-                }
+                // Reverting goes through the same call a tool would use, so the
+                // button cannot behave differently from the behaviour tested.
+                if (ImGui::SmallButton("<")) RevertProperty(pr.name);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Revert to the value in the script file");
                 ImGui::SameLine();
@@ -271,8 +323,9 @@ void ScriptComponent::DrawPropertiesInspector() {
             if (ImGui::DragFloat(pr.name.c_str(), &pr.value, 0.05f)) {
                 // Editing a field is what makes it an override: from now on
                 // this entity keeps its own value and ignores the script's.
-                pr.overridden = true;
-                m_lua["properties"][pr.name] = pr.value;
+                // DragFloat has already written into pr.value, so this hands it
+                // back through the same path to mark it and push it into Lua.
+                SetProperty(pr.name, pr.value);
             }
             // Colour the overridden ones so the difference is visible at a
             // glance, the way a changed setting is marked anywhere else.
@@ -286,10 +339,8 @@ void ScriptComponent::DrawPropertiesInspector() {
             ImGui::PopID();
         }
 
-        if (anyOverride && ImGui::SmallButton("Revert all to script")) {
-            for (auto& pr : m_props) pr.overridden = false;
-            Load();
-        }
+        if (anyOverride && ImGui::SmallButton("Revert all to script"))
+            RevertAllProperties();
     }
 }
 

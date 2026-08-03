@@ -96,6 +96,31 @@ public:
     const char* ErrorText() const { return m_error.c_str(); }
     bool        IsLoaded()  const { return m_loaded; }
 
+    // ---- Tunable properties -------------------------------------------------
+    // The Inspector's fields go through these rather than reaching into m_props
+    // itself, so that what a widget does and what the value MEANS are not the
+    // same piece of code. It also makes the behaviour testable without a window,
+    // which is how the revert bug below was pinned down.
+    //
+    // All of these work on the LIVE script: they write into the running
+    // `properties` table and never reload, so changing a value cannot disturb
+    // anything the script is remembering between frames.
+
+    // Give this entity its own value, replacing the script's. Marks it as an
+    // override, which is what gets saved to the scene.
+    void SetProperty(const std::string& name, float value);
+
+    // Drop the override and put back the value the script file gave, as of the
+    // last load. NOT a reload - see the note in the .cpp.
+    void RevertProperty(const std::string& name);
+    void RevertAllProperties();
+
+    // The current effective value, or 0 if there is no such property.
+    float GetProperty(const std::string& name) const;
+
+    // Whether this entity has overridden it.
+    bool IsPropertyOverridden(const std::string& name) const;
+
     // Run this Lua SOURCE instead of reading `path`, when it is not empty.
     //
     // This is how a node graph runs without a .lua file existing: something
@@ -134,6 +159,11 @@ protected:
         // overrides survive a reload - everything else re-reads the script, so
         // editing a default in the .lua takes effect the next time it loads.
         bool        overridden = false;
+        // What the script file said this value was, as of the last load. Kept so
+        // that reverting an override can put the default back WITHOUT reloading
+        // the script, which would throw away everything the script is currently
+        // remembering. Refreshed by Load, so it tracks the file.
+        float       scriptDefault = 0.0f;
     };
 
     // The script's tunables, sorted by name. Shown as editable fields in the
