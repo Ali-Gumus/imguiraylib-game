@@ -17,7 +17,25 @@ namespace eng {
 // ---------------------------------------------------------------------------
 struct Particle {
     Vector3 pos{};          // where it is now
-    Vector3 vel{};          // world units per second
+    Vector3 vel{};          // its OWN motion: the outward spread, in units/second
+    // The motion of whatever emitted it - a firing aircraft, an exploding
+    // vehicle - carried separately from `vel` and deliberately NOT subject to
+    // drag or gravity.
+    //
+    // WHY IT IS A SECOND VECTOR RATHER THAN PART OF THE FIRST. Drag exists to
+    // slow a particle's spread down so a burst spreads and settles. Applied to
+    // the emitter's motion as well it does something quite different: it brakes
+    // the whole effect to a halt in mid-air while the thing that fired it flies
+    // on, so the effect slides backwards relative to its own emitter. The
+    // distance it slides is proportional to the emitter's SPEED, which is what
+    // makes this invisible on anything slow and glaring on anything fast - at
+    // 100 units a second a muzzle flash lagged 8 metres and hid inside the nose,
+    // and at an aircraft's real 685 it lagged 59 and swept back through the
+    // whole airframe.
+    //
+    // Keeping it separate means the burst spreads and settles exactly as its
+    // recipe says, in a frame of reference that travels with the emitter.
+    Vector3 carrier{};
     float   age   = 0.0f;   // seconds since it was created
     float   life  = 1.0f;   // seconds it will exist in total
     float   size0 = 1.0f;   // width in world units at birth
@@ -246,10 +264,11 @@ static void BurstPreset(const Preset& r, Vector3 pos, float scale, Vector3 inher
         dir.y += r.upBias;
         dir = Vector3Normalize(dir);
         p.vel = Vector3Scale(dir, RandRange(r.speedMin, r.speedMax) * scale);
-        // Add the motion of whatever fired the burst, so an effect from a moving
+        // The motion of whatever fired the burst, so an effect from a moving
         // object travels with it instead of being left behind at the spot where
-        // it was born.
-        p.vel = Vector3Add(p.vel, inherit);
+        // it was born. Kept apart from the spread above so that drag cannot bleed
+        // it away - see the note on Particle::carrier.
+        p.carrier = inherit;
 
         p.life    = RandRange(r.lifeMin, r.lifeMax);
         p.age     = 0.0f;
@@ -308,12 +327,15 @@ void UpdateParticles(float dt) {
         }
 
         // Gravity accelerates it downward; drag bleeds speed away. Multiplying
-        // by dt is what keeps the motion the same at any frame rate.
+        // by dt is what keeps the motion the same at any frame rate. Both act on
+        // the particle's OWN spread only - the carried motion of the emitter is
+        // added afterwards and is left alone.
         p.vel.y += p.gravity * dt;
         float keep = 1.0f - p.drag * dt;
         if (keep < 0.0f) keep = 0.0f;      // a huge dt must not reverse it
         p.vel = Vector3Scale(p.vel, keep);
-        p.pos = Vector3Add(p.pos, Vector3Scale(p.vel, dt));
+        p.pos = Vector3Add(p.pos,
+                           Vector3Scale(Vector3Add(p.vel, p.carrier), dt));
 
         i++;
     }

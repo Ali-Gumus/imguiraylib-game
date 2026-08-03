@@ -41,12 +41,17 @@ void ShutdownParticles();
 // multiplies the size and speed of the whole effect, so one recipe can serve a
 // rifle round and a bomb.
 //
-// `inherit` is the velocity of whatever emitted the burst, added to every
-// particle's own outward spread. Without it, an effect fired from something
-// moving fast is left behind the instant it is born: a muzzle flash on a jet
-// travelling 200 units a second falls 40 units back over a fifth of a second.
-// Real exhaust gas leaves a moving gun already carrying the gun's motion, and
-// that is exactly what this reproduces.
+// `inherit` is the velocity of whatever emitted the burst, carried by every
+// particle for its whole life ON TOP OF its own outward spread. Without it, an
+// effect fired from something moving fast is left behind the instant it is born:
+// a muzzle flash on a jet travelling 200 units a second falls 40 units back over
+// a fifth of a second. Real exhaust gas leaves a moving gun already carrying the
+// gun's motion, and that is exactly what this reproduces.
+//
+// It is deliberately immune to the effect's own drag and gravity. Those describe
+// how the burst spreads and settles, and applying them to the emitter's motion
+// as well drags the entire effect backwards through whatever fired it - the
+// faster the emitter, the further back. See Particle::carrier in Particles.cpp.
 //
 // An unrecognised name draws a small neutral puff instead of failing: a typo in
 // a gameplay script should not interrupt play.
