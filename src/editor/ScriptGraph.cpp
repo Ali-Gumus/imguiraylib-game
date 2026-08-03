@@ -352,10 +352,17 @@ std::vector<Pin> ScriptGraph::Signature(NodeKind k) {
                     {SlotExecOut,    PinType::Exec,  false, "then"}};
         // A collision volume. The shape is a node field; its size is wired, so
         // a Param can drive it from the Inspector.
+        //
+        // The second input exists because one number cannot describe every
+        // shape. A sphere is fully specified by its radius, but a capsule is a
+        // radius AND a length, and leaving the length out makes one as long as
+        // it is wide - a ball with straight sides, not the long thin volume an
+        // aircraft needs. Leave it unwired for a sphere.
         case NodeKind::SetCollider:
-            return {{SlotExecIn,   PinType::Exec,  true,  ""},
-                    {SlotDataIn,   PinType::Float, true,  "size"},
-                    {SlotExecOut,  PinType::Exec,  false, "then"}};
+            return {{SlotExecIn,     PinType::Exec,  true,  ""},
+                    {SlotDataIn,     PinType::Float, true,  "size"},
+                    {SlotDataIn + 1, PinType::Float, true,  "length"},
+                    {SlotExecOut,    PinType::Exec,  false, "then"}};
         // Add to a HUD value rather than replacing it - awarding score.
         case NodeKind::HudAdd:
             return {{SlotExecIn,   PinType::Exec,  true,  ""},
@@ -1948,7 +1955,16 @@ void ScriptGraph::EmitExecChain(std::string& lua, int fromExecPin, int depth) co
                 std::string shape(n->text);
                 if (shape.empty()) shape = "sphere";
                 lua += "    Scene.setCollider(entity, \"" + shape + "\", " +
-                       ExprForInput(PinId(n->id, SlotDataIn)) + ")\n";
+                       ExprForInput(PinId(n->id, SlotDataIn));
+                // The length is only written when something is actually wired
+                // to it. Passing it always would mean emitting a number for
+                // spheres too, where the call ignores it - and, more to the
+                // point, a graph saved before this input existed would start
+                // generating different code than it used to.
+                const int lenPin = PinId(n->id, SlotDataIn + 1);
+                if (SourceOf(lenPin))
+                    lua += ", " + ExprForInput(lenPin);
+                lua += ")\n";
                 EmitExecChain(lua, PinId(n->id, SlotExecOut), depth + 1);
                 break;
             }

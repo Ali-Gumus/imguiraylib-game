@@ -174,9 +174,14 @@
                       "from":  2090,
                       "id":  5007,
                       "to":  2100
+                  },
+                  {
+                      "from":  2122,
+                      "id":  5008,
+                      "to":  2101
                   }
               ],
-    "nextID":  132,
+    "nextID":  133,
     "nodes":  [
                   {
                       "id":  1,
@@ -459,15 +464,23 @@
                   {
                       "id":  130,
                       "kind":  48,
-                      "text":  "hitbox",
-                      "value":  8,
+                      "text":  "hit_radius",
+                      "value":  2.95,
                       "x":  20,
                       "y":  120
                   },
                   {
+                      "id":  132,
+                      "kind":  48,
+                      "text":  "hit_length",
+                      "value":  12.75,
+                      "x":  20,
+                      "y":  200
+                  },
+                  {
                       "id":  131,
                       "kind":  73,
-                      "text":  "sphere",
+                      "text":  "capsule",
                       "value":  0,
                       "x":  220,
                       "y":  60
