@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include "engine/Lighting.h"
 // TerrainCollisionGrid: the power-of-two rule the collision surface obeys,
@@ -57,8 +58,212 @@ void TerrainComponent::Rebuild() {
 // `heights` holds n*n samples running 0..1, laid out row by row so the sample
 // for grid position (x,z) is at index z*n + x - the same layout and the same
 // range the collision surface is handed.
+// ---------------------------------------------------------------------------
+// THE LANDSCAPE ITSELF
+//
+// The heights come from noise generated here rather than from raylib's
+// GenImagePerlinNoise, and there are two reasons that matters.
+//
+// First, an image holds whole BYTES. A 900-metre landscape quantised to 256
+// levels steps in 3.5-metre terraces, which are invisible on a hillside and
+// glaring on a shallow slope - and an aircraft flying low catches on them.
+// A function returns a real number and has no steps at all.
+//
+// Second, an image has to be RESAMPLED whenever something wants the ground at a
+// different grid size than the picture, which the collision surface does. A
+// continuous function is simply asked about the point in question, so the mesh
+// and the collision surface agree by construction rather than by interpolating
+// the same picture the same way and hoping.
+// ---------------------------------------------------------------------------
+
+// A repeatable pseudo-random number for an integer lattice point. Deterministic:
+// the same x, z and seed always give the same answer, which is what lets the
+// landscape be regenerated identically instead of stored.
+static uint32_t LatticeHash(int x, int z, int seed) {
+    uint32_t h = (uint32_t)x * 374761393u + (uint32_t)z * 668265263u
+               + (uint32_t)seed * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+
+// The dot product of a corner's random GRADIENT with the offset to the sample
+// point. Eight directions is plenty and avoids a table.
+static float LatticeGrad(uint32_t hash, float x, float z) {
+    switch (hash & 7u) {
+        case 0:  return  x + z;
+        case 1:  return  x - z;
+        case 2:  return -x + z;
+        case 3:  return -x - z;
+        case 4:  return  x;
+        case 5:  return -x;
+        case 6:  return  z;
+        default: return -z;
+    }
+}
+
+// Perlin's fade curve. A plain linear blend between lattice corners leaves a
+// visible crease along every cell edge, because the SLOPE jumps there even
+// though the height does not. This curve is flat at both ends, so slopes match
+// across a boundary and the surface is smooth rather than merely continuous.
+static float Fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+
+// Gradient noise at a point, returning roughly -1..1.
+static float GradientNoise(float x, float z, int seed) {
+    const int   xi = (int)std::floor(x), zi = (int)std::floor(z);
+    const float xf = x - (float)xi,      zf = z - (float)zi;
+    const float u  = Fade(xf),           v  = Fade(zf);
+
+    const float n00 = LatticeGrad(LatticeHash(xi,     zi,     seed), xf,        zf);
+    const float n10 = LatticeGrad(LatticeHash(xi + 1, zi,     seed), xf - 1.0f, zf);
+    const float n01 = LatticeGrad(LatticeHash(xi,     zi + 1, seed), xf,        zf - 1.0f);
+    const float n11 = LatticeGrad(LatticeHash(xi + 1, zi + 1, seed), xf - 1.0f, zf - 1.0f);
+
+    const float a = n00 + u * (n10 - n00);
+    const float b = n01 + u * (n11 - n01);
+    return a + v * (b - a);
+}
+
+// Sum several octaves of noise into a landscape, returning 0..1.
+//
+// Each octave doubles the frequency and halves the amplitude, which is the
+// pattern natural terrain actually follows: a mountain range carries hills,
+// hills carry spurs, spurs carry bumps, each smaller feature a fraction of the
+// size of the one it sits on. Summing them is what makes a surface look eroded
+// rather than drawn.
+// How many of the requested octaves a mesh of this resolution can represent.
+// Declared in the header so the Inspector can report the same number rather than
+// working it out a second way and disagreeing.
+int ResolvableOctaves(int octaves, int resolution, float noiseScale) {
+    if (octaves < 1) return 1;
+    const float cells = (float)((resolution > 1) ? resolution - 1 : 1);
+    if (noiseScale <= 0.0f) return octaves;
+    int usable = 1;
+    for (int o = 1; o < octaves; ++o) {
+        // The frequency this octave would add, in features across the map.
+        const float freq = noiseScale * std::pow(2.0f, (float)o);
+        if (cells / freq < 3.0f) break;    // fewer than three cells per feature
+        usable = o + 1;
+    }
+    return usable;
+}
+
+static float TerrainFbm(float x, float z, int seed, int octaves, float ridge) {
+    if (octaves < 1) octaves = 1;
+    if (octaves > 10) octaves = 10;
+    if (ridge < 0.0f) ridge = 0.0f;
+    if (ridge > 1.0f) ridge = 1.0f;
+
+    float sum = 0.0f, norm = 0.0f;
+    float amp = 1.0f, freq = 1.0f;
+
+    for (int o = 0; o < octaves; ++o) {
+        // Each octave gets its own seed, or every layer would be the same
+        // pattern at a different size and the sum would show that self-similar
+        // grid rather than hiding it.
+        const float n = GradientNoise(x * freq, z * freq, seed + o * 1013);
+
+        // The ridged version: folding at zero turns each sign change into a
+        // crease. Squaring sharpens the crease and rounds the ground between
+        // creases, which is what makes ridge lines read as ridge lines.
+        float folded = 1.0f - std::fabs(n);
+        folded = folded * folded * 2.0f - 1.0f;
+
+        sum  += (n + (folded - n) * ridge) * amp;
+        norm += amp;
+        amp  *= 0.5f;
+        freq *= 2.0f;
+    }
+
+    const float h = (norm > 0.0f) ? (sum / norm) : 0.0f;    // -1..1
+    float unit = h * 0.5f + 0.5f;                            // 0..1
+
+    // STRETCH, because a sum of random layers clusters around its middle. Each
+    // octave is an independent wobble, and independent wobbles cancel more often
+    // than they agree, so the total almost never reaches either extreme - a
+    // five-octave sum measures about 0.13..0.80 rather than 0..1. Left alone
+    // that is a map with no low ground and no summits, every square metre of it
+    // halfway up a slope.
+    unit = (unit - 0.5f) * 1.9f + 0.5f;
+    if (unit < 0.0f) unit = 0.0f;
+    if (unit > 1.0f) unit = 1.0f;
+
+    // Then BIAS towards the low ground. Squaring pushes the middle down while
+    // leaving the top alone - a half-height sample becomes quarter-height, but a
+    // full-height one stays full - so the map becomes mostly low country with
+    // peaks standing out of it, which is both what real terrain looks like and
+    // what leaves an aircraft somewhere to fly that is not a mountainside.
+    return unit * unit;
+}
+
+// ---------------------------------------------------------------------------
+// SURFACE COLOUR
+//
+// A landscape is not one colour, and the two things that decide which colour a
+// patch of ground is are how HIGH it is and how STEEP it is.
+//
+// Height gives the bands everyone recognises - shore, grass, scrub, bare rock,
+// snow - because temperature and exposure change with altitude.
+//
+// Steepness then overrides all of it, and that is the part that makes terrain
+// read as real rather than as a contour map: soil, grass and snow cannot cling
+// to a cliff, so anything steep is bare rock whatever height it sits at. Without
+// this rule the bands wrap around mountains like paint stripes.
+// ---------------------------------------------------------------------------
+
+static Color MixColor(Color a, Color b, float t) {
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return Color{(unsigned char)(a.r + (b.r - a.r) * t),
+                 (unsigned char)(a.g + (b.g - a.g) * t),
+                 (unsigned char)(a.b + (b.b - a.b) * t),
+                 255};
+}
+
+// Smooth 0..1 ramp between two thresholds, so bands blend instead of banding.
+static float Ramp(float v, float lo, float hi) {
+    if (hi <= lo) return 0.0f;
+    float t = (v - lo) / (hi - lo);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// `h01` is height as a fraction of the tallest peak; `up` is the surface
+// normal's vertical part, 1 flat and 0 vertical.
+static Color TerrainSurfaceColor(float h01, float up, uint32_t jitter) {
+    const Color kShore{194, 178, 128, 255};
+    const Color kGrass{ 74, 110,  52, 255};
+    const Color kMeadow{ 96, 124,  58, 255};
+    const Color kScrub{112, 104,  64, 255};
+    const Color kRock { 104,  98,  92, 255};
+    const Color kSnow { 238, 240, 245, 255};
+
+    Color c = kShore;
+    c = MixColor(c, kGrass,  Ramp(h01, 0.010f, 0.045f));
+    c = MixColor(c, kMeadow, Ramp(h01, 0.045f, 0.30f));
+    c = MixColor(c, kScrub,  Ramp(h01, 0.30f,  0.52f));
+    c = MixColor(c, kRock,   Ramp(h01, 0.52f,  0.72f));
+    c = MixColor(c, kSnow,   Ramp(h01, 0.74f,  0.92f));
+
+    // Anything steeper than about forty degrees is scoured back to rock. The
+    // ramp runs the other way round - a LOWER `up` is steeper - so the arguments
+    // are reversed rather than the result subtracted.
+    c = MixColor(c, kRock, 1.0f - Ramp(up, 0.62f, 0.86f));
+
+    // A few percent of brightness variation per face. Real ground is never one
+    // even wash, and without this the blends between bands are so clean that
+    // they read as gradients painted on rather than as ground.
+    const float n = 0.94f + (float)(jitter & 0xFFu) / 255.0f * 0.12f;
+    auto scale = [n](unsigned char v) {
+        const float f = (float)v * n;
+        return (unsigned char)(f > 255.0f ? 255.0f : f);
+    };
+    return Color{scale(c.r), scale(c.g), scale(c.b), 255};
+}
+
 static Mesh BuildHeightfieldMesh(const std::vector<float>& heights, int n,
-                                 float worldSize, float maxHeight) {
+                                 float worldSize, float maxHeight,
+                                 bool naturalColor, bool smooth) {
     Mesh mesh = {0};
     const int cells = n - 1;                 // squares across, one fewer than samples
 
@@ -72,6 +277,11 @@ static Mesh BuildHeightfieldMesh(const std::vector<float>& heights, int n,
     mesh.vertices  = (float*)RL_MALLOC((size_t)mesh.vertexCount * 3 * sizeof(float));
     mesh.normals   = (float*)RL_MALLOC((size_t)mesh.vertexCount * 3 * sizeof(float));
     mesh.texcoords = (float*)RL_MALLOC((size_t)mesh.vertexCount * 2 * sizeof(float));
+    // Four bytes of colour per vertex. The lighting shader already forwards
+    // vertexColor and multiplies it into the surface colour, so filling this in
+    // is the whole of what it takes to paint the landscape - no texture, no
+    // extra uniform, no shader change.
+    mesh.colors    = (unsigned char*)RL_MALLOC((size_t)mesh.vertexCount * 4);
 
     // Spacing between neighbouring samples: the full span divided by the number
     // of GAPS, which is one less than the number of samples.
@@ -87,7 +297,32 @@ static Mesh BuildHeightfieldMesh(const std::vector<float>& heights, int n,
                        (float)z * step};
     };
 
-    int vi = 0, ni = 0, ti = 0;
+    // The surface normal AT A SAMPLE, worked out from how fast the ground rises
+    // either side of it rather than from any one triangle.
+    //
+    // This is what makes the landscape shade smoothly. A face normal is constant
+    // across its triangle, so every triangle takes a single brightness and the
+    // hillside becomes a mosaic. Sampling the slope at the CORNERS instead lets
+    // the shading vary continuously across each face, and neighbouring faces
+    // agree along their shared edge because they ask the same question about the
+    // same point.
+    //
+    // The two spans are 2*step apart - one sample either side - and the edges
+    // clamp to the last sample, which just means the outermost row is shaded as
+    // though the ground continued flat.
+    auto sampleNormal = [&](int x, int z) -> Vector3 {
+        const int xm = (x > 0) ? x - 1 : x, xp = (x < n - 1) ? x + 1 : x;
+        const int zm = (z > 0) ? z - 1 : z, zp = (z < n - 1) ? z + 1 : z;
+        const float hx = (heights[(size_t)z * n + xp] - heights[(size_t)z * n + xm]) * maxHeight;
+        const float hz = (heights[(size_t)zp * n + x] - heights[(size_t)zm * n + x]) * maxHeight;
+        const float dx = (float)(xp - xm) * step;
+        const float dz = (float)(zp - zm) * step;
+        // The cross product of the two tangents, written out: a surface rising
+        // to the east leans its normal to the west, hence the negated slopes.
+        return Vector3Normalize(Vector3{-hx * dz, dx * dz, -hz * dx});
+    };
+
+    int vi = 0, ni = 0, ti = 0, ci = 0;
 
     // Write one triangle: three positions, three copies of its face normal, and
     // three texture coordinates. The normal is the same for all three vertices,
@@ -110,14 +345,34 @@ static Mesh BuildHeightfieldMesh(const std::vector<float>& heights, int n,
         const int     gx[3]  = {ax, bx, cx};
         const int     gz[3]  = {az, bz, cz};
         for (int k = 0; k < 3; ++k) {
+            // Smooth shading takes each corner's own slope; flat shading gives
+            // all three corners the face's single normal.
+            const Vector3 vn = smooth ? sampleNormal(gx[k], gz[k]) : nrm;
+
             mesh.vertices[vi++] = pts[k].x;
             mesh.vertices[vi++] = pts[k].y;
             mesh.vertices[vi++] = pts[k].z;
-            mesh.normals[ni++]  = nrm.x;
-            mesh.normals[ni++]  = nrm.y;
-            mesh.normals[ni++]  = nrm.z;
+            mesh.normals[ni++]  = vn.x;
+            mesh.normals[ni++]  = vn.y;
+            mesh.normals[ni++]  = vn.z;
             mesh.texcoords[ti++] = (float)gx[k] / (float)cells;
             mesh.texcoords[ti++] = (float)gz[k] / (float)cells;
+
+            Color col{255, 255, 255, 255};
+            if (naturalColor) {
+                // Coloured per CORNER, so the bands blend across a face instead
+                // of changing at its edges. The jitter is keyed to the grid
+                // position rather than to the vertex, or the three corners of a
+                // face would each get their own speckle and the surface would
+                // fizz.
+                const float h01 = heights[(size_t)gz[k] * n + gx[k]];
+                col = TerrainSurfaceColor(h01, vn.y,
+                                          LatticeHash(gx[k] / 3, gz[k] / 3, 7));
+            }
+            mesh.colors[ci++] = col.r;
+            mesh.colors[ci++] = col.g;
+            mesh.colors[ci++] = col.b;
+            mesh.colors[ci++] = col.a;
         }
     };
 
@@ -149,7 +404,8 @@ void TerrainComponent::EnsureBuilt() {
     const std::vector<float> heights = SampleHeights(res);
     if (heights.empty()) return;
 
-    Mesh mesh = BuildHeightfieldMesh(heights, res, worldSize, maxHeight);
+    Mesh mesh = BuildHeightfieldMesh(heights, res, worldSize, maxHeight,
+                                     naturalColor, smooth);
     m_model = LoadModelFromMesh(mesh);       // wrap the mesh in a drawable model
     ApplyLightingShader(m_model);            // shade the hills instead of flat green
     m_built = true;
@@ -160,48 +416,40 @@ std::vector<float> TerrainComponent::SampleHeights(int n) const {
     if (n < 2) return out;
     out.resize((size_t)n * n, 0.0f);
 
-    // Regenerate the very same noise image the mesh is built from. Identical
-    // arguments give an identical image, which is what guarantees the
-    // collision surface matches the hills that are drawn.
-    const int res = (resolution > 1) ? resolution : 2;
-    Image img = GenImagePerlinNoise(res, res, seed, seed, noiseScale);
-    // LoadImageColors unpacks the image into a plain array of RGBA values,
-    // whatever internal format it was stored in.
-    Color* px = LoadImageColors(img);
+    // The landscape is a FUNCTION of position, so any grid size samples the same
+    // surface. That is what guarantees the collision surface matches the hills
+    // that are drawn even though physics asks for a coarser grid than the mesh:
+    // there is one definition of "how high is the ground here", evaluated twice,
+    // rather than one picture interpolated two ways.
+    //
+    // Positions are normalised to 0..1 across the terrain before being scaled by
+    // noiseScale, so the landscape keeps its shape when the resolution changes
+    // and `noiseScale` goes on meaning what it always meant - how many hills fit
+    // across the map.
+    // How many octaves this landscape can actually SHOW. Each octave doubles the
+    // frequency, so past a point the detail is finer than the distance between
+    // mesh samples and cannot be drawn at all: it does not add roughness, it
+    // adds noise, and it makes the ground disagree with itself between one
+    // sample and the next. Three cells per feature is the cutoff.
+    //
+    // CRITICALLY, this is computed from `resolution` and NOT from `n`. The
+    // collision surface asks for a coarser grid than the mesh does, and if the
+    // limit followed the grid being asked for, the two would evaluate DIFFERENT
+    // functions - the collision surface would be built from a genuinely
+    // different landscape, not merely a coarser sampling of the same one. That
+    // is the same class of bug as the mismatched triangle diagonals, and just as
+    // invisible to looking at it.
+    const int useOctaves = ResolvableOctaves(octaves, resolution, noiseScale);
 
     for (int z = 0; z < n; ++z) {
         for (int x = 0; x < n; ++x) {
-            // Where this grid point falls in the source image. Both grids
-            // cover the same square, so the mapping is a simple proportion:
-            // grid index 0 is image pixel 0 and grid index n-1 is pixel res-1.
-            const float fx = (float)x * (float)(res - 1) / (float)(n - 1);
-            const float fz = (float)z * (float)(res - 1) / (float)(n - 1);
-
-            // BILINEAR sampling: take the four surrounding pixels and blend
-            // them by how close the sample lies to each. Picking the single
-            // nearest pixel instead would produce a staircase of flat steps
-            // that an aircraft would visibly catch on.
-            const int x0 = (int)fx, z0 = (int)fz;
-            const int x1 = (x0 + 1 < res) ? x0 + 1 : x0;
-            const int z1 = (z0 + 1 < res) ? z0 + 1 : z0;
-            const float tx = fx - (float)x0;
-            const float tz = fz - (float)z0;
-
-            // The noise image is grey, so any channel carries the height; red
-            // is used, scaled from 0..255 down to 0..1.
-            const float h00 = px[z0 * res + x0].r / 255.0f;
-            const float h10 = px[z0 * res + x1].r / 255.0f;
-            const float h01 = px[z1 * res + x0].r / 255.0f;
-            const float h11 = px[z1 * res + x1].r / 255.0f;
-
-            const float top    = h00 + (h10 - h00) * tx;   // blend along x
-            const float bottom = h01 + (h11 - h01) * tx;
-            out[(size_t)z * n + x] = top + (bottom - top) * tz;   // then along z
+            const float u = (float)x / (float)(n - 1);
+            const float v = (float)z / (float)(n - 1);
+            out[(size_t)z * n + x] =
+                TerrainFbm(u * noiseScale, v * noiseScale, seed, useOctaves, ridge);
         }
     }
 
-    UnloadImageColors(px);
-    UnloadImage(img);
     return out;
 }
 
@@ -262,6 +510,26 @@ void TerrainComponent::OnInspector() {
                      ImGuiSliderFlags_Logarithmic);
     ImGui::DragInt("Seed", &seed);
 
+    // How the landscape is SHAPED, as opposed to how big it is.
+    ImGui::SliderInt("Detail layers", &octaves, 1, 8);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Layers of noise summed together. 1 is smooth rolling\n"
+                          "blobs; each layer adds finer detail at half the height.");
+    // Say so when layers are being ignored. Silently clamping would leave the
+    // slider claiming detail that is not in the landscape, and the natural
+    // response - dragging it further right - would do nothing at all.
+    {
+        const int usable = ResolvableOctaves(octaves, resolution, noiseScale);
+        if (usable < octaves)
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f),
+                               "  using %d of %d - finer detail needs more resolution",
+                               usable, octaves);
+    }
+    ImGui::SliderFloat("Ridges", &ridge, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 gives rounded hills, 1 gives creased mountain\n"
+                          "ridges and valley floors.");
+
     // ---- What those four numbers actually add up to -------------------------
     // The settings above are all relative to each other, so none of them means
     // anything alone. These derived figures are the ones worth tuning against:
@@ -309,6 +577,17 @@ void TerrainComponent::OnInspector() {
     if (ImGui::ColorEdit4("Tint", col))
         tint = {(unsigned char)(col[0] * 255), (unsigned char)(col[1] * 255),
                 (unsigned char)(col[2] * 255), (unsigned char)(col[3] * 255)};
+    ImGui::Checkbox("Natural colour", &naturalColor);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Colour the ground by height and steepness - shore,\n"
+                          "grass, scrub, rock and snow, with cliffs bare.\n"
+                          "Tint multiplies this, so keep Tint white.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Smooth", &smooth);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shade as a continuous surface rather than as\n"
+                          "individual triangles.");
+
     ImGui::Checkbox("Contour lines", &wire);
 
     // Regenerating the mesh is expensive, so it happens only when you ask,
