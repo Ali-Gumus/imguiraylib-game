@@ -108,6 +108,11 @@ function onStart(entity)
     if not entity:hasComponent_Model() then
         local t = entity.transform
         t.scale.x, t.scale.y, t.scale.z = P.body_width, P.body_height, P.body_depth
+        -- And lift it out of the ground. It is placed with its origin on the
+        -- surface, which is where a model's pivot sits; a cube's origin is its
+        -- middle, so it needs half its own height. See structure.lua for why
+        -- this belongs here and not in the placement code.
+        t.position.y = t.position.y + P.body_height * 0.5
     end
 
     -- Something for bullets to hit. Only added if missing, so an emplacement

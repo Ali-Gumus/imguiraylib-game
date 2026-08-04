@@ -70,9 +70,17 @@ local function randomRange(lo, hi)
     return lo + (hi - lo) * nextRandom()
 end
 
--- Place something on the ground at (x, z). `lift` raises it by half its own
--- height, because an entity's origin is its MIDDLE - a building placed exactly
--- at ground level would stand half sunk into it.
+-- Place something on the ground at (x, z), with its ORIGIN on the surface.
+--
+-- That is the right default because an imported model's pivot is nearly always
+-- at its base - both of the ones this camp uses measure that way - so a model
+-- placed here simply stands on the terrain at any size. A `lift` is for the
+-- exceptions: something whose origin is its middle, which is true of the plain
+-- cube a missing model falls back to, and of the camp's own collision box.
+--
+-- Anything needing that correction applies it ITSELF, in its own onStart, where
+-- its size is known. A lift written in here would be a second copy of a number
+-- that lives in another file, wrong the moment either changed.
 --
 -- `model` names an entry in models.lua. A model whose FILE is missing falls back
 -- to the entity's primitive shape and reports itself in the toolbar, so naming
@@ -109,20 +117,20 @@ function onStart(entity)
         placeOnGround("Camp", cx, cz, 25, 0, 0, -1,
                       "assets/scripts/camp.lua", "camp", P.camp_hp)
 
-        -- The headquarters, at the middle of it all. 8 is half its 16 m height.
+        -- The headquarters, at the middle of it all.
         -- Tagged "hq" rather than "base", because structure.lua reads its own
         -- tag to decide whether it is the big command building or an
         -- outbuilding. camp.lua destroys both tags when the position falls.
-        placeOnGround("Camp HQ", cx, cz, 8,
+        placeOnGround("Camp HQ", cx, cz, 0,
                       0, 0, -1, "assets/scripts/structure.lua", "hq", 0,
                       "hangar")
 
-        -- Outbuildings, ringed around the HQ. 3.5 is half their 7 m height.
+        -- Outbuildings, ringed around the HQ.
         for hut = 1, P.huts_per_camp do
             local a = randomRange(0, math.pi * 2)
             local r = randomRange(P.hut_radius * 0.5, P.hut_radius)
             placeOnGround("Camp Hut", cx + math.cos(a) * r, cz + math.sin(a) * r,
-                          3.5, 0, 0, -1, "assets/scripts/structure.lua",
+                          0, 0, 0, -1, "assets/scripts/structure.lua",
                           "base", 0, "hut")
         end
 
@@ -138,7 +146,7 @@ function onStart(entity)
             -- look-at has a well defined answer.
             placeOnGround("AA Vehicle",
                           cx + math.cos(a) * r, cz + math.sin(a) * r,
-                          2.5, math.cos(a), 0, math.sin(a),
+                          0, math.cos(a), 0, math.sin(a),
                           "assets/scripts/aa_gun.lua", "aa", P.gun_hp,
                           "aa_vehicle")
         end

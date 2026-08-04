@@ -51,6 +51,18 @@ function onStart(entity)
     if not entity:hasComponent_Model() then
         local t = entity.transform
         t.scale.x, t.scale.y, t.scale.z = w, h, d
+
+        -- AND STAND IT UP. camps.lua places every building with its origin ON
+        -- the ground, because that is where a model's pivot almost always is.
+        -- A cube's origin is its MIDDLE, so left there it would be buried to
+        -- the waist - it has to rise by half its own height.
+        --
+        -- Doing it here rather than in camps.lua is deliberate: this is the
+        -- script that knows how big the cube is, and the correction has to
+        -- follow that size. A lift written into the placement code would be a
+        -- second copy of these numbers, silently wrong the moment either
+        -- changed.
+        t.position.y = t.position.y + h * 0.5
     end
 
     -- NO COLLIDER AND NO HEALTH, ON PURPOSE.
