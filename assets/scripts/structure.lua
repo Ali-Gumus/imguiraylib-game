@@ -48,7 +48,12 @@ function onStart(entity)
     -- draws, a model included, and a model already carries its own size from
     -- models.lua. Applying these to one would stretch it 44 by 16 by 30, which
     -- reads as a broken import rather than a wrong number.
-    if not entity:hasComponent_Model() then
+    -- Whether a mesh actually LOADED, not merely whether a Model component is
+    -- attached: one naming a missing file exists and draws nothing, and
+    -- believing it leaves the building an invisible one-metre box. See
+    -- aa_gun.lua for the same test.
+    local mdl = entity:getComponent_Model()
+    if mdl == nil or not mdl.loaded then
         local t = entity.transform
         t.scale.x, t.scale.y, t.scale.z = w, h, d
 

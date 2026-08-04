@@ -22,7 +22,20 @@ void ShapeComponent::OnDraw(const Entity& owner) {
     // both would leave a cube buried inside every aircraft. Skipping here rather
     // than removing the cube component avoids changing an entity's component
     // list while hooks are running over it (see the note in Scene::Start).
-    if (owner.GetComponent<ModelComponent>() != nullptr) return;
+    //
+    // BUT ONLY IF THE MODEL ACTUALLY DREW. A component whose file is missing
+    // draws nothing at all, and stepping aside for it left the entity
+    // completely invisible - not a cube, not a model, nothing - while still
+    // being solid and still shooting at you. That is the worst way for a
+    // missing asset to fail, and it silently broke the promise that a model
+    // which cannot be found falls back to a primitive.
+    //
+    // The test is "has it tried and failed", not "is it loaded". A model that
+    // has not been asked to draw yet is not yet loaded either, and treating
+    // that as failure would flash a cube on the first frame of every model in
+    // the scene.
+    if (const ModelComponent* m = owner.GetComponent<ModelComponent>())
+        if (!m->LoadFailed()) return;
 
     // Before calling this, Scene::Draw pushed this entity's world matrix onto
     // raylib's matrix stack. That matrix already encodes position, rotation

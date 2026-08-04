@@ -141,6 +141,8 @@ void ModelComponent::SetTexture(const std::string& t) {
     m_tried  = false;
 }
 
+void ModelComponent::ForceLoad() { EnsureLoaded(); }
+
 void ModelComponent::EnsureLoaded() {
     if (m_tried) return;                  // only attempt the load once per path
     m_tried = true;

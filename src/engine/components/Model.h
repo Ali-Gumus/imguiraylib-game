@@ -76,6 +76,21 @@ public:
     // a scene costs to render.
     int TriangleCount() const;
 
+    // Whether the file is loaded and can be drawn.
+    bool IsLoaded() const { return m_loaded; }
+
+    // Whether loading was ATTEMPTED and did not work - a missing or unreadable
+    // file. Distinct from "not loaded", which is also true of a model that has
+    // simply not been drawn yet, and the distinction matters: ShapeComponent
+    // uses this to decide whether to fall back to its primitive, and treating
+    // "not yet" as failure would flash a cube on every model's first frame.
+    bool LoadFailed() const { return m_tried && !m_loaded; }
+
+    // Load now rather than on the next draw. Spawning uses this so that a
+    // script's onStart can ask whether it ended up with a usable model - which
+    // it cannot do while the load is lazy, because nothing has drawn yet.
+    void ForceLoad();
+
     std::string path;             // the model file, e.g. "assets/models/jet.obj"
 
     // An image to paint over the model, e.g. "assets/models/hangar_diffuse.png".

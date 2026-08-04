@@ -114,6 +114,11 @@ bool ApplyModelDef(Entity& e, const std::string& name) {
     // would arrive too late and the mesh would be cached untextured.
     mc.texture = d->texture;
     mc.SetPath(d->file);
+    // Load it NOW rather than on the first draw. The entity's own script runs
+    // its onStart before anything is drawn, and a script needs to know whether
+    // it actually got a model - a gun that did falls back to sizing a cube
+    // instead, and a gun that did not would otherwise stay a one-metre box.
+    mc.ForceLoad();
     mc.rotationOffset = d->rotationOffset;
     mc.positionOffset = d->positionOffset;
 

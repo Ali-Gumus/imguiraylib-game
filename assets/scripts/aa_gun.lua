@@ -38,7 +38,7 @@ properties = {
     -- Seconds between shots. Slower than the aircraft's own gun on purpose: a
     -- battery that fires as fast as a fighter is not a threat to fly past, it
     -- is a wall.
-    fire_rate = 1.1,
+    fire_rate = 0.5,
 
     -- How fast the shell travels, which MUST match the `speed` property of
     -- enemy_bullet.lua - the lead is worked out from this number, and if the
@@ -105,7 +105,12 @@ function onStart(entity)
     -- factors in three different directions - not a size mistake but a shear,
     -- and the sort that looks like a broken import rather than a wrong number.
     -- A model sizes itself; only the fallback cube needs telling.
-    if not entity:hasComponent_Model() then
+    -- "Has a model component" is NOT the same as "has a model". A component
+    -- whose file is missing exists perfectly happily and draws nothing, so
+    -- trusting the component alone left these as invisible one-metre boxes that
+    -- still shot at the player. Ask whether a mesh actually loaded.
+    local mdl = entity:getComponent_Model()
+    if mdl == nil or not mdl.loaded then
         local t = entity.transform
         t.scale.x, t.scale.y, t.scale.z = P.body_width, P.body_height, P.body_depth
         -- And lift it out of the ground. It is placed with its origin on the
