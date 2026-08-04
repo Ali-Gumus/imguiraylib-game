@@ -40,6 +40,10 @@ struct Entity;
 struct ModelDef {
     std::string name;
     std::string file;                     // path, relative to the project root
+    // An image painted over every material on the model. Empty means the model
+    // brings its own, which a .glb normally does. Needed for a mesh shipped
+    // alongside loose texture files rather than with them packed inside.
+    std::string texture;
     float       scale = 1.0f;             // uniform entity scale to apply
     Vector3     rotationOffset{0, 0, 0};  // euler degrees, to face -Z
     Vector3     positionOffset{0, 0, 0};  // shift onto the entity's origin

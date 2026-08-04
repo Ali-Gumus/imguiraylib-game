@@ -48,6 +48,12 @@ bool ReloadModelDefs() {
         sol::optional<std::string> file = t["file"];
         d.file = file.value_or(std::string());
 
+        // An image to paint over the model, for the many models distributed as
+        // a mesh plus loose texture files. Left out for anything that carries
+        // its own, which a .glb usually does.
+        sol::optional<std::string> tex = t["texture"];
+        d.texture = tex.value_or(std::string());
+
         sol::optional<float> sc = t["scale"];
         d.scale = sc.value_or(1.0f);
 
@@ -86,7 +92,12 @@ bool ReloadModelDefs() {
 }
 
 void PreloadModelDefs() {
-    for (const auto& kv : s_defs) PreloadModel(kv.second.file);
+    // Preload the mesh WITH its texture, so the pair lands in the cache under
+    // the same key the component will later ask for. Preloading the bare mesh
+    // would fill the cache with an untextured entry that nothing ever uses, and
+    // the real one would still be read during the frame it was first needed -
+    // which is the stall preloading exists to avoid.
+    for (const auto& kv : s_defs) PreloadModel(kv.second.file, kv.second.texture);
 }
 
 bool ApplyModelDef(Entity& e, const std::string& name) {
@@ -98,6 +109,10 @@ bool ApplyModelDef(Entity& e, const std::string& name) {
     if (e.GetComponent<ModelComponent>() != nullptr) return false;
 
     ModelComponent& mc = e.AddComponent<ModelComponent>();
+    // Texture first, then path. SetPath is what schedules the load, and the
+    // texture is part of what the model cache is keyed by - set afterwards it
+    // would arrive too late and the mesh would be cached untextured.
+    mc.texture = d->texture;
     mc.SetPath(d->file);
     mc.rotationOffset = d->rotationOffset;
     mc.positionOffset = d->positionOffset;

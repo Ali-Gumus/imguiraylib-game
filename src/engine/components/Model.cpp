@@ -41,10 +41,42 @@ struct CachedModel {
 
 std::unordered_map<std::string, CachedModel> g_modelCache;
 
+// Textures are cached separately and by their own path, because the same image
+// is often shared by several different models - a tileset, or one skin used by
+// a family of vehicles - and uploading it once per model would waste memory for
+// no reason.
+std::unordered_map<std::string, Texture2D> g_textureCache;
+
+// Load an image once and hand back the same one afterwards. A missing file is
+// remembered as a zero texture so it is not retried every frame.
+Texture2D AcquireTexture(const std::string& path) {
+    auto it = g_textureCache.find(path);
+    if (it != g_textureCache.end()) return it->second;
+
+    Texture2D t = LoadTexture(path.c_str());
+    // id 0 means the load failed. Kept in the map anyway, as the record that
+    // this path has already been tried.
+    g_textureCache.emplace(path, t);
+    return t;
+}
+
 // Load `path` if it has not been loaded before, and return it. Returns nullptr
 // if the file is missing or unreadable.
-const CachedModel* AcquireModel(const std::string& path) {
-    auto it = g_modelCache.find(path);
+//
+// THE CACHE IS KEYED BY THE MESH *AND* THE TEXTURE, not by the mesh alone.
+// Materials belong to the shared model, so painting an image onto one is not a
+// per-entity act: it changes what every entity using that file draws. Two
+// definitions naming the same mesh with different images therefore have to be
+// two cache entries, or whichever loaded last would silently retexture the
+// other. The cost is one extra copy of a mesh that is genuinely being used two
+// ways, and the common case - same mesh, same image - still shares.
+const CachedModel* AcquireModel(const std::string& path,
+                                const std::string& texture) {
+    // '\n' cannot occur in either path, so it cannot make two different pairs
+    // collide into one key.
+    const std::string key = path + "\n" + texture;
+
+    auto it = g_modelCache.find(key);
     if (it != g_modelCache.end())
         return it->second.ok ? &it->second : nullptr;
 
@@ -53,18 +85,32 @@ const CachedModel* AcquireModel(const std::string& path) {
     // LoadModel returns a model with zero meshes if the file was missing or
     // invalid; treat that as "not loaded" so we don't try to draw nothing.
     c.ok = (c.model.meshCount > 0);
+
+    if (c.ok && !texture.empty()) {
+        Texture2D tex = AcquireTexture(texture);
+        if (tex.id != 0) {
+            // Bind it to EVERY material as the diffuse map - the surface colour
+            // before any lighting is applied. Every material, because a mesh
+            // that arrived without textures usually has one material per part
+            // and all of them are equally blank; texturing only the first would
+            // leave a half-painted model.
+            for (int i = 0; i < c.model.materialCount; ++i)
+                SetMaterialTexture(&c.model.materials[i], MATERIAL_MAP_DIFFUSE, tex);
+        }
+    }
+
     if (c.ok) ApplyLightingShader(c.model);   // shade it like everything else
 
     // A failed load is remembered too, so a missing file is not retried on
     // every single frame for the rest of the run.
-    auto res = g_modelCache.emplace(path, c);
+    auto res = g_modelCache.emplace(key, c);
     return res.first->second.ok ? &res.first->second : nullptr;
 }
 
 } // anonymous namespace
 
-void PreloadModel(const std::string& path) {
-    if (!path.empty()) AcquireModel(path);
+void PreloadModel(const std::string& path, const std::string& texture) {
+    if (!path.empty()) AcquireModel(path, texture);
 }
 
 void ClearModelCache() {
@@ -85,12 +131,22 @@ void ModelComponent::SetPath(const std::string& p) {
     m_tried  = false;                     // pick up the new one on the next draw
 }
 
+void ModelComponent::SetTexture(const std::string& t) {
+    texture  = t;
+    // Same reset as SetPath, and for the same reason: the texture is part of
+    // what the cache is keyed by, so a different one is a different entry and
+    // has to be fetched again. Assigning the field alone would change what this
+    // component SAYS it draws without changing what it draws.
+    m_loaded = false;
+    m_tried  = false;
+}
+
 void ModelComponent::EnsureLoaded() {
     if (m_tried) return;                  // only attempt the load once per path
     m_tried = true;
     if (path.empty()) return;
 
-    const CachedModel* c = AcquireModel(path);
+    const CachedModel* c = AcquireModel(path, texture);
     if (c == nullptr) return;             // missing file: stays unloaded
 
     // A copy of the handle struct, so this component can set its own draw
@@ -169,6 +225,29 @@ void ModelComponent::OnInspector() {
     if (m_loaded)              ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "loaded");
     else if (!path.empty())    ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "not found");
     else                       ImGui::TextDisabled("no model");
+
+    // The texture, for models that arrived as a mesh plus loose image files
+    // rather than with their images packed inside.
+    char tbuf[256];
+    strncpy(tbuf, texture.c_str(), sizeof(tbuf) - 1);
+    tbuf[sizeof(tbuf) - 1] = '\0';
+    if (ImGui::InputText("Texture", tbuf, sizeof(tbuf)))
+        SetTexture(tbuf);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("An image painted over every material on the model.\n"
+                          "Leave empty for a model that carries its own - a .glb\n"
+                          "usually does. Needed for an .obj whose .mtl points at\n"
+                          "images that are no longer where it expects them.");
+
+    if (ImGui::Button("Browse texture...")) {
+        std::string picked = OpenFileDialog(
+            "Images (*.png *.jpg *.tga *.bmp)\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
+            "All files\0*.*\0", "png");
+        if (!picked.empty()) SetTexture(picked);
+    }
+    ImGui::SameLine();
+    if (texture.empty()) ImGui::TextDisabled("model's own");
+    else                 ImGui::TextDisabled("overriding the model's own");
 
     // Tint color (float 0..1 in ImGui, byte 0..255 in raylib Color).
     float col[4] = {tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, tint.a / 255.0f};

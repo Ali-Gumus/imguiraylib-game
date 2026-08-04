@@ -28,6 +28,7 @@ public:
     std::unique_ptr<Component> Clone() const override {
         auto c = std::make_unique<ModelComponent>();
         c->path           = path;
+        c->texture        = texture;
         c->tint           = tint;
         c->rotationOffset = rotationOffset;
         c->positionOffset = positionOffset;
@@ -40,12 +41,17 @@ public:
 
     void Serialize(nlohmann::json& out) const override {
         out["path"] = path;
+        out["texture"] = texture;
         out["tint"] = {tint.r, tint.g, tint.b, tint.a};
         out["rotationOffset"] = {rotationOffset.x, rotationOffset.y, rotationOffset.z};
         out["positionOffset"] = {positionOffset.x, positionOffset.y, positionOffset.z};
         out["scale"] = {scale.x, scale.y, scale.z};
     }
     void Deserialize(const nlohmann::json& in) override {
+        // Read BEFORE SetPath, because SetPath is what marks the model for
+        // reloading - and the texture has to be known by the time that reload
+        // happens or the mesh would be cached untextured.
+        texture = in.value("texture", texture);
         SetPath(in.value("path", path));
         if (in.contains("tint"))
             tint = {in["tint"][0], in["tint"][1], in["tint"][2], in["tint"][3]};
@@ -61,12 +67,38 @@ public:
     // on the next draw).
     void SetPath(const std::string& p);
 
+    // Change which image is painted over the model. Reloads on the next draw,
+    // because the texture is part of what the shared model cache is keyed by.
+    void SetTexture(const std::string& t);
+
     // How many triangles this model draws, summed over all its meshes. Zero
     // until the file has actually loaded. The editor totals these to show what
     // a scene costs to render.
     int TriangleCount() const;
 
     std::string path;             // the model file, e.g. "assets/models/jet.obj"
+
+    // An image to paint over the model, e.g. "assets/models/hangar_diffuse.png".
+    // Empty means "use whatever the model file brought with it".
+    //
+    // WHY THIS IS NEEDED AT ALL. A `.glb` normally carries its textures inside
+    // it and needs nothing here. But plenty of models are distributed as a mesh
+    // plus loose image files - always an `.obj` with its `.mtl`, and often a
+    // `.gltf` that references images by a relative path that stopped being true
+    // the moment the files were moved. When the material ends up with no image,
+    // raylib draws the mesh with a plain white one, so the model appears in the
+    // right place at the right size in a flat untextured colour, which looks far
+    // more like a lighting problem than a missing file.
+    //
+    // Naming the image here binds it to every material on the model as the
+    // diffuse map - the colour of the surface before lighting.
+    //
+    // ONE IMAGE FOR THE WHOLE MODEL. A mesh split into several materials, each
+    // with its own image, cannot be described this way; that needs the model
+    // file's own material data to be correct. This covers the common case of one
+    // mesh and one texture sitting beside it.
+    std::string texture;
+
     Color       tint = WHITE;     // multiplied over the model's own colors
     // A fixed rotation (euler degrees) applied to the mesh when drawing, so a
     // model authored facing a different axis can be aligned to the engine's
@@ -142,5 +174,5 @@ void ClearModelCache();
 // first draws it. Use it to move an unavoidable cost to a moment where a pause
 // is expected - pressing Play - instead of mid-game when a wave spawns.
 // Does nothing if the file is already loaded or cannot be read.
-void PreloadModel(const std::string& path);
+void PreloadModel(const std::string& path, const std::string& texture = "");
 } // namespace eng
