@@ -513,6 +513,110 @@ public:
             DrawCylinderEx(tip, Vector3Add(tip, Vector3Scale(dir, s * 0.7f)),
                            s * 0.22f, 0.0f, 8, col);
         }
+
+        // Camera gizmo: a body you can find and click, and - for the selected
+        // one - the VIEW VOLUME it actually renders, so "what does this camera
+        // see" is answered by looking rather than by pressing Play.
+        //
+        // Every camera gets the icon; only the selected one gets the frustum.
+        // Drawing every frustum at once buries the scene in wireframe, and the
+        // question is nearly always about one camera at a time.
+        for (eng::Entity& ent : m_scene.Entities()) {
+            auto* cc = ent.GetComponent<eng::CameraComponent>();
+            if (!cc) continue;
+
+            const Matrix  wm  = m_scene.WorldMatrix(ent, /*ignoreScale=*/true);
+            const Vector3 pos = {wm.m12, wm.m13, wm.m14};
+            const bool    sel = (ent.id == m_selected);
+            const Color   col = sel ? Color{120, 230, 255, 255}
+                                    : Color{90, 180, 220, 190};
+
+            // Same distance-scaling as the light icon: a handle is only useful
+            // if it stays a readable size at any zoom.
+            const float s = std::clamp(
+                Vector3Distance(pos, m_camera.position) * 0.05f, 0.4f, 5.0f);
+
+            // The body, drawn in the camera's own frame so it points where the
+            // camera points. Everything below is in local coordinates, where
+            // -Z is forward.
+            rlPushMatrix();
+            rlMultMatrixf(MatrixToFloat(wm));
+
+            // A boxy body with a lens cone on the front and two reels on top -
+            // the shape everyone reads as "camera" at a glance, which is the
+            // whole job of an icon.
+            DrawCubeWires({0.0f, 0.0f, 0.0f}, s * 1.4f, s * 1.0f, s * 1.6f, col);
+            DrawCylinderWiresEx({0.0f, 0.0f, -s * 0.8f}, {0.0f, 0.0f, -s * 1.5f},
+                                s * 0.30f, s * 0.5f, 10, col);
+            for (int r = 0; r < 2; ++r) {
+                const float rz = (r == 0) ? -s * 0.35f : s * 0.45f;
+                DrawCylinderWiresEx({0.0f, s * 0.5f,  rz}, {0.0f, s * 0.72f, rz},
+                                    s * 0.42f, s * 0.42f, 10, col);
+            }
+
+            if (sel) {
+                // ---- The view volume -----------------------------------------
+                // The aspect ratio is the GAME VIEW's, not the viewport's: this
+                // volume has to describe what that camera renders, and the Game
+                // panel is what it renders into. Taking the viewport's shape
+                // would draw a frustum that quietly disagreed with the picture.
+                const float aspect = (m_gameRT.texture.height > 0)
+                    ? (float)m_gameRT.texture.width / (float)m_gameRT.texture.height
+                    : 16.0f / 9.0f;
+
+                // HOW FAR TO DRAW IT. Not to the far clip: that is 25000 by
+                // default, and a frustum drawn to 25 km is four lines vanishing
+                // into the distance - which says nothing about the shape of the
+                // view and buries everything else. The drawn depth instead
+                // follows how far away you are looking from, so the gizmo stays
+                // the same useful size on screen at any zoom, and is capped by
+                // the real far plane so it can never claim to see further than
+                // the camera does.
+                const float dist  = Vector3Distance(pos, m_camera.position);
+                float       shown = std::clamp(dist * 1.6f, s * 6.0f, cc->farClip);
+                const float nearD = std::max(cc->nearClip, 0.01f);
+                if (shown <= nearD * 1.5f) shown = nearD * 1.5f;
+
+                // Half-width and half-height of the volume at a given depth.
+                // A perspective view spreads with distance - that spread IS the
+                // field of view - while an orthographic one is a constant slab,
+                // which is exactly the difference the two projections make and
+                // the thing this gizmo should show.
+                auto extents = [&](float d, float& hw, float& hh) {
+                    if (cc->orthographic) hh = cc->orthoSize * 0.5f;
+                    else hh = d * std::tan(cc->fovy * 0.5f * DEG2RAD);
+                    hw = hh * aspect;
+                };
+
+                float nhw, nhh, fhw, fhh;
+                extents(nearD, nhw, nhh);
+                extents(shown, fhw, fhh);
+
+                // The four corners of each plane, in the camera's own frame.
+                const Vector3 nc[4] = {{-nhw,-nhh,-nearD}, { nhw,-nhh,-nearD},
+                                       { nhw, nhh,-nearD}, {-nhw, nhh,-nearD}};
+                const Vector3 fc[4] = {{-fhw,-fhh,-shown}, { fhw,-fhh,-shown},
+                                       { fhw, fhh,-shown}, {-fhw, fhh,-shown}};
+
+                const Color edge = sel ? Color{120, 230, 255, 160}
+                                       : Color{90, 180, 220, 90};
+                for (int i = 0; i < 4; ++i) {
+                    const int j = (i + 1) % 4;
+                    DrawLine3D(nc[i], nc[j], edge);   // the near plane
+                    DrawLine3D(fc[i], fc[j], edge);   // the far end
+                    DrawLine3D(nc[i], fc[i], edge);   // and the four long edges
+                }
+
+                // A small upright marker on the top edge of the far end, so the
+                // volume's ROLL is visible. Without it a frustum looks the same
+                // upside down, and a camera that has rolled over is one of the
+                // things you most want a gizmo to reveal.
+                const Vector3 topMid = {0.0f, fhh, -shown};
+                DrawLine3D(fc[2], topMid, edge);
+                DrawLine3D(fc[3], topMid, edge);
+            }
+            rlPopMatrix();
+        }
         rlDrawRenderBatchActive();   // send the gizmo out while depth is still off
         rlEnableDepthTest();
 
