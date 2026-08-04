@@ -5,6 +5,8 @@
 
 #include "raymath.h"            // MatrixLookAt, for facing a spawn direction
 
+#include <cmath>
+
 #include <string>
 
 namespace eng {
@@ -73,8 +75,28 @@ void RegisterSceneBindings(sol::state& lua) {
         if (!Scene::Current()) return;
         Quaternion rot = QuaternionIdentity();       // default: unrotated
         if (dx * dx + dy * dy + dz * dz > 1e-4f) {   // if a real direction was given
-            Matrix view = MatrixLookAt({0, 0, 0}, {dx, dy, dz}, {0, 1, 0});
-            rot = QuaternionFromMatrix(MatrixInvert(view));   // face that direction
+            // WHICH WAY IS UP has to be chosen, and world up will not always do.
+            // MatrixLookAt builds its frame by crossing the view direction with
+            // the up vector, and the cross product of two parallel vectors is
+            // zero - so aiming something straight up or straight down with world
+            // up collapses the matrix and yields a quaternion full of NaNs.
+            //
+            // That is not a harmless wrong angle. The rotation goes into the
+            // entity's transform, the physics engine reads it when it builds the
+            // body, and Jolt asserts that a quaternion is normalised - so a
+            // script spawning anything pointing at the sky took the whole
+            // program down. An anti-aircraft gun idling at the vertical is a
+            // perfectly reasonable thing to ask for.
+            //
+            // Any vector not parallel to the direction works as up, so the
+            // vertical case falls back to world FORWARD. The result is the same
+            // aim with a defined roll about it, rather than no answer at all.
+            Vector3 dir = Vector3Normalize({dx, dy, dz});
+            Vector3 up  = {0.0f, 1.0f, 0.0f};
+            if (std::fabs(Vector3DotProduct(dir, up)) > 0.999f)
+                up = {0.0f, 0.0f, -1.0f};
+            Matrix view = MatrixLookAt({0, 0, 0}, dir, up);
+            rot = QuaternionNormalize(QuaternionFromMatrix(MatrixInvert(view)));
         }
         // The last argument names an entry in assets/scripts/models.lua, which
         // carries the file, the scale and both offsets - so a spawning script
