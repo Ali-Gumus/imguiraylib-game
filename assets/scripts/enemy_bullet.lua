@@ -108,7 +108,10 @@ function onCollision(entity, other, speed, x, y, z)
     -- be shot down by their own squadron - so this ignores the whole tag rather
     -- than trying to work out which enemy pulled the trigger. It is the mirror
     -- of bullet.lua, which ignores "player" for exactly the same reason.
-    if other.tag == "enemy" then
+    -- "aa" is a ground emplacement, which fires this same shell. It counts as
+    -- its own side for the same reason: a battery must not shoot its neighbours,
+    -- and a shell leaving one gun passes close to the next.
+    if other.tag == "enemy" or other.tag == "aa" then
         return
     end
 

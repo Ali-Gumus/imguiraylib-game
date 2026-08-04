@@ -115,9 +115,13 @@ function onCollision(entity, other, speed, x, y, z)
         return
     end
 
-    if other.tag == "enemy" then
-        -- The enemy awards score itself when it dies (enemy.lua's onDestroy),
-        -- so the bullet stays a pure projectile.
+    -- "aa" is a ground emplacement (aa_gun.lua). It is a separate tag from
+    -- "enemy" because gamemanager.lua starts the next wave when the count of
+    -- "enemy" reaches zero, and permanent ground targets would hold that count
+    -- above zero for ever - but it is just as shootable, so it is damaged here.
+    if other.tag == "enemy" or other.tag == "aa" then
+        -- The target awards score itself when it dies (its own onDestroy), so
+        -- the bullet stays a pure projectile.
         Scene.damage(other, properties.damage)
         Fx.burst("spark", x, y, z)
     else
