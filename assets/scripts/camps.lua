@@ -123,7 +123,7 @@ function onStart(entity)
             local r = randomRange(P.hut_radius * 0.5, P.hut_radius)
             placeOnGround("Camp Hut", cx + math.cos(a) * r, cz + math.sin(a) * r,
                           3.5, 0, 0, -1, "assets/scripts/structure.lua",
-                          "base", 0, "hangar")
+                          "base", 0, "hut")
         end
 
         -- The anti-aircraft vehicles, spread evenly around the camp rather than

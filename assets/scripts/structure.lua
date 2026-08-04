@@ -43,9 +43,15 @@ function onStart(entity)
     local h = isHq and P.hq_height or P.hut_height
     local d = isHq and P.hq_depth  or P.hut_depth
 
-    -- The entity is spawned as a unit cube, so its scale IS its size in metres.
-    local t = entity.transform
-    t.scale.x, t.scale.y, t.scale.z = w, h, d
+    -- The entity is spawned as a unit cube, so its scale IS its size in metres -
+    -- but ONLY while it is a cube. The entity's scale multiplies whatever it
+    -- draws, a model included, and a model already carries its own size from
+    -- models.lua. Applying these to one would stretch it 44 by 16 by 30, which
+    -- reads as a broken import rather than a wrong number.
+    if not entity:hasComponent_Model() then
+        local t = entity.transform
+        t.scale.x, t.scale.y, t.scale.z = w, h, d
+    end
 
     -- NO COLLIDER AND NO HEALTH, ON PURPOSE.
     --

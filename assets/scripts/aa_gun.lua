@@ -96,10 +96,19 @@ local vx, vy, vz = 0, 0, 0
 function onStart(entity)
     local P = properties
 
-    -- Give it a body worth looking at. Spawned entities are a unit cube, so
-    -- scale IS size in metres - see the note on these properties.
-    local t = entity.transform
-    t.scale.x, t.scale.y, t.scale.z = P.body_width, P.body_height, P.body_depth
+    -- Give it a body worth looking at - but ONLY when it is standing in as a
+    -- plain cube.
+    --
+    -- The entity's own scale multiplies whatever it draws, INCLUDING a model,
+    -- and a model already carries its real size from models.lua. Setting a
+    -- 9 x 5 x 12 scale here would therefore stretch a vehicle model by those
+    -- factors in three different directions - not a size mistake but a shear,
+    -- and the sort that looks like a broken import rather than a wrong number.
+    -- A model sizes itself; only the fallback cube needs telling.
+    if not entity:hasComponent_Model() then
+        local t = entity.transform
+        t.scale.x, t.scale.y, t.scale.z = P.body_width, P.body_height, P.body_depth
+    end
 
     -- Something for bullets to hit. Only added if missing, so an emplacement
     -- given a collider in the editor keeps the authored one.

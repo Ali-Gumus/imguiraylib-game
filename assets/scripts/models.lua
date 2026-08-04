@@ -98,20 +98,48 @@ Model.define("jet", {
 -- middle.
 -- =============================================================================
 
--- A wheeled or tracked anti-aircraft vehicle. Its long axis should point along
--- -Z, because aa_gun.lua turns the whole entity to aim and the barrel is
--- therefore whatever points forward.
+-- The anti-aircraft vehicle: a 96L6E mobile radar on its transporter.
+--
+-- Measured 598.4 x 855.3 x 1383.3 in its own units, with its longest axis
+-- already along Z - the engine's forward - so it needs no rotation. The real
+-- vehicle is about 13 metres long, so 13/1383.3 = 0.0094. That implies 5.6 m
+-- wide and 8.0 m tall, which is the right shape for one with its array raised:
+-- a second and third dimension agreeing is the check that the first was read
+-- off the correct axis.
+--
+-- Its pivot sits at the BOTTOM of the mesh (the measured centre is 427.7 up a
+-- 855-unit body), which is what you want for something standing on the ground:
+-- the entity's position is where its wheels are. Left uncentred for that reason.
+--
+-- aa_gun.lua turns the whole entity to aim, so it will tip about that base
+-- rather than traversing a turret. Set `rot` if it ends up facing the wrong way.
 Model.define("aa_vehicle", {
-    file  = "assets/models/aa_vehicle.glb",
+    file  = "assets/models/96l6e_mobile_anti-air_radar.glb",
+    scale = 0.0094,
+    rot   = {0, 0, 0},
+    pos   = {0, 0, 0},
+})
+
+-- The camp's main building.
+--
+-- Measured 15.43 x 5.62 x 18.90, and those are already METRES: 19 m deep and
+-- 15 m wide is a real small-aircraft hangar, so this one was authored at scale
+-- and wants none applied. Not every model is so obliging - check yours before
+-- assuming 1.0.
+Model.define("hangar", {
+    file  = "assets/models/aircraft_hangar.glb",
     scale = 1.0,
     rot   = {0, 0, 0},
     pos   = {0, 0, 0},
 })
 
--- The camp's main building: a hangar, a bunker, a headquarters block.
-Model.define("hangar", {
-    file  = "assets/models/hangar.glb",
-    scale = 1.0,
+-- The outbuildings, which are the same hangar at half size. A separate DEFINE
+-- rather than a separate file: a camp of four identical full-size hangars reads
+-- as a copy-paste, while a big one among smaller ones reads as a base. Give it
+-- its own file whenever you have one.
+Model.define("hut", {
+    file  = "assets/models/aircraft_hangar.glb",
+    scale = 0.5,
     rot   = {0, 0, 0},
     pos   = {0, 0, 0},
 })
