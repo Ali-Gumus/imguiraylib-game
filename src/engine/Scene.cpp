@@ -408,8 +408,25 @@ void Scene::Update(float dt) {
 
     // Now that the loop above is finished, it is safe to change the entity
     // list. First remove everything that was queued for destruction.
-    for (EntityID id : m_destroyQueue)
-        DestroyEntity(id);
+    //
+    // BY INDEX, AND RE-READING THE SIZE EVERY TIME. Destroying an entity runs
+    // its onDestroy, and a script may destroy OTHER entities from there - an
+    // ammunition dump taking its neighbours with it, or a position levelling
+    // everything standing on it. Those calls append to this very queue while it
+    // is being walked.
+    //
+    // A range-for over a vector that grows underneath it is undefined behaviour,
+    // and what it did in practice was worse than a crash: the newly queued
+    // entities were never visited, the clear() below then threw the requests
+    // away, and the effect simply did not happen. No error, no warning - a camp
+    // that was destroyed while every building in it stayed standing.
+    //
+    // Indexing re-reads the vector each turn, so it is safe against the
+    // reallocation and it picks up whatever was added, which lets a chain of
+    // destructions finish inside one pass. It terminates because an entity is
+    // erased as it is destroyed: a second request naming it finds nothing.
+    for (size_t i = 0; i < m_destroyQueue.size(); ++i)
+        DestroyEntity(m_destroyQueue[i]);
     m_destroyQueue.clear();
 
     // Then create everything that was queued to spawn.
