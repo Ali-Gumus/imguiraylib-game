@@ -21,6 +21,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib)   # actually download + add its targets
 
+# Turn JPEG loading ON. raylib ships with it OFF (config.h defines
+# SUPPORT_FILEFORMAT_JPG as 0) to keep the library small, and the consequence is
+# nastier than a missing feature: LoadTexture on a .jpg simply returns an empty
+# texture, so a model textured with one draws in flat white with no error
+# anywhere. It looks like a lighting bug, or like the texture path being wrong.
+#
+# Downloaded models very often carry JPEG textures - they are photographs of
+# surfaces, which is exactly what JPEG is for - so this is not an edge case.
+#
+# It works as a plain define because config.h guards every flag with #ifndef,
+# so one supplied on the command line wins over the default beneath it. PRIVATE
+# because it changes how raylib itself is compiled and nothing else needs it.
+target_compile_definitions(raylib PRIVATE SUPPORT_FILEFORMAT_JPG=1)
+
 # ---- Dear ImGui ------------------------------------------------------
 # ImGui has NO CMakeLists.txt. FetchContent still downloads it, and then
 # we define the library target ourselves from its sources.
