@@ -20,6 +20,39 @@ void RegisterSceneBindings(sol::state& lua) {
     scn["destroy"] = [](Entity& e) {
         if (Scene::Current()) Scene::Current()->QueueDestroy(e.id);
     };
+    // Scene.destroyNear(tag, x, y, z, radius) -> how many were destroyed.
+    //
+    // Removes EVERY entity carrying `tag` within the radius, rather than the one
+    // nearest it. That is a different question from Scene.nearest, and there was
+    // no way to ask it: a script could find one member of a group, but not act
+    // on the group. Levelling a whole position at once - the buildings and the
+    // vehicles defending them going up together - is the case it exists for.
+    //
+    // Each one is QUEUED for destruction like any other, so every entity still
+    // runs its own onDestroy: they blow up individually, in their own places,
+    // rather than vanishing. That is what makes one hit read as a whole camp
+    // going up rather than as a group of objects being switched off.
+    //
+    // An empty tag matches nothing rather than everything. "Destroy all nearby
+    // entities" would take the terrain and the player with it, and a typo in a
+    // tag name should not be able to ask for that.
+    scn["destroyNear"] = [](const std::string& tag, float x, float y, float z,
+                             float radius) -> int {
+        Scene* s = Scene::Current();
+        if (!s || tag.empty()) return 0;
+        const float r2 = radius * radius;
+        int hit = 0;
+        for (Entity& e : s->Entities()) {
+            if (e.tag != tag) continue;
+            const float dx = e.transform.position.x - x;
+            const float dy = e.transform.position.y - y;
+            const float dz = e.transform.position.z - z;
+            if (dx * dx + dy * dy + dz * dz > r2) continue;
+            s->QueueDestroy(e.id);
+            ++hit;
+        }
+        return hit;
+    };
     scn["spawnCube"] = [](const std::string& name, float x, float y, float z) {
         if (Scene::Current()) Scene::Current()->QueueSpawnCube(name, {x, y, z});
     };
@@ -265,6 +298,9 @@ void DescribeSceneBindings(LuaApiRegistry& api) {
          "jet's motion");
     s.Fn("spawnCube(name, x, y, z)", "Create a plain cube, for quick tests");
     s.Fn("destroy(entity)", "Remove an entity. Queued, so it is safe to destroy yourself");
+    s.Fn("destroyNear(tag, x, y, z, radius) -> number",
+         "Destroy EVERY entity with this tag within the radius, and return how many. "
+         "Each still runs its own onDestroy, so a whole position blows up in place");
     s.Fn("damage(entity, amount) -> bool",
          "Take hit points off. Returns true if this killed it, so a script can award score");
     s.Fn("health(entity) -> current, max",
