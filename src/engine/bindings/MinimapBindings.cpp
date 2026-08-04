@@ -12,7 +12,9 @@ void RegisterMinimapBindings(sol::state& lua) {
         "size",        &MinimapComponent::size,
         "corner",      &MinimapComponent::corner,
         "showTerrain", &MinimapComponent::showTerrain,
-        "blipTag",     &MinimapComponent::blipTag
+        "blipTag",     &MinimapComponent::blipTag,
+        "targetTag",   &MinimapComponent::targetTag,
+        "targetSize",  &MinimapComponent::targetSize
     );
     RegisterComponentAccess<MinimapComponent>(lua, "Minimap");
 }
@@ -28,6 +30,8 @@ void DescribeMinimapBindings(LuaApiRegistry& api) {
     m.Prop("corner",      "0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right");
     m.Prop("showTerrain", "Draw the baked landscape behind the contacts");
     m.Prop("blipTag",     "Which tag counts as a contact");
+    m.Prop("targetTag",   "Which tag is drawn as a target area to attack. Empty turns it off");
+    m.Prop("targetSize",  "How big that target ring is, in pixels");
 }
 
 } // namespace eng

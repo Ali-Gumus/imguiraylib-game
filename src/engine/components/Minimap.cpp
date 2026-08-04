@@ -35,6 +35,16 @@ void MinimapComponent::OnInspector() {
     buf[sizeof(buf) - 1] = '\0';
     if (ImGui::InputText("Contact tag", buf, sizeof(buf))) blipTag = buf;
 
+    char tbuf[64];
+    std::strncpy(tbuf, targetTag.c_str(), sizeof(tbuf) - 1);
+    tbuf[sizeof(tbuf) - 1] = '\0';
+    if (ImGui::InputText("Target tag", tbuf, sizeof(tbuf))) targetTag = tbuf;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Drawn as an amber ring with cross-hairs instead of a\n"
+                          "dot: a place to attack rather than a contact to avoid.\n"
+                          "Leave empty to turn it off.");
+    ImGui::DragFloat("Target size", &targetSize, 0.25f, 2.0f, 30.0f, "%.1f");
+
     ImGui::TextDisabled("centred on this entity, heading-up");
     // Re-bake if the terrain has changed underneath us. The image is built once
     // and kept, so regenerating the landscape would otherwise leave the radar
@@ -55,6 +65,7 @@ std::unique_ptr<Component> MinimapComponent::Clone() const {
     c->range = range;   c->size    = size;
     c->corner = corner; c->showTerrain = showTerrain;
     c->blipTag = blipTag;
+    c->targetTag = targetTag; c->targetSize = targetSize;
     // Deliberately NOT copying the baked texture; the clone bakes its own.
     return c;
 }
@@ -246,6 +257,43 @@ void MinimapComponent::OnDrawHud(const Entity& owner, int width, int height) {
         }
         if (out) DrawCircleLines((int)sx, (int)sy, 3.0f, Color{255, 110, 90, 230});
         else     DrawCircle((int)sx, (int)sy, 3.0f, Color{255, 90, 70, 240});
+    }
+
+    // --- Target areas -------------------------------------------------------
+    // Drawn AFTER the contacts so an objective is never hidden under a blip,
+    // and as a ring with a cross through it rather than a filled dot: it marks
+    // a place on the ground to go to, which is the opposite of a moving contact
+    // to stay away from. Amber, because it is neither friendly nor a threat.
+    if (!targetTag.empty()) {
+        const Color mark{255, 200, 80, 235};
+        for (const Entity& e : scene->Entities()) {
+            if (e.tag != targetTag) continue;
+            const Vector3 ep = Vector3Transform({0.0f, 0.0f, 0.0f},
+                                                scene->WorldMatrix(e, true));
+            float sx, sy;
+            project(ep, sx, sy);
+
+            // Held on the rim like a contact, for the same reason: an objective
+            // off the edge of the radar should still give its bearing.
+            const float dx = sx - cx, dy = sy - cy;
+            const float dist = sqrtf(dx * dx + dy * dy);
+            const float lim  = hd - targetSize - 2.0f;
+            if (dist > lim && dist > 0.001f) {
+                const float k = lim / dist;
+                sx = cx + dx * k;  sy = cy + dy * k;
+            }
+
+            DrawCircleLines((int)sx, (int)sy, targetSize, mark);
+            // The cross-hairs, which is what turns a circle into a target mark.
+            DrawLine((int)(sx - targetSize - 3.0f), (int)sy,
+                     (int)(sx - targetSize + 1.0f), (int)sy, mark);
+            DrawLine((int)(sx + targetSize - 1.0f), (int)sy,
+                     (int)(sx + targetSize + 3.0f), (int)sy, mark);
+            DrawLine((int)sx, (int)(sy - targetSize - 3.0f),
+                     (int)sx, (int)(sy - targetSize + 1.0f), mark);
+            DrawLine((int)sx, (int)(sy + targetSize - 1.0f),
+                     (int)sx, (int)(sy + targetSize + 3.0f), mark);
+        }
     }
 
     // --- The aircraft itself, always dead centre and pointing up ------------

@@ -48,6 +48,7 @@ public:
         out["range"] = range;   out["size"]    = size;
         out["corner"] = corner; out["terrain"] = showTerrain;
         out["tag"] = blipTag;
+        out["targetTag"] = targetTag; out["targetSize"] = targetSize;
     }
     void Deserialize(const nlohmann::json& in) override {
         range       = in.value("range",  range);
@@ -55,6 +56,8 @@ public:
         corner      = in.value("corner", corner);
         showTerrain = in.value("terrain", showTerrain);
         blipTag     = in.value("tag", blipTag);
+        targetTag   = in.value("targetTag",  targetTag);
+        targetSize  = in.value("targetSize", targetSize);
     }
 
     // How far the radar reaches, in metres. Contacts beyond this are held at the
@@ -64,6 +67,21 @@ public:
     int   corner = 3;           // 0 = top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right
     bool  showTerrain = true;   // draw the baked landscape behind the contacts
     std::string blipTag = "enemy";   // which tag counts as a contact
+
+    // A SECOND tag, drawn differently: as a ring marking an area to attack
+    // rather than as a point contact to avoid.
+    //
+    // The two are not the same kind of thing and must not look the same. A blip
+    // is something moving that may be about to shoot you; a target is a fixed
+    // place you are trying to reach. Drawing both as dots would leave the radar
+    // saying "there are things over there" without saying which of them matters,
+    // which is most of what a radar is for.
+    //
+    // Empty turns it off, so a scene with no objectives shows nothing extra.
+    std::string targetTag = "camp";
+    // How big the ring is on the radar, in pixels. A target area is a PLACE, so
+    // it is drawn at a size that reads as ground rather than as a pinpoint.
+    float targetSize = 7.0f;
 
 private:
     // Bake the landscape into an image, once. Returns false when there is no
