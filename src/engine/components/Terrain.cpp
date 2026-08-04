@@ -392,6 +392,52 @@ static Mesh BuildHeightfieldMesh(const std::vector<float>& heights, int n,
     return mesh;
 }
 
+float TerrainComponent::HeightAt(float localX, float localZ) const {
+    const int res = (resolution > 1) ? resolution : 2;
+    if (worldSize <= 0.0f) return 0.0f;
+
+    // Where this point falls across the terrain, as a fraction from one edge to
+    // the other. Clamped, so asking about a point beyond the map gives the
+    // height at its rim instead of a wildly extrapolated one.
+    float u = (localX + worldSize * 0.5f) / worldSize;
+    float v = (localZ + worldSize * 0.5f) / worldSize;
+    u = std::clamp(u, 0.0f, 1.0f);
+    v = std::clamp(v, 0.0f, 1.0f);
+
+    // Exactly the octave count SampleHeights uses, and for the same reason: a
+    // different one here would answer about a different landscape.
+    const int useOctaves = ResolvableOctaves(octaves, resolution, noiseScale);
+
+    // The height at one grid sample, worked out the same way SampleHeights does
+    // it, so the two agree sample for sample.
+    auto sample = [&](int x, int z) {
+        const float su = (float)x / (float)(res - 1);
+        const float sv = (float)z / (float)(res - 1);
+        return TerrainFbm(su * noiseScale, sv * noiseScale, seed, useOctaves, ridge);
+    };
+
+    // Which square of the grid the point lands in, and how far across it.
+    const float gx = u * (float)(res - 1);
+    const float gz = v * (float)(res - 1);
+    int x0 = (int)gx, z0 = (int)gz;
+    if (x0 > res - 2) x0 = res - 2;
+    if (z0 > res - 2) z0 = res - 2;
+    if (x0 < 0) x0 = 0;
+    if (z0 < 0) z0 = 0;
+    const float tx = gx - (float)x0;
+    const float tz = gz - (float)z0;
+
+    // Blend the four corners of that square.
+    const float h00 = sample(x0,     z0);
+    const float h10 = sample(x0 + 1, z0);
+    const float h01 = sample(x0,     z0 + 1);
+    const float h11 = sample(x0 + 1, z0 + 1);
+    const float top    = h00 + (h10 - h00) * tx;
+    const float bottom = h01 + (h11 - h01) * tx;
+
+    return (top + (bottom - top) * tz) * maxHeight;
+}
+
 void TerrainComponent::EnsureBuilt() {
     if (m_tried) return;
     m_tried = true;

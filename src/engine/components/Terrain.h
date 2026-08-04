@@ -138,6 +138,19 @@ public:
     // number because the physics engine constrains what sizes it will accept.
     std::vector<float> SampleHeights(int n) const;
 
+    // The height of the ground at one point, in the terrain's OWN coordinates -
+    // the surface spans -worldSize/2 .. +worldSize/2 on both x and z, and the
+    // answer is a local Y. Anything outside that square is clamped to the edge.
+    //
+    // Deliberately samples the same grid the mesh is built from and blends
+    // between those samples, rather than evaluating the underlying noise
+    // directly. The two differ by up to a metre or so on steep ground, and this
+    // one answers the question that is actually being asked: not "how high is
+    // the ideal landscape here" but "how high is the surface I can see and land
+    // on". Anything placed with this sits ON the ground rather than hovering
+    // over it or sunk into it.
+    float HeightAt(float localX, float localZ) const;
+
     // How many triangles the terrain mesh is made of. The heightmap is turned
     // into a grid of quads - one per group of four neighbouring pixels - and
     // each quad is two triangles, so the count grows with the SQUARE of the
