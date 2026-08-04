@@ -327,6 +327,17 @@ Entity* Scene::FindHitWithTag(const std::string& tag, Vector3 pos, float reach,
 
 // Fire OnStart on every component of every entity (called once at Play).
 void Scene::Start() {
+    // Mark this as the active scene, for exactly the reason Update does.
+    // onStart is a script hook like any other, and script bindings reach the
+    // world through Scene::Current(): without this every Scene.* call made from
+    // an onStart did NOTHING AT ALL - no error, no warning, the script ran to
+    // completion and the effect simply never happened. A script that laid out a
+    // map by spawning from onStart produced an empty world and no complaint.
+    //
+    // Nothing here drains the spawn queue; the first Update does that, which is
+    // the same rule an entity spawned during play already follows.
+    ActiveScene active(*this);
+
     // By INDEX over a count taken now, not a range-for. A script's onStart may
     // CREATE an entity, which appends to the deque and invalidates iterators.
     // Taking the count first also settles what should happen to the new one:
