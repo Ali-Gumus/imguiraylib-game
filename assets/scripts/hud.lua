@@ -819,6 +819,18 @@ function onDrawHud(entity, w, h)
         text_r(string.format("WAVE %d", wave), w - 28, 26, P.text_size)
     end
 
+    -- How many enemy camps are still standing - the thing the whole sortie is
+    -- about, so it sits under the wave counter rather than among the flight
+    -- instruments. Published by camps.lua, and absent in a scene that has no
+    -- camps, which is why it hides itself rather than reading zero.
+    local camps = Hud.get("camps", -1)
+    if camps >= 0 then
+        local s = (camps > 0) and string.format("CAMPS %d", camps)
+                              or "ALL CAMPS DESTROYED"
+        text_r(s, w - 28, 26 + P.text_size + 6, 18,
+               (camps > 0) and "hud" or "warn")
+    end
+
     -- =======================================================================
     -- GAME OVER
     --

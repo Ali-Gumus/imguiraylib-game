@@ -108,11 +108,20 @@ function onCollision(entity, other, speed, x, y, z)
     -- be shot down by their own squadron - so this ignores the whole tag rather
     -- than trying to work out which enemy pulled the trigger. It is the mirror
     -- of bullet.lua, which ignores "player" for exactly the same reason.
-    -- "aa" is a ground emplacement, which fires this same shell. It counts as
-    -- its own side for the same reason: a battery must not shoot its neighbours,
-    -- and a shell leaving one gun passes close to the next.
-    if other.tag == "enemy" or other.tag == "aa" then
-        return
+    -- Pass straight through its own side. Rather than listing which tags those
+    -- are - which grew every time something was added to the enemy's order of
+    -- battle, and silently broke when one was missed - anything that is NOT the
+    -- player and HAS health is taken to be one of theirs: a helicopter, a gun
+    -- vehicle, a hut, the headquarters. Scenery and terrain have no health, so
+    -- they still stop a shell, which is what makes near misses visible.
+    --
+    -- This matters most where the shells are born. A battery fires from between
+    -- its own buildings, and a round leaving one gun passes close to the next.
+    if other.tag ~= "player" then
+        local _, maxHp = Scene.health(other)
+        if maxHp > 0 then
+            return
+        end
     end
 
     if other.tag == "player" then

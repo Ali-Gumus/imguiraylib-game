@@ -70,6 +70,18 @@ properties = {
     -- The size of its hittable box, so the player can destroy it. Roughly a
     -- vehicle-sized emplacement.
     hit_radius = 6,
+
+    -- HOW BIG IT IS DRAWN, in metres. This matters more than it sounds.
+    --
+    -- An entity spawned by Scene.spawn arrives as a ONE METRE cube. A vehicle
+    -- the size of a dice, sitting three to nine kilometres away, is not small
+    -- on screen - it is invisible, and it stays invisible while shooting at
+    -- you, which reads as being shot at by nothing at all. The gun needs to be
+    -- about the size of the vehicle it represents before it exists as far as
+    -- the player is concerned.
+    body_width  = 9,
+    body_height = 5,
+    body_depth  = 12,
 }
 
 -- Runtime state.
@@ -83,6 +95,11 @@ local vx, vy, vz = 0, 0, 0
 
 function onStart(entity)
     local P = properties
+
+    -- Give it a body worth looking at. Spawned entities are a unit cube, so
+    -- scale IS size in metres - see the note on these properties.
+    local t = entity.transform
+    t.scale.x, t.scale.y, t.scale.z = P.body_width, P.body_height, P.body_depth
 
     -- Something for bullets to hit. Only added if missing, so an emplacement
     -- given a collider in the editor keeps the authored one.

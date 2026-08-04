@@ -115,11 +115,21 @@ function onCollision(entity, other, speed, x, y, z)
         return
     end
 
-    -- "aa" is a ground emplacement (aa_gun.lua). It is a separate tag from
-    -- "enemy" because gamemanager.lua starts the next wave when the count of
-    -- "enemy" reaches zero, and permanent ground targets would hold that count
-    -- above zero for ever - but it is just as shootable, so it is damaged here.
-    if other.tag == "enemy" or other.tag == "aa" then
+    -- WHAT COUNTS AS A TARGET IS "HAS HEALTH", not a list of tags.
+    --
+    -- The obvious way to write this is to name the tags a bullet may hurt, and
+    -- it works right up until something new is added to the game - a gun
+    -- emplacement, a hut, a headquarters - at which point rounds pass harmlessly
+    -- through the new thing and the reason is a list in a file nobody thought to
+    -- look in. Asking whether the target HAS health instead means anything built
+    -- to be destroyed is destructible the moment it exists, without this script
+    -- knowing it was invented.
+    --
+    -- Scene.health returns current and maximum; the guard is on the MAXIMUM,
+    -- because a maximum of zero means "no Health component at all" whereas a
+    -- current of zero is a real reading of something already dead.
+    local _, maxHp = Scene.health(other)
+    if maxHp > 0 then
         -- The target awards score itself when it dies (its own onDestroy), so
         -- the bullet stays a pure projectile.
         Scene.damage(other, properties.damage)
