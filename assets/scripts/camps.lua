@@ -41,10 +41,13 @@ properties = {
     spread_min = 3000,
     spread_max = 9000,
 
-    -- Toughness. The HQ takes a real attack to level, the huts are incidental,
-    -- and a gun is a soft vehicle that dies to a short burst.
-    hq_hp  = 18,
-    hut_hp = 3,
+    -- How much punishment the position as a whole takes before it falls. This
+    -- is the camp's health, not any one building's: the buildings share it
+    -- through the camp's single hitbox, so this is the number that decides how
+    -- long an attack run has to be.
+    camp_hp = 30,
+
+    -- A gun vehicle is separately shootable and soft - a short burst kills one.
     gun_hp = 4,
 
     -- Fixes the layout: the same seed builds the same world every run, which
@@ -70,9 +73,15 @@ end
 -- Place something on the ground at (x, z). `lift` raises it by half its own
 -- height, because an entity's origin is its MIDDLE - a building placed exactly
 -- at ground level would stand half sunk into it.
-local function placeOnGround(name, x, z, lift, dirx, diry, dirz, script, tag, hp)
+--
+-- `model` names an entry in models.lua. A model whose FILE is missing falls back
+-- to the entity's primitive shape and reports itself in the toolbar, so naming
+-- one that has not been supplied yet costs nothing: the camp is boxes until the
+-- file appears and vehicles afterwards, with no change here.
+local function placeOnGround(name, x, z, lift, dirx, diry, dirz,
+                             script, tag, hp, model)
     local y = Scene.groundHeight(x, z) + lift
-    Scene.spawn(name, x, y, z, dirx, diry, dirz, script, tag, hp)
+    Scene.spawn(name, x, y, z, dirx, diry, dirz, script, tag, hp, model)
 end
 
 function onStart(entity)
@@ -89,9 +98,24 @@ function onStart(entity)
         local cx = math.cos(ang) * dist
         local cz = math.sin(ang) * dist
 
+        -- THE CAMP ITSELF: an invisible entity carrying the collision box and
+        -- the health for the whole position. Everything else in the camp is
+        -- scenery hanging off it. It is placed at the height of the ground plus
+        -- its own half-height, so its box stands ON the terrain rather than
+        -- straddling it.
+        --
+        -- Spawned FIRST, so that if anything below were ever to look for its
+        -- camp it would already be there.
+        placeOnGround("Camp", cx, cz, 25, 0, 0, -1,
+                      "assets/scripts/camp.lua", "camp", P.camp_hp)
+
         -- The headquarters, at the middle of it all. 8 is half its 16 m height.
+        -- Tagged "hq" rather than "base", because structure.lua reads its own
+        -- tag to decide whether it is the big command building or an
+        -- outbuilding. camp.lua destroys both tags when the position falls.
         placeOnGround("Camp HQ", cx, cz, 8,
-                      0, 0, -1, "assets/scripts/structure.lua", "hq", P.hq_hp)
+                      0, 0, -1, "assets/scripts/structure.lua", "hq", 0,
+                      "hangar")
 
         -- Outbuildings, ringed around the HQ. 3.5 is half their 7 m height.
         for hut = 1, P.huts_per_camp do
@@ -99,7 +123,7 @@ function onStart(entity)
             local r = randomRange(P.hut_radius * 0.5, P.hut_radius)
             placeOnGround("Camp Hut", cx + math.cos(a) * r, cz + math.sin(a) * r,
                           3.5, 0, 0, -1, "assets/scripts/structure.lua",
-                          "base", P.hut_hp)
+                          "base", 0, "hangar")
         end
 
         -- The anti-aircraft vehicles, spread evenly around the camp rather than
@@ -115,7 +139,8 @@ function onStart(entity)
             placeOnGround("AA Vehicle",
                           cx + math.cos(a) * r, cz + math.sin(a) * r,
                           2.5, math.cos(a), 0, math.sin(a),
-                          "assets/scripts/aa_gun.lua", "aa", P.gun_hp)
+                          "assets/scripts/aa_gun.lua", "aa", P.gun_hp,
+                          "aa_vehicle")
         end
     end
 end
@@ -125,5 +150,5 @@ function onUpdate(entity, dt)
     -- remembered, so it cannot drift out of step with the world: an HQ that is
     -- destroyed stops being counted the moment it is gone, whatever destroyed
     -- it and whether or not anything told this script about it.
-    Hud.set("camps", Scene.count("hq"))
+    Hud.set("camps", Scene.count("camp"))
 end

@@ -76,3 +76,42 @@ Model.define("jet", {
     rot   = {0, -90, 0},
     pos   = {-160.8, -94.1, -29.7},
 })
+
+-- =============================================================================
+-- GROUND MODELS FOR THE ENEMY CAMPS
+--
+-- These two are placeholders POINTING AT FILES THAT ARE NOT IN THE REPOSITORY.
+-- That is deliberate and it is safe: a model whose file is missing falls back to
+-- the entity's primitive shape, and the toolbar shows an `mdl?` badge naming
+-- what it could not find. So the camps work as boxes today and become vehicles
+-- and hangars the moment the files appear, with no script or C++ change.
+--
+-- To use your own, drop the file in assets/models/ and either name it as below
+-- or edit the `file` line here. Then measure it the way the two aircraft above
+-- were measured - pick a real dimension you know, divide it by the model's own
+-- span on that axis, and CHECK THE ANSWER against a second dimension. The scale
+-- and offsets below are guesses standing in until that is done, because there is
+-- no file to measure yet, and a guessed scale is exactly what §5.28 warns about.
+--
+-- The engine convention is nose along -Z and +Y up; `rot` turns a model that was
+-- authored some other way, and `pos` shifts a mesh whose pivot is not at its
+-- middle.
+-- =============================================================================
+
+-- A wheeled or tracked anti-aircraft vehicle. Its long axis should point along
+-- -Z, because aa_gun.lua turns the whole entity to aim and the barrel is
+-- therefore whatever points forward.
+Model.define("aa_vehicle", {
+    file  = "assets/models/aa_vehicle.glb",
+    scale = 1.0,
+    rot   = {0, 0, 0},
+    pos   = {0, 0, 0},
+})
+
+-- The camp's main building: a hangar, a bunker, a headquarters block.
+Model.define("hangar", {
+    file  = "assets/models/hangar.glb",
+    scale = 1.0,
+    rot   = {0, 0, 0},
+    pos   = {0, 0, 0},
+})

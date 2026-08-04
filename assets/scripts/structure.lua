@@ -47,22 +47,28 @@ function onStart(entity)
     local t = entity.transform
     t.scale.x, t.scale.y, t.scale.z = w, h, d
 
-    -- A matching collision box. Collider sizes are HALF-extents and are in world
-    -- units regardless of the entity's scale, so these are the real dimensions
-    -- halved rather than the scale reused.
-    Scene.setCollider(entity, "box", w * 0.5, h * 0.5, d * 0.5)
-
-    -- KINEMATIC: a building is not pushed about by what hits it, but it must
-    -- still register contacts so the player's rounds can damage it.
-    Physics.setBody(entity, "kinematic")
+    -- NO COLLIDER AND NO HEALTH, ON PURPOSE.
+    --
+    -- The camp shares one hitbox, carried by the invisible camp entity that
+    -- covers the whole position (camp.lua). If a building had a box of its own
+    -- it would be the thing rounds struck, and they would damage a building
+    -- rather than the camp - so the shared hitbox would never be hit and the
+    -- position could never be destroyed.
+    --
+    -- These are scenery: what the camp LOOKS like. They are removed by the camp
+    -- when it falls, and their onDestroy below is what makes that read as the
+    -- whole place coming apart rather than one explosion at the middle.
 end
 
+-- Runs when the camp that owns this building is destroyed and takes it with it.
+-- No score is awarded here - the camp pays for the whole position at once, and
+-- paying again per building would make the total depend on how many huts it
+-- happened to have.
 function onDestroy(entity)
     local p = entity.transform.position
-    Hud.add("score", isHq and properties.hq_points or properties.hut_points)
 
-    -- A command building goes up far harder than a hut, which is what makes
-    -- finishing a camp feel like finishing something.
+    -- A command building goes up far harder than a hut, which is what gives the
+    -- camp's collapse a shape instead of being one even wall of fire.
     Fx.burst("explosion", p.x, p.y, p.z, isHq and 4.0 or 1.5)
     Audio.playAt("explosion", p.x, p.y, p.z)
 end
