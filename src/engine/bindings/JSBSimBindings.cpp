@@ -49,6 +49,7 @@ void RegisterJSBSimBindings(sol::state& lua) {
         "startAirspeedKt",   &JSBSimComponent::startAirspeedKt,
         "startPathAngleDeg", &JSBSimComponent::startPathAngleDeg,
         "trimOnStart",       &JSBSimComponent::trimOnStart,
+        "unlimitedFuel",     &JSBSimComponent::unlimitedFuel,
 
         // --- The controls: what a flight script writes every frame ----------
         // These PERSIST. A control does not spring back on its own, exactly
@@ -107,6 +108,12 @@ void RegisterJSBSimBindings(sol::state& lua) {
         // engine note should follow this rather than the lever position.
         "enginePower", StateProp<&FlightState::enginePower>(),
 
+        // Fuel remaining, and how much of the run's starting load that is. Even
+        // with unlimitedFuel on these are published, so a gauge drawn from them
+        // simply sits at full rather than needing a special case.
+        "fuel",        StateProp<&FlightState::fuelLb>(),
+        "fuelFraction", StateProp<&FlightState::fuelFraction>(),
+
         // Where it is GOING, which in an aircraft is not the same as where it
         // is pointing: one in a sideslip or a stall is emphatically not moving
         // along its own nose. World axes, metres per second.
@@ -149,6 +156,7 @@ void DescribeJSBSimBindings(LuaApiRegistry& api) {
     j.Prop("startAirspeedKt",   "Indicated airspeed the run begins at, knots");
     j.Prop("startPathAngleDeg", "Climb angle the run begins at, degrees. 0 is level");
     j.Prop("trimOnStart",       "Solve for the controls that hold the starting condition");
+    j.Prop("unlimitedFuel",     "Keep the tanks topped up. On by default - the stock F-16 has under four minutes at combat power");
 
     j.Prop("elevator", "-1 to 1. NEGATIVE is nose UP. Persists until changed");
     j.Prop("aileron",  "-1 to 1. Positive rolls right");
@@ -170,6 +178,8 @@ void DescribeJSBSimBindings(LuaApiRegistry& api) {
     j.Prop("pitch",       "Degrees, positive nose up");
     j.Prop("heading",     "Degrees, 0 north and 90 east");
     j.Prop("enginePower", "0 to 1, and it LAGS the throttle. Drive the engine note from this");
+    j.Prop("fuel",        "Fuel remaining, pounds. When it hits zero the engine stops for good");
+    j.Prop("fuelFraction", "Fuel remaining as 0 to 1 of what the run started with - for a gauge");
     j.Method("velocity() -> Vector3", "Where it is GOING, world axes, m/s - not the same as where it points");
     j.Prop("speed",       "Metres per second along the flight path");
     j.Prop("ready",       "Is there a working simulation? False while stopped, or if the aircraft failed to load");

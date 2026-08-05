@@ -83,6 +83,7 @@ public:
         c->startAirspeedKt   = startAirspeedKt;
         c->startPathAngleDeg = startPathAngleDeg;
         c->trimOnStart       = trimOnStart;
+        c->unlimitedFuel     = unlimitedFuel;
         return c;
     }
 
@@ -93,6 +94,7 @@ public:
         out["startAirspeedKt"]   = startAirspeedKt;
         out["startPathAngleDeg"] = startPathAngleDeg;
         out["trimOnStart"]       = trimOnStart;
+        out["unlimitedFuel"]     = unlimitedFuel;
     }
     void Deserialize(const nlohmann::json& in) override {
         enabled           = in.value("enabled", enabled);
@@ -101,6 +103,7 @@ public:
         startAirspeedKt   = in.value("startAirspeedKt", startAirspeedKt);
         startPathAngleDeg = in.value("startPathAngleDeg", startPathAngleDeg);
         trimOnStart       = in.value("trimOnStart", trimOnStart);
+        unlimitedFuel     = in.value("unlimitedFuel", unlimitedFuel);
     }
 
     void OnStart(Entity& owner) override;
@@ -139,6 +142,21 @@ public:
     // aircraft settles, which reads as a bug in the controls rather than a
     // starting condition. Costs a few milliseconds, once.
     bool trimOnStart = true;
+
+    // Never run out of fuel. ON by default, and that default is a GAME
+    // decision rather than a simulation one.
+    //
+    // The flight model burns fuel properly, and the stock F-16 is authored with
+    // its tanks 43% full - which at combat power is under four minutes before
+    // the engine stops for good. In a wave-based combat game that is not a
+    // challenge, it is a timer nobody asked for, and its symptom is
+    // indistinguishable from a bug: the throttle stops doing anything and the
+    // aircraft will not accelerate even pointed straight down.
+    //
+    // Untick it to fly the aircraft as the data describes it, with fuel as a
+    // real constraint. `FlightState::fuelLb` and `fuelFraction` are published
+    // either way, so a HUD can show a gauge whichever is chosen.
+    bool unlimitedFuel = true;
 
     // --- Runtime access, for scripts and for the Inspector readout -----------
 

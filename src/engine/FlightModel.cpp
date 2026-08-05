@@ -32,6 +32,8 @@
 
 #include <cmath>      // std::sin, std::cos, std::sqrt, std::atan2
 #include <string>
+#include <utility>    // std::pair, for a tank and how much it holds
+#include <vector>
 
 // The one JSBSim header. It pulls in the property manager and the model tree
 // behind it, which is why nothing else in the engine may include it.
@@ -82,6 +84,17 @@ constexpr const char* kAlphaDeg   = "aero/alpha-deg";
 constexpr const char* kBetaDeg    = "aero/beta-deg";
 constexpr const char* kLoadFactor = "forces/load-factor";
 constexpr const char* kEngineN2   = "propulsion/engine[0]/n2";
+constexpr const char* kFuelLb     = "propulsion/total-fuel-lbs";
+
+// How many tank slots to look for. JSBSim numbers them from zero and offers no
+// count, so they are probed; anything past the last one simply reads as absent.
+// Eight is well past what any aircraft here carries.
+constexpr int kMaxTanks = 8;
+
+// The property naming one tank's contents, in pounds.
+std::string TankProperty(int index) {
+    return "propulsion/tank[" + std::to_string(index) + "]/contents-lbs";
+}
 
 constexpr const char* kCmdElevator = "fcs/elevator-cmd-norm";
 constexpr const char* kCmdAileron  = "fcs/aileron-cmd-norm";
@@ -245,6 +258,15 @@ struct FlightModel::Impl {
     float accumulator = 0.0f;
     int   lastSteps   = 0;
 
+    // How much fuel the run started with, pounds. Captured by Reset so that the
+    // state's fuelFraction has something to be a fraction OF.
+    float startFuelLb = 0.0f;
+
+    // Each tank that started with fuel in it, and how much. This is what
+    // "unlimited fuel" restores, and restoring the STARTING load rather than
+    // filling to capacity is the whole point - see SetUnlimitedFuel.
+    std::vector<std::pair<std::string, double>> startTanks;
+
     // Read the property tree. Returns 0 for a name the aircraft does not have,
     // which is the behaviour wanted: an aircraft with no afterburner should
     // report no afterburner rather than fail.
@@ -307,6 +329,15 @@ void FlightModel::Impl::Sample() {
     // what actually LAGS: a jet engine takes seconds to spool up, and an engine
     // note that follows the lever instead of the spool sounds like a switch.
     state.enginePower = Clamp(Get(kEngineN2) * 0.01f, 0.0f, 1.0f);
+
+    // Fuel, and how much of the run's starting load is left. `startFuelLb` is
+    // captured by Reset, so the fraction is against what this run began with
+    // rather than against the tanks' capacity - which is the number a gauge
+    // should show when an aircraft is authored to take off half full, as the
+    // stock F-16 is.
+    state.fuelLb = Get(kFuelLb);
+    state.fuelFraction = startFuelLb > 0.0f
+        ? Clamp(state.fuelLb / startFuelLb, 0.0f, 1.0f) : 0.0f;
 }
 
 void FlightModel::Impl::PushControls() {
@@ -460,6 +491,21 @@ void FlightModel::Reset(const FlightStart& start) {
         }
     }
 
+    // Whatever the aircraft description put in the tanks is this run's full
+    // load. Read AFTER RunIC, since that is what applies the initial condition.
+    im.startFuelLb = im.Get(kFuelLb);
+
+    // Remember each tank individually too, for SetUnlimitedFuel. Only the ones
+    // that started with something in them: a tank the aircraft carries empty
+    // (the F-16's two external ones) should stay empty, or "unlimited fuel"
+    // would silently hang extra weight on the airframe.
+    im.startTanks.clear();
+    for (int i = 0; i < kMaxTanks; ++i) {
+        const std::string property = TankProperty(i);
+        const double amount = im.Get(property.c_str());
+        if (amount > 0.0) im.startTanks.emplace_back(property, amount);
+    }
+
     im.Sample();
 }
 
@@ -472,6 +518,27 @@ void FlightModel::SetControls(const FlightControls& controls) {
 void FlightModel::SetTerrainElevation(float metresAboveSeaLevel) {
     if (!m_impl->ready) return;
     m_impl->Set(kTerrainFt, metresAboveSeaLevel / kFeetToMetres);
+}
+
+void FlightModel::SetUnlimitedFuel(bool on) {
+    if (!on || !m_impl->ready) return;
+
+    // Put each tank back to what it held when the run started, rather than
+    // filling it to capacity.
+    //
+    // THAT DISTINCTION IS THE WHOLE OF THIS FUNCTION. The simulation has its
+    // own refuelling flag, and using it would be one line - but it fills every
+    // tank to the brim, including the two external ones the stock F-16 carries
+    // empty. Measured: the aircraft goes from 3000 lb of fuel to 12953, which
+    // on a 12000 kg airframe is four and a half tonnes of extra mass. It would
+    // still fly, and it would turn and accelerate noticeably worse, and nothing
+    // anywhere would say why.
+    //
+    // Restoring the authored load instead keeps the mass EXACTLY where the
+    // aircraft description put it, so switching this on changes how long the
+    // aircraft can fly and nothing else about how it flies.
+    for (const auto& [property, amount] : m_impl->startTanks)
+        m_impl->Set(property.c_str(), amount);
 }
 
 void FlightModel::Advance(float dt) {

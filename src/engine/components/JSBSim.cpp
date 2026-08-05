@@ -237,6 +237,10 @@ void JSBSimComponent::OnUpdate(float dt, Entity& owner) {
         m_fdm->SetTerrainElevation(GroundHeightAt(*scene, prev.x, prev.z));
     }
 
+    // Pushed every frame rather than once at the start, so the box can be
+    // ticked or unticked while the aircraft is flying and take effect at once.
+    m_fdm->SetUnlimitedFuel(unlimitedFuel);
+
     // Controls next, then time. The inputs a script set this frame must be in
     // place before the steps that respond to them run.
     m_fdm->SetControls(m_controls);
@@ -324,6 +328,15 @@ void JSBSimComponent::OnInspector() {
                           "aircraft settling. Leave on unless investigating\n"
                           "what the untrimmed aircraft does.");
 
+    ImGui::Checkbox("Unlimited fuel", &unlimitedFuel);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Keep the tanks topped up. ON by default because the\n"
+                          "stock F-16 starts 43%% full, which at combat power is\n"
+                          "under FOUR MINUTES - and running dry looks exactly\n"
+                          "like a bug: the throttle stops doing anything and the\n"
+                          "aircraft will not accelerate even pointed at the\n"
+                          "ground. Untick for fuel as a real constraint.");
+
     ImGui::TextDisabled("Position and heading come from the transform.");
 
     // --- The live readout ----------------------------------------------------
@@ -351,6 +364,16 @@ void JSBSimComponent::OnInspector() {
     ImGui::Text("roll %.0f  pitch %.0f  hdg %.0f", s.rollDeg, s.pitchDeg,
                 s.headingDeg);
     ImGui::Text("engine %.0f%%", s.enginePower * 100.0f);
+
+    // Fuel is called out in red once it is nearly gone, because an engine that
+    // has quit for want of fuel is otherwise indistinguishable from one that
+    // has quit for a reason worth debugging.
+    if (!unlimitedFuel && s.fuelFraction < 0.1f)
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
+                           "fuel %.0f lb (%.0f%%) - NEARLY DRY",
+                           s.fuelLb, s.fuelFraction * 100.0f);
+    else
+        ImGui::Text("fuel %.0f lb (%.0f%%)", s.fuelLb, s.fuelFraction * 100.0f);
     ImGui::TextDisabled("%d steps last frame", m_fdm->LastStepCount());
 }
 

@@ -124,6 +124,19 @@ struct FlightState {
     // command - a jet engine takes seconds to spool - which is exactly why the
     // engine note should follow this rather than the stick position.
     float enginePower = 0.0f;
+
+    // FUEL, which in a real aircraft is finite and in a flight model is finite
+    // too. This is not a detail: an aircraft that runs its tanks dry loses
+    // thrust entirely, and the symptom is an engine that seems to cut out while
+    // the throttle does nothing and the aircraft will not accelerate even in a
+    // dive. That reads as a bug rather than as having flown too long on
+    // afterburner, which is exactly why it is worth being able to SEE.
+    //
+    // `fuelLb` is what remains, in pounds (JSBSim's own unit for it).
+    // `fuelFraction` is that as a share of what the run STARTED with, so a gauge
+    // can be drawn without the caller knowing the aircraft's tank capacity.
+    float fuelLb       = 0.0f;
+    float fuelFraction = 1.0f;
 };
 
 // --- What goes IN ------------------------------------------------------------
@@ -257,6 +270,21 @@ public:
     // The value is only correct beneath the aircraft's CURRENT position, so
     // over a landscape this has to be updated as it moves, every frame.
     void SetTerrainElevation(float metresAboveSeaLevel);
+
+    // Keep the tanks topped up, so the aircraft never runs out of fuel.
+    //
+    // A flight model burns fuel, and when it is gone the engine stops: no
+    // thrust, at any throttle setting, for the rest of the run. That is correct
+    // and it is also brutal - the stock F-16 is authored with its tanks 43%
+    // full, which at combat power is under FOUR MINUTES. Worse, the symptom
+    // gives no clue as to the cause: the throttle simply stops doing anything
+    // and the aircraft will not accelerate even pointed at the ground.
+    //
+    // Implemented with the simulation's own refuelling flag, which tops the
+    // tanks up at 6000 lb per minute against a maximum burn of about 990, so
+    // they stay full whatever the throttle is doing. Held on rather than set
+    // once, so it can be switched mid-run.
+    void SetUnlimitedFuel(bool on);
 
     // Advance by `dt` seconds of game time.
     //
