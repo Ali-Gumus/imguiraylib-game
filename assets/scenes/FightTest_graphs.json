@@ -8,21 +8,21 @@
           "type": "Health"
         },
         {
-          "path": "assets/models/f-14_tomcat_top_gun_gear_up_downloadable.glb",
+          "path": "assets/models/f16-c_falcon.glb",
           "positionOffset": [
-            -151.64999389648438,
-            -78.19999694824219,
-            -29.0
+            0.0,
+            -10.0,
+            0.800000011920929
           ],
           "rotationOffset": [
             0.0,
-            90.0,
+            0.0,
             0.0
           ],
           "scale": [
-            1.0,
-            1.0,
-            1.0
+            1.7100000381469727,
+            1.7100000381469727,
+            1.7100000381469727
           ],
           "tint": [
             253,
