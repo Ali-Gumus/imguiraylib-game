@@ -266,25 +266,77 @@ public:
                 // flip over.
                 m_camPitch = std::clamp(m_camPitch, -1.5f, 1.5f);
 
-                // WASD slides the point the camera looks at across the ground.
+                // THE WHEEL SETS THE SPEED WHILE FLYING, not the zoom. This is
+                // the Unity arrangement and it is the one that works: the two
+                // things you want to change while moving are where you are going
+                // and how fast, and the hand on the mouse can only do one of
+                // them. Zoom stays on the wheel when NOT holding the right
+                // button, so nothing is lost.
+                //
+                // Adjusted by a FACTOR rather than a fixed step, because the
+                // useful range runs from a couple of metres a second for
+                // inspecting a cockpit to thousands for crossing the map. A
+                // fixed step is either uselessly fine at one end or unusable at
+                // the other; multiplying gives even control across the whole
+                // range - the same reason the terrain sliders are logarithmic.
+                const float wheel = GetMouseWheelMove();
+                if (wheel != 0.0f) {
+                    m_flySpeed *= powf(1.2f, wheel);
+                    m_flySpeed  = std::clamp(m_flySpeed, 1.0f, 20000.0f);
+                }
+
                 // Each key contributes +1 or 0, so opposite keys cancel out.
                 float fwdIn   = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) - (IsKeyDown(KEY_S) ? 1.0f : 0.0f);
                 float rightIn = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) - (IsKeyDown(KEY_A) ? 1.0f : 0.0f);
-                // Flatten the view direction onto the ground (no vertical part).
-                Vector3 fwd   = {-sinf(m_camYaw), 0.0f, -cosf(m_camYaw)};
-                Vector3 right = { cosf(m_camYaw), 0.0f, -sinf(m_camYaw)};
-                float speed = m_camDist * 0.75f;   // move faster when zoomed further out
-                m_camera.target.x += (fwd.x * fwdIn + right.x * rightIn) * speed * dt;
-                m_camera.target.z += (fwd.z * fwdIn + right.z * rightIn) * speed * dt;
-            }
-            // The mouse wheel zooms by changing the orbit distance.
-            m_camDist -= GetMouseWheelMove() * 1.0f;
-            m_camDist  = std::clamp(m_camDist, 2.0f, 60.0f);
+                float upIn    = (IsKeyDown(KEY_E) ? 1.0f : 0.0f) - (IsKeyDown(KEY_Q) ? 1.0f : 0.0f);
 
-            // E and Q raise and lower the look-at point (and the camera with it).
-            float lift = (IsKeyDown(KEY_E) ? 1.0f : 0.0f) -
-                         (IsKeyDown(KEY_Q) ? 1.0f : 0.0f);
-            m_camera.target.y += lift * 5.0f * dt;
+                // W and S now follow where the camera is actually LOOKING,
+                // including its pitch, instead of sliding along the ground. Aim
+                // at something and fly at it - which is what makes reaching a
+                // camp on a hillside one movement rather than a translate and a
+                // separate climb.
+                Vector3 fwd = {-cosf(m_camPitch) * sinf(m_camYaw),
+                               -sinf(m_camPitch),
+                               -cosf(m_camPitch) * cosf(m_camYaw)};
+                // Strafing stays horizontal. A right vector that tilted with the
+                // pitch would roll the view sideways as you flew, and there is
+                // no reason to want that.
+                Vector3 right = {cosf(m_camYaw), 0.0f, -sinf(m_camYaw)};
+
+                // SHIFT for a burst of speed, CONTROL to creep. Holding a key is
+                // the right control for a temporary change: it needs no undoing
+                // and cannot be left switched on by accident.
+                float speed = m_flySpeed;
+                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) speed *= 5.0f;
+                if (IsKeyDown(KEY_LEFT_CONTROL))                             speed *= 0.2f;
+
+                const float step = speed * dt;
+                m_camera.target.x += (fwd.x * fwdIn + right.x * rightIn) * step;
+                m_camera.target.y += (fwd.y * fwdIn + upIn) * step;
+                m_camera.target.z += (fwd.z * fwdIn + right.z * rightIn) * step;
+            } else {
+                // Not flying: the wheel zooms, by changing the orbit distance.
+                //
+                // The step is a FRACTION of the current distance rather than a
+                // fixed metre. At arm's length from a model a fixed step of one
+                // metre is a lurch, and a kilometre out it is imperceptible -
+                // the same scale problem the fly speed has, with the same fix.
+                const float wheel = GetMouseWheelMove();
+                if (wheel != 0.0f) {
+                    m_camDist *= powf(0.85f, wheel);
+                    // The old ceiling here was 60 metres, which in a world 40 km
+                    // across meant the whole landscape could never be seen at
+                    // once. The far clip plane is the real limit now.
+                    m_camDist = std::clamp(m_camDist, 0.5f, 15000.0f);
+                }
+
+                // E and Q still raise and lower the view when not flying, at a
+                // rate that follows how far out you are - a fixed one would
+                // crawl when zoomed out and lurch when close in.
+                float lift = (IsKeyDown(KEY_E) ? 1.0f : 0.0f) -
+                             (IsKeyDown(KEY_Q) ? 1.0f : 0.0f);
+                m_camera.target.y += lift * m_camDist * 0.75f * dt;
+            }
 
             // Place the camera on a sphere of radius m_camDist around the
             // look-at point, at the current yaw/pitch angles (spherical to
@@ -1090,7 +1142,23 @@ private:
         // Match the render texture's size to the space the panel gives us.
         ImVec2 avail = ImGui::GetContentRegionAvail();
         ResizeViewport((int)avail.x, (int)avail.y);
+        const ImVec2 imageTopLeft = ImGui::GetCursorScreenPos();
         rlImGuiImageRenderTexture(&m_viewport);   // draws the texture (Y-flipped for OpenGL)
+
+        // While flying, show how fast. The wheel changes the speed rather than
+        // the zoom in that mode, and a control with no readout is a control
+        // nobody finds - you would turn the wheel, see the view not zoom, and
+        // conclude it was broken rather than that it had done something else.
+        //
+        // Drawn over the image rather than beside it, so it costs no layout and
+        // vanishes with the mode it describes.
+        if (m_flyLock) {
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(imageTopLeft.x + 10.0f, imageTopLeft.y + 8.0f),
+                IM_COL32(150, 235, 255, 230),
+                TextFormat("%.0f m/s   wheel: speed   shift: faster   ctrl: slower",
+                           m_flySpeed));
+        }
         ImGui::End();
     }
 
@@ -1372,6 +1440,17 @@ private:
     float         m_camYaw   = 0.785f;                  // ~45 degrees, in radians
     float         m_camPitch = 0.615f;
     float         m_camDist  = 13.9f;
+
+    // How fast right-drag flying moves, in metres per second, adjusted with the
+    // wheel while flying and remembered afterwards.
+    //
+    // It is its own number rather than being derived from the orbit distance,
+    // which is what it used to be. Tying the two together meant the only way to
+    // cross ground quickly was to zoom out first, and then you arrived unable to
+    // see anything closely without becoming slow again. In a world 40 km across
+    // that made simply GETTING to an enemy camp a chore. Unity keeps them
+    // separate for the same reason.
+    float         m_flySpeed = 60.0f;
     bool          m_viewportHovered = false;            // mouse over the viewport panel?
     bool          m_flyLock   = false;                  // right-drag fly in progress?
     bool          m_gameActive = false;                 // Game panel focused/hovered?
