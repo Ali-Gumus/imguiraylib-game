@@ -48,7 +48,56 @@ properties = {
     -- world. Anything between blends the two, so the position and the horizon
     -- always agree with each other.
     roll      = 0.7,
+
+    -- --- SPEED FEEL: the field of view opens as the aircraft goes faster -----
+    --
+    -- WHY THIS IS NEEDED AT ALL. A sense of speed does not come from metres per
+    -- second, it comes from how fast things sweep ACROSS the view - and that is
+    -- speed divided by how far away they are. Over a landscape whose smallest
+    -- hill is hundreds of metres across, seen from a kilometre up, the ground
+    -- below turns under the aircraft at about fifteen degrees a second however
+    -- fast it is really going. The number on the HUD climbs and the picture
+    -- barely changes.
+    --
+    -- Widening the field of view fixes that without touching the world. A wider
+    -- lens sweeps more of the scene past the edges of the screen for the same
+    -- motion, and the edges are where peripheral vision reads self-motion from.
+    -- It is what every flight and racing game does, and it works because it is
+    -- aimed at the same perceptual channel the problem is in.
+    --
+    -- The cost, worth knowing before tuning it wide: a wider view also makes
+    -- everything in it SMALLER, so the aircraft appears to shrink as it
+    -- accelerates and distant things get harder to pick out. Past about 90 the
+    -- edges of the picture also start to look stretched, which is projection
+    -- doing exactly what it should rather than a bug.
+    --
+    -- Set fov_fast equal to fov_slow to switch the whole effect off.
+    fov_slow = 60,    -- degrees, at or below fov_slow_speed
+    fov_fast = 85,    -- degrees, at or above fov_fast_speed
+
+    -- The speeds those two are measured at, in metres per second. The lower one
+    -- is around a fast cruise, so ordinary flying looks normal and only genuinely
+    -- going somewhere widens it; the upper is the F-16's top speed, so the whole
+    -- range is used rather than saturating early.
+    fov_slow_speed = 200,
+    fov_fast_speed = 685,
+
+    -- How quickly the view opens and closes, in the same units as `stiffness`.
+    -- Deliberately slower than the camera swing: a field of view that tracked
+    -- speed exactly would twitch on every throttle change and every gust, and
+    -- the effect works better when it is felt rather than noticed.
+    fov_ease = 1.5,
 }
+
+-- The target's speed, measured here rather than read from anywhere.
+--
+-- Nothing publishes a velocity that this can rely on, and measuring it is three
+-- lines - the same choice hud.lua makes, for the same reason: it then works for
+-- ANY target however it is being moved, whether by the JSBSim flight model, by
+-- flight_sim.lua, or by a script that has not been written yet.
+local lx, ly, lz = nil, nil, nil   -- where the target was last frame
+local speed      = 0               -- metres per second
+local fov        = nil             -- the eased field of view, degrees
 
 -- The camera's current offset FROM the target, in world space. This is the state
 -- that gets smoothed, and the reason is worth understanding.
@@ -134,4 +183,31 @@ function onUpdate(entity, dt)
     -- the position. Plain lookAt would force world up here and throw the roll
     -- away, leaving the camera upright however far the aircraft is over.
     t:lookAtUp(jt.position.x, jt.position.y, jt.position.z, ux, uy, uz)
+
+    -- --- Open the view with speed -------------------------------------------
+    -- Measure how far the target moved since last frame. Guarding against a
+    -- zero dt matters: a paused or first frame would divide by nothing and
+    -- produce an infinite speed, which would peg the view wide open for good.
+    local jp = jt.position
+    if lx ~= nil and dt > 0 then
+        local dx, dy, dz = jp.x - lx, jp.y - ly, jp.z - lz
+        speed = math.sqrt(dx * dx + dy * dy + dz * dz) / dt
+    end
+    lx, ly, lz = jp.x, jp.y, jp.z
+
+    local cam = entity:getComponent_Camera()
+    if cam == nil then return end
+
+    -- Where this speed falls between the two reference speeds, as 0 to 1.
+    local span = P.fov_fast_speed - P.fov_slow_speed
+    local k = 0
+    if span > 0 then k = (speed - P.fov_slow_speed) / span end
+    if k < 0 then k = 0 elseif k > 1 then k = 1 end
+    local want = P.fov_slow + (P.fov_fast - P.fov_slow) * k
+
+    -- Ease toward it, by the same frame-rate-independent fraction the camera
+    -- offset uses, so the view opens smoothly instead of tracking every wobble.
+    if fov == nil then fov = want end
+    fov = fov + (want - fov) * (1 - math.exp(-P.fov_ease * dt))
+    cam.fovy = fov
 end
