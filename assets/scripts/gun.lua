@@ -42,19 +42,53 @@ local cooldown = 0      -- seconds until the gun can fire again (runtime state)
 local lx, ly, lz = 0, 0, 0
 local has_last = false
 
+-- How fast the shooter is moving through the world, in metres per second.
+--
+-- ASK, DO NOT MEASURE, WHENEVER THERE IS SOMETHING TO ASK. A flight model
+-- already knows its own velocity exactly, and taking it removes a whole class
+-- of error that measuring cannot avoid:
+--
+--   Working a velocity out as (this position - last position) / dt looks
+--   obviously right and is quietly wrong, because the displacement was produced
+--   by a DIFFERENT frame's dt than the one it gets divided by. Which frame's
+--   depends on whether the thing that moves the aircraft runs before or after
+--   this script in the component list, which is not something a script can see.
+--   While frame times are steady the error hides; the moment they jitter the
+--   answer is wrong in proportion - a frame 15% longer than the one before it
+--   under-reads the speed by 15%, and a frame that much shorter over-reads it.
+--
+--   The consequence is exactly the symptom that led here: the muzzle flash is
+--   handed a velocity that is too small and trails behind the nose, or too
+--   large and shoots out in front of it, changing from shot to shot. And the
+--   frames that jitter most are the ones a shot is fired in, because spawning a
+--   bullet is itself the most expensive thing that happens in a frame.
+--
+-- So the flight model is asked first, and the measurement is kept only as a
+-- fallback for a shooter that has no flight model to ask.
+local function shooterVelocity(entity, dt)
+    local jsb = entity:getComponent_JSBSim()
+    if jsb ~= nil and jsb.ready then
+        local v = jsb:velocity()
+        return v.x, v.y, v.z
+    end
+
+    local pos = entity.transform.position
+    if has_last and dt > 0 then
+        return (pos.x - lx) / dt, (pos.y - ly) / dt, (pos.z - lz) / dt
+    end
+    return 0, 0, 0
+end
+
 function onUpdate(entity, dt)
     local P = properties
     cooldown = cooldown - dt
 
-    -- Velocity is the change in position divided by the time it took. On the
-    -- very first frame there is no previous position, so it counts as zero.
+    local vx, vy, vz = shooterVelocity(entity, dt)
+
+    -- Remembered for the fallback above. Kept up to date even when the flight
+    -- model answered, so that unticking its `enabled` box mid-run does not
+    -- leave the fallback comparing against a position from minutes ago.
     local pos = entity.transform.position
-    local vx, vy, vz = 0, 0, 0
-    if has_last and dt > 0 then
-        vx = (pos.x - lx) / dt
-        vy = (pos.y - ly) / dt
-        vz = (pos.z - lz) / dt
-    end
     lx, ly, lz = pos.x, pos.y, pos.z
     has_last = true
 
