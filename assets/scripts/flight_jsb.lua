@@ -54,12 +54,19 @@ properties = {
     -- - it is the difference between a smaller stick movement and a smaller
     -- wing, and only the first is what a "less twitchy" aircraft usually needs.
     --
-    -- The rudder is small on purpose. A jet's rudder coordinates a turn; it
-    -- does not steer the aircraft, and a bootful of it mostly makes the
-    -- aircraft skid sideways and lose speed.
+    -- THE RUDDER BARELY DOES ANYTHING ON THIS AIRCRAFT, and that is not a bug
+    -- to be tuned out. The F-16 is fly-by-wire: its flight control system runs
+    -- a YAW DAMPER, a controller whose whole job is to cancel yaw rate and
+    -- sideslip, and it fights a held pedal input just as it fights a gust.
+    -- Measured on the stock model: three seconds of FULL rudder from level
+    -- flight turns the aircraft 1.3 degrees, while three seconds of a third of
+    -- the aileron rolls it 150. That is what the real aeroplane does - a
+    -- fighter's rudder is for crosswind landings and departure recovery, not
+    -- for steering - so this is left at full authority and simply is subtle.
+    -- Bank and pull to turn.
     pitch_authority = 1.0,
     roll_authority  = 1.0,
-    yaw_authority   = 0.5,
+    yaw_authority   = 1.0,
 
     -- A keyboard has two positions and a control stick has a continuum, so the
     -- controls are RAMPED toward what the keys ask for rather than snapped to
@@ -181,7 +188,14 @@ function onUpdate(entity, dt)
     -- control, rather than being smuggled into the flight model.
     elevator = axis(elevator, "S", "W", P.pitch_authority, dt)
     aileron  = axis(aileron,  "D", "A", P.roll_authority,  dt)
-    rudder   = axis(rudder,   "E", "Q", P.yaw_authority,   dt)
+
+    -- Q is left and E is right, and note the keys are the other way round from
+    -- the pair above. Which sign of rudder command yaws which way is a property
+    -- of the AIRCRAFT, not of JSBSim: on this F-16 the pedal input is summed
+    -- into a yaw-rate damper that then drives the surface to null the error, so
+    -- a positive command asks for a yaw rate to the LEFT. Measured, not assumed.
+    -- The flip lives here, at the one place that turns a key into a control.
+    rudder   = axis(rudder,   "Q", "E", P.yaw_authority,   dt)
 
     -- --- The throttle -------------------------------------------------------
     if Input.keyDown("SHIFT") then throttle = throttle + P.throttle_rate * dt end

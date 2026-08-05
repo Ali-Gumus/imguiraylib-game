@@ -141,7 +141,19 @@ struct FlightControls {
     // -1 .. +1. Positive rolls RIGHT (right wing down).
     float aileron = 0.0f;
 
-    // -1 .. +1. Positive yaws RIGHT.
+    // -1 .. +1. WHICH WAY IT YAWS DEPENDS ON THE AIRCRAFT, so this one cannot
+    // be documented as a direction the way the two above can.
+    //
+    // On a simple aeroplane the command is a surface deflection and positive
+    // yaws right. On a fly-by-wire one it is a REQUEST that the flight control
+    // system interprets: the stock F-16 sums it into a yaw-rate damper which
+    // then drives the surface to null the resulting error, which both inverts
+    // the sense and very nearly cancels it. Measured on that model, three
+    // seconds of full rudder from level flight turns the aircraft 1.3 degrees.
+    //
+    // That is realistic - a fighter's rudder is for crosswind landings and
+    // departure recovery, not for steering - but it means any script mapping a
+    // key to this must check which way its aircraft actually goes.
     float rudder = 0.0f;
 
     // 0 .. 1. How far the throttle lever is forward. On an afterburning engine

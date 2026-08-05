@@ -152,7 +152,7 @@ void DescribeJSBSimBindings(LuaApiRegistry& api) {
 
     j.Prop("elevator", "-1 to 1. NEGATIVE is nose UP. Persists until changed");
     j.Prop("aileron",  "-1 to 1. Positive rolls right");
-    j.Prop("rudder",   "-1 to 1. Positive yaws right");
+    j.Prop("rudder",   "-1 to 1. WHICH WAY depends on the aircraft: the F-16's yaw damper inverts it and nearly cancels it");
     j.Prop("throttle", "0 to 1. The top of the range lights the afterburner");
     j.Prop("gear",     "0 up, 1 down. Extended gear is a lot of drag");
     j.Prop("brake",    "0 to 1, wheel brakes. Only means anything on the ground");
