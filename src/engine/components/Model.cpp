@@ -145,8 +145,23 @@ void ModelComponent::ForceLoad() { EnsureLoaded(); }
 
 void ModelComponent::EnsureLoaded() {
     if (m_tried) return;                  // only attempt the load once per path
+    if (path.empty()) { m_tried = true; return; }
+
+    // A model is meshes and images on the GRAPHICS CARD, so there has to be one
+    // to put them on. Without a window raylib has no GL context and the upload
+    // walks off the end of a null driver - it does not fail, it crashes.
+    //
+    // This matters because the engine is deliberately drivable with no window
+    // at all: the fastest way to test scenes, physics and scripts is a console
+    // program that loads a scene and steps it, and that is how most of this
+    // engine's behaviour gets checked. Spawning anything with a model would
+    // otherwise take those down the moment the load stopped being lazy.
+    //
+    // NOT marked as tried, so this is a "not yet" rather than a failure: a
+    // component created before the window exists still loads once it does.
+    if (!IsWindowReady()) return;
+
     m_tried = true;
-    if (path.empty()) return;
 
     const CachedModel* c = AcquireModel(path, texture);
     if (c == nullptr) return;             // missing file: stays unloaded

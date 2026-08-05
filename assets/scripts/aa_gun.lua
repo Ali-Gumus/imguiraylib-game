@@ -65,11 +65,29 @@ properties = {
     -- How far in front of the mounting each shell appears. Must clear the gun's
     -- own collider, or the shell is born inside a solid object and is shoved
     -- aside instead of flying. See gun.lua for the same trap.
-    muzzle = 14,
+    -- It MUST clear hit_radius, measured from the collider's centre. With a
+    -- 20 metre ball sitting 5 metres up, a muzzle 14 metres forward is still
+    -- inside it - sqrt(14^2 + 5^2) is under 15 - and a shell born inside a solid
+    -- object is shoved aside instead of flying, which reads as the gun simply
+    -- not shooting. Raise this whenever hit_radius rises.
+    muzzle = 26,
 
-    -- The size of its hittable box, so the player can destroy it. Roughly a
-    -- vehicle-sized emplacement.
-    hit_radius = 6,
+    -- The size of its hittable volume, so the player can destroy it.
+    --
+    -- A COLLIDER IS IN WORLD METRES AND IGNORES THE ENTITY'S SCALE, so this
+    -- does not follow the model when its scale is changed in models.lua - it has
+    -- to be set to match by hand. That is deliberate: collision sizes are
+    -- gameplay, and having them silently track whatever size an artist happened
+    -- to export a mesh at would make hitboxes an accident.
+    hit_radius = 20,
+
+    -- How far up the hittable ball sits inside the entity, in metres.
+    --
+    -- The entity's origin is on the ground - that is where a vehicle's wheels
+    -- are - so a ball centred there is half buried, and rounds passing over the
+    -- vehicle at body height miss it. Lifting it puts the volume where the
+    -- vehicle actually is.
+    hit_offset_y = 5,
 
     -- HOW BIG IT IS DRAWN, in metres. This matters more than it sounds.
     --
@@ -120,9 +138,32 @@ function onStart(entity)
         t.position.y = t.position.y + P.body_height * 0.5
     end
 
-    -- Something for bullets to hit. Only added if missing, so an emplacement
-    -- given a collider in the editor keeps the authored one.
+    -- Something for bullets to hit. Scene.setCollider only ADDS when there is
+    -- none, so an emplacement given a collider in the editor keeps the authored
+    -- one - which is why whether one existed already is checked FIRST.
+    --
+    -- Every field of a collider can be written straight from Lua through the
+    -- Collider usertype; setCollider is only a shorthand for the common case,
+    -- and it has no argument for an offset. Anything it cannot express is set
+    -- here instead.
+    local hadCollider = entity:hasComponent_Collider()
     Scene.setCollider(entity, "sphere", P.hit_radius)
+
+    if not hadCollider then
+        -- Only shape what this script just created. Writing these
+        -- unconditionally would overwrite a hitbox someone had sized by hand in
+        -- the editor, which is the one thing a script default must never do.
+        local col = entity:getComponent_Collider()
+        if col ~= nil then
+            col.radius   = P.hit_radius
+            -- Vector3 has no constructor bound in Lua, so its components are
+            -- written one at a time. `offset` hands back the collider's own
+            -- vector rather than a copy, so this really does move the shape.
+            col.offset.x = 0
+            col.offset.y = P.hit_offset_y
+            col.offset.z = 0
+        end
+    end
 
     -- KINEMATIC: it is part of the scenery and nothing should push it around,
     -- but it must still register contacts so the player's rounds can hit it.
