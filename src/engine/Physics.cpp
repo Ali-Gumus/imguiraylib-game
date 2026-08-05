@@ -879,6 +879,15 @@ void WriteBackTransforms(Scene& scene) {
         JPH::Quat  q;
         bi.GetPositionAndRotation(tracked.id, p, q);
 
+        // Hand the entity the velocity the SIMULATION is carrying, replacing
+        // the estimate Scene::Update measured by differencing two positions.
+        // For the same reason the flight model does it: this world advances in
+        // whole fixed steps of 1/60 s, so in a variable-length frame a body
+        // moves a whole number of those rather than exactly one frame's worth,
+        // and dividing that distance by the frame's duration is off by however
+        // much the two disagree. This value is the state itself.
+        e->velocity = ToRay(bi.GetLinearVelocity(tracked.id));
+
         // The simulation works in WORLD space; an entity stores a LOCAL
         // transform relative to its parent. With no parent the two are the
         // same thing and the values go straight across.

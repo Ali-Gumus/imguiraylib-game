@@ -338,6 +338,16 @@ void Scene::Start() {
     // the same rule an entity spawned during play already follows.
     ActiveScene active(*this);
 
+    // Forget any motion measured by a previous run. Without this the first
+    // frame would compare against wherever the last run left everything and
+    // report an enormous velocity - which a lead-prediction or an inherited
+    // muzzle velocity would act on.
+    m_lastDt = 0.0f;
+    for (Entity& e : m_entities) {
+        e.velocity         = {0.0f, 0.0f, 0.0f};
+        e.hasPrevWorldPos  = false;
+    }
+
     // By INDEX over a count taken now, not a range-for. A script's onStart may
     // CREATE an entity, which appends to the deque and invalidates iterators.
     // Taking the count first also settles what should happen to the new one:
@@ -384,11 +394,51 @@ int Scene::CountWithTag(const std::string& tag) const {
     return n;
 }
 
+// How fast everything is moving, sampled at ONE fixed point in the frame.
+//
+// The fixed point is the whole idea. Called from the very top of Update, before
+// any component has moved anything, so the distance since the last sample is by
+// definition exactly one frame's worth of movement - and the length of that
+// frame is the PREVIOUS dt, which is what it is divided by. A script reading
+// entity.velocity therefore gets the same correct answer whatever order its
+// component sits in, which is not true of a script measuring for itself.
+void Scene::SampleVelocities() {
+    for (Entity& e : m_entities) {
+        // World space, because that is what a velocity means: an entity sitting
+        // still on a moving parent really is moving, whatever its own local
+        // position says. Unparented entities are the overwhelming majority and
+        // their local position already IS their world position, so the matrix is
+        // only built when there is a parent to account for.
+        Vector3 world = e.transform.position;
+        if (e.parent != kInvalidEntity)
+            world = Vector3Transform({0.0f, 0.0f, 0.0f}, WorldMatrix(e));
+
+        if (e.hasPrevWorldPos && m_lastDt > 0.0f) {
+            e.velocity = {(world.x - e.prevWorldPos.x) / m_lastDt,
+                          (world.y - e.prevWorldPos.y) / m_lastDt,
+                          (world.z - e.prevWorldPos.z) / m_lastDt};
+        } else {
+            // No previous sample - the first frame, or an entity spawned since
+            // the last one. Zero rather than a guess: something that has not
+            // been seen to move has no measurable speed yet.
+            e.velocity = {0.0f, 0.0f, 0.0f};
+        }
+
+        e.prevWorldPos    = world;
+        e.hasPrevWorldPos = true;
+    }
+}
+
 void Scene::Update(float dt) {
     // Mark this as the active scene so scripts' scene.* calls know where to
     // go. The guard covers this whole function, INCLUDING the deferred destroy
     // and spawn passes at the end - both of those run script hooks too.
     ActiveScene active(*this);
+
+    // Before anything moves. See SampleVelocities for why the timing is the
+    // point rather than an implementation detail.
+    SampleVelocities();
+    m_lastDt = dt;
 
     // By INDEX over a count taken now, for the same reason as Start(): a
     // script's onUpdate may create an entity, and appending to the deque

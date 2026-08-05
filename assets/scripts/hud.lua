@@ -255,13 +255,21 @@ function onUpdate(entity, dt)
         return
     end
 
-    -- Velocity is simply how far it moved divided by how long that took. This
-    -- measures the aircraft's ACTUAL motion, whatever moved it - the flight
-    -- model, the physics engine or a node graph - which is why the display does
-    -- not care which of those is flying.
-    local mx = (p.x - prev_x) / dt
-    local my = (p.y - prev_y) / dt
-    local mz = (p.z - prev_z) / dt
+    -- The aircraft's ACTUAL motion, whatever moved it - the flight model, the
+    -- physics engine or a node graph - which is why the display does not care
+    -- which of those is flying.
+    --
+    -- ASKED FOR, NOT WORKED OUT. This used to be (position - last position) / dt
+    -- here, which divides one frame's movement by another frame's duration: the
+    -- displacement was produced before this script ran, under the previous dt.
+    -- Steady frames hide it, and a wobble makes the speed wrong in proportion.
+    -- That matters twice over on this display, because the G-load below
+    -- differentiates the velocity AGAIN and any error in it is amplified.
+    --
+    -- The engine samples every entity at one fixed point in the frame, so the
+    -- answer does not depend on where this component sits in the list.
+    local pv = player.velocity
+    local mx, my, mz = pv.x, pv.y, pv.z
     prev_x, prev_y, prev_z = p.x, p.y, p.z
 
     -- Smoothed lightly. The raw figure is a difference between two large world
@@ -783,7 +791,7 @@ function onDrawHud(entity, w, h)
     if P.show_fuel > 0 then fuel_frac = Hud.get("fuel_fraction", -1) end
     if fuel_frac >= 0 then
         fuel_frac = clamp(fuel_frac, 0, 1)
-        local bx, by, bw, bh = 28, h - 84, 168, 12
+        local bx, by, bw, bh = 28, h - 100, 168, 12
 
         -- Amber then red as it empties, matching the damage bar. Colour
         -- registers before a length does: you see "red" before you have read

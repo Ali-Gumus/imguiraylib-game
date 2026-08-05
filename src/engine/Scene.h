@@ -64,6 +64,50 @@ struct Entity {
 
     Transform3D transform;             // local position/rotation/scale
 
+    // How fast this entity is moving through the WORLD, in metres per second.
+    //
+    // RUNTIME STATE, maintained by Scene::Update - not authored, not saved, and
+    // not meaningful while stopped. Writing to it does not move anything.
+    //
+    // WHY THE ENGINE MEASURES THIS RATHER THAN EACH SCRIPT. Working a velocity
+    // out from (this position - last position) / dt is the obvious thing to
+    // write and it is quietly wrong, because the displacement was produced by a
+    // DIFFERENT frame's dt than the one it is divided by. Which one depends on
+    // whether the thing that moves the entity runs before or after the reader
+    // in the component list - something a script cannot see, and which changes
+    // when a component is added. While frame times are steady the error hides;
+    // the moment they jitter the answer is wrong in proportion, and a frame 15%
+    // longer than the one before under-reads the speed by 15%.
+    //
+    // Measuring it HERE fixes that, because the sampling point is fixed: the
+    // top of Update, before anything has moved, where the displacement since
+    // the last sample is by definition exactly one frame's worth and the length
+    // of that frame is known. Every script then reads the same answer whatever
+    // order its component sits in, and it works for anything that moves - a
+    // flight model, the physics simulation, or a script setting a position by
+    // hand.
+    //
+    // ANYTHING THAT KNOWS BETTER THEN OVERWRITES IT, and the two together are
+    // what make this reliable. A simulation that integrates its own motion
+    // already HAS an exact velocity, and the measurement cannot match it: a
+    // fixed-rate simulation advances in whole steps of its own, so in a
+    // variable-length frame it covers a whole number of those rather than
+    // exactly one frame's worth, and dividing that distance by the frame's
+    // duration is off by however much the two disagree. Measured on the flight
+    // model: a 19.5 ms frame that fitted two 8.33 ms steps read 14.5% slow.
+    //
+    // So JSBSimComponent and the physics write-back both replace this with the
+    // state they are carrying. The measurement is what remains for everything
+    // else - anything a script moves by hand - where there is nothing better to
+    // ask and no fixed step to disagree with.
+    Vector3 velocity{0.0f, 0.0f, 0.0f};
+
+    // Where this entity was in WORLD space when its velocity was last sampled,
+    // and whether there has been a sample yet. Scene::Update owns both; nothing
+    // else should touch them.
+    Vector3 prevWorldPos{0.0f, 0.0f, 0.0f};
+    bool    hasPrevWorldPos = false;
+
     // The list of attached components. We store unique_ptr<Component> (base
     // class pointers) rather than the components by value, for two reasons:
     //  * polymorphism: we need to call the correct derived OnUpdate/OnDraw,
@@ -277,6 +321,16 @@ private:
     // can run script hooks walk by INDEX over a count taken before they start.
     std::deque<Entity> m_entities;
     EntityID m_nextID = 1;             // next id to hand out (0 stays "invalid")
+
+    // The length of the PREVIOUS Update, in seconds. Entity velocities are the
+    // distance moved since the last sample divided by this rather than by the
+    // current frame's dt, because the movement being measured happened during
+    // that frame, not this one. See Entity::velocity for why that matters.
+    float m_lastDt = 0.0f;
+
+    // Refresh every entity's velocity. Called at the very top of Update, before
+    // any component has had a chance to move anything.
+    void SampleVelocities();
 
     // One queued spawn request: what to create once Update()'s loop is done.
     struct SpawnRequest {

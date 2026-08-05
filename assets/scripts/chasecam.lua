@@ -89,15 +89,16 @@ properties = {
     fov_ease = 1.5,
 }
 
--- The target's speed, measured here rather than read from anywhere.
+-- The target's speed, read from the engine rather than worked out here.
 --
--- Nothing publishes a velocity that this can rely on, and measuring it is three
--- lines - the same choice hud.lua makes, for the same reason: it then works for
--- ANY target however it is being moved, whether by the JSBSim flight model, by
--- flight_sim.lua, or by a script that has not been written yet.
-local lx, ly, lz = nil, nil, nil   -- where the target was last frame
-local speed      = 0               -- metres per second
-local fov        = nil             -- the eased field of view, degrees
+-- `entity.velocity` is sampled at one fixed point in every frame, so it works
+-- for ANY target however it is being moved - the JSBSim flight model,
+-- flight_sim.lua, the physics simulation, or a script not yet written - without
+-- the error that comes of dividing one frame's movement by another frame's
+-- duration. Here that error would show as the view twitching wider and narrower
+-- whenever the frame rate wobbled, which is precisely what it must not do.
+local speed = 0                 -- metres per second
+local fov   = nil               -- the eased field of view, degrees
 
 -- The camera's current offset FROM the target, in world space. This is the state
 -- that gets smoothed, and the reason is worth understanding.
@@ -185,15 +186,8 @@ function onUpdate(entity, dt)
     t:lookAtUp(jt.position.x, jt.position.y, jt.position.z, ux, uy, uz)
 
     -- --- Open the view with speed -------------------------------------------
-    -- Measure how far the target moved since last frame. Guarding against a
-    -- zero dt matters: a paused or first frame would divide by nothing and
-    -- produce an infinite speed, which would peg the view wide open for good.
-    local jp = jt.position
-    if lx ~= nil and dt > 0 then
-        local dx, dy, dz = jp.x - lx, jp.y - ly, jp.z - lz
-        speed = math.sqrt(dx * dx + dy * dy + dz * dz) / dt
-    end
-    lx, ly, lz = jp.x, jp.y, jp.z
+    local jv = jet.velocity
+    speed = math.sqrt(jv.x * jv.x + jv.y * jv.y + jv.z * jv.z)
 
     local cam = entity:getComponent_Camera()
     if cam == nil then return end

@@ -101,7 +101,7 @@ properties = {
     -- sqrt((20-5)^2 + 18^2) = 23.4 m from the ball's centre, clearing its 20 m
     -- radius. Re-check this whenever hit_radius or these numbers change.
     muzzle_forward = 18,
-    muzzle_up      = 20,
+    muzzle_up      = 35,
     muzzle_right   = 0,
 
     -- The size of its hittable volume, so the player can destroy it.
@@ -144,11 +144,15 @@ properties = {
 -- Runtime state.
 local cooldown = 0            -- seconds until it can fire again
 
--- The player's velocity, measured here rather than asked for. Nothing publishes
--- it, and measuring it is three lines - the same approach hud.lua takes, and it
--- means this works against any aircraft however it is being moved.
-local px, py, pz = nil, nil, nil
+-- The player's velocity, smoothed. Read from the engine rather than worked out
+-- here: `entity.velocity` is sampled at one fixed point in every frame, so it
+-- does not depend on where in the component list this script happens to sit and
+-- does not wobble with the frame rate. Working it out locally as a change in
+-- position over dt divides one frame's movement by another frame's duration,
+-- and at 300 m/s a frame 15% out of step misreads the speed by 15% - which for
+-- a gun that aims where the target WILL BE is a lead error of tens of metres.
 local vx, vy, vz = 0, 0, 0
+local has_vel = false
 
 -- Where the end of the barrel is in the world, from the three offsets above.
 --
@@ -238,24 +242,31 @@ function onUpdate(entity, dt)
 
     local player = Scene.findByTag("player")
     if player == nil then
-        px = nil          -- forget the old position, or a respawn reads as a jump
+        has_vel = false   -- forget the old reading, or a respawn reads as a jump
         return
     end
 
     local pp = player.transform.position
 
-    -- --- Measure how fast the player is going ------------------------------
-    if px == nil or dt <= 0 then
-        px, py, pz = pp.x, pp.y, pp.z
-        return                       -- nothing to aim with on the first frame
+    -- --- How fast the player is going ---------------------------------------
+    local pv = player.velocity
+    local mx, my, mz = pv.x, pv.y, pv.z
+
+    -- On the first frame with a target there is nothing smoothed yet, so the
+    -- reading is taken whole rather than eased up from a standing start - which
+    -- would have the gun aiming at where a stationary aircraft would be.
+    if not has_vel then
+        vx, vy, vz = mx, my, mz
+        has_vel = true
+        return                       -- nothing to aim with until the next frame
     end
-    local mx = (pp.x - px) / dt
-    local my = (pp.y - py) / dt
-    local mz = (pp.z - pz) / dt
-    px, py, pz = pp.x, pp.y, pp.z
-    -- Smoothed, because the raw figure is a difference of two large world
-    -- coordinates and carries the floating-point noise of both. A gun that
-    -- aimed at the noise would jitter and never settle inside its firing cone.
+    if dt <= 0 then return end
+
+    -- Still smoothed. The engine's figure is measured over one frame and a
+    -- target that is manoeuvring changes it every frame; a gun that chased each
+    -- reading would jitter and never settle inside its own firing cone. This
+    -- also means the lead is based on what the aircraft has been doing rather
+    -- than on one instant of it, which is the right thing to extrapolate from.
     local a = 1 - math.exp(-12 * dt)
     vx = vx + (mx - vx) * a
     vy = vy + (my - vy) * a

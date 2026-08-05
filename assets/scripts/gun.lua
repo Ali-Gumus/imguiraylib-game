@@ -26,71 +26,36 @@ properties = {
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)
 
--- Where this entity was on the previous frame, and whether we have one yet.
--- Comparing it with the current position gives the jet's velocity, and BOTH
--- things this script creates need it:
+-- BOTH things this script creates need the jet's own velocity:
 --
 --   * The muzzle flash. An effect is born standing still, so on a jet moving
---     200 units a second a flash lasting a fifth of a second would be left 40
---     units behind the nose. Handing it the jet's motion keeps it at the gun.
+--     200 metres a second a flash lasting a fifth of a second would be left 40
+--     metres behind the nose. Handing it the jet's motion keeps it at the gun.
 --
 --   * The bullet. A gun's muzzle velocity is quoted RELATIVE TO THE GUN, so a
 --     round leaves a moving aircraft at its muzzle speed plus the aircraft's.
 --     Measured against the ground instead, the faster the jet flies the less
 --     its own fire outruns it - and a jet faster than its muzzle velocity would
 --     overtake its own rounds.
-local lx, ly, lz = 0, 0, 0
-local has_last = false
-
--- How fast the shooter is moving through the world, in metres per second.
 --
--- ASK, DO NOT MEASURE, WHENEVER THERE IS SOMETHING TO ASK. A flight model
--- already knows its own velocity exactly, and taking it removes a whole class
--- of error that measuring cannot avoid:
+-- ASK FOR THE VELOCITY, DO NOT WORK IT OUT. `entity.velocity` is measured by
+-- the engine at one fixed point in every frame, so it is right whatever order
+-- this script's component sits in.
 --
---   Working a velocity out as (this position - last position) / dt looks
---   obviously right and is quietly wrong, because the displacement was produced
---   by a DIFFERENT frame's dt than the one it gets divided by. Which frame's
---   depends on whether the thing that moves the aircraft runs before or after
---   this script in the component list, which is not something a script can see.
---   While frame times are steady the error hides; the moment they jitter the
---   answer is wrong in proportion - a frame 15% longer than the one before it
---   under-reads the speed by 15%, and a frame that much shorter over-reads it.
---
---   The consequence is exactly the symptom that led here: the muzzle flash is
---   handed a velocity that is too small and trails behind the nose, or too
---   large and shoots out in front of it, changing from shot to shot. And the
---   frames that jitter most are the ones a shot is fired in, because spawning a
---   bullet is itself the most expensive thing that happens in a frame.
---
--- So the flight model is asked first, and the measurement is kept only as a
--- fallback for a shooter that has no flight model to ask.
-local function shooterVelocity(entity, dt)
-    local jsb = entity:getComponent_JSBSim()
-    if jsb ~= nil and jsb.ready then
-        local v = jsb:velocity()
-        return v.x, v.y, v.z
-    end
-
-    local pos = entity.transform.position
-    if has_last and dt > 0 then
-        return (pos.x - lx) / dt, (pos.y - ly) / dt, (pos.z - lz) / dt
-    end
-    return 0, 0, 0
-end
-
+-- This used to be (this position - last position) / dt here, which looks
+-- obviously right and is quietly wrong: the displacement was produced by a
+-- DIFFERENT frame's dt than the one it was divided by. Steady frames hid it.
+-- Measured at 316 m/s, a frame 15% longer than the one before under-read the
+-- speed by 15% and left the muzzle flash 9 m behind the nose, while one that
+-- much shorter over-read it and threw the flash 12 m in front - and the frames
+-- that wobble most are the ones a shot is fired in, because spawning a bullet
+-- is the most expensive thing that happens in a frame.
 function onUpdate(entity, dt)
     local P = properties
     cooldown = cooldown - dt
 
-    local vx, vy, vz = shooterVelocity(entity, dt)
-
-    -- Remembered for the fallback above. Kept up to date even when the flight
-    -- model answered, so that unticking its `enabled` box mid-run does not
-    -- leave the fallback comparing against a position from minutes ago.
-    local pos = entity.transform.position
-    lx, ly, lz = pos.x, pos.y, pos.z
-    has_last = true
+    local v = entity.velocity
+    local vx, vy, vz = v.x, v.y, v.z
 
     if Input.keyDown("SPACE") and cooldown <= 0 then
         cooldown = P.fire_rate

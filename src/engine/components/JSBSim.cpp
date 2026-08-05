@@ -248,6 +248,18 @@ void JSBSimComponent::OnUpdate(float dt, Entity& owner) {
 
     const FlightState& s = m_fdm->State();
 
+    // Hand the entity the velocity the SIMULATION integrated, replacing the
+    // estimate Scene::Update measured from two positions.
+    //
+    // The estimate is not wrong so much as unavoidably coarse here. The flight
+    // model advances in whole steps of its own fixed rate - 120 Hz - so in a
+    // variable-length frame it moves a whole number of those steps, not exactly
+    // one frame's worth. Dividing that quantised distance by the frame's
+    // duration is off by however much the two disagree: measured, a 19.5 ms
+    // frame that fitted two 8.33 ms steps read 14.5% slow. The state below has
+    // no such error, because it was never a difference of two samples.
+    owner.velocity = {s.vx, s.vy, s.vz};
+
     ReportGroundContact(owner, s);
 
     const Vector3    worldPos{s.x, s.y, s.z};
