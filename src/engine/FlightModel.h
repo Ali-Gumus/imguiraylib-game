@@ -1,0 +1,253 @@
+#pragma once
+
+// ============================================================================
+// FlightModel: a real aerodynamic flight simulation, built on JSBSim.
+// ----------------------------------------------------------------------------
+// Everything that has flown in this engine so far flies by an ENERGY MODEL:
+// flight_sim.lua carries a velocity vector, adds a thrust along the nose, takes
+// a drag off it proportional to speed squared, and turns the aircraft by simply
+// rotating it at a fixed number of degrees per second. That is easy to reason
+// about and easy to tune, but the aircraft is not obeying any aerodynamics -
+// it turns just as willingly at 80 knots as at 500, it cannot stall, and the
+// numbers in it mean whatever felt right rather than anything measurable.
+//
+// A FLIGHT DYNAMICS MODEL (FDM) inverts that the same way a physics engine
+// inverts hand-moved objects. You describe the AIRCRAFT once - its wing area,
+// its mass and inertia, how much lift its wing makes at each angle of attack,
+// how much moment its elevator produces, what its engine's thrust curve looks
+// like - and then you only ever move the CONTROLS. Stalls, spins, the way a
+// turn bleeds speed, the way a heavy aircraft mushes: all of that falls out of
+// the aerodynamic description instead of being written case by case.
+//
+// The vocabulary, since it is used throughout:
+//   * FDM            - the whole simulation of one aircraft.
+//   * ANGLE OF ATTACK (alpha) - the angle between where the wing is POINTING
+//                      and where it is actually GOING. Lift comes from this
+//                      angle, not from the nose attitude, which is why an
+//                      aircraft can be nose-high and still descending.
+//   * SIDESLIP (beta) - the same idea sideways: the aircraft flying slightly
+//                      crabbed rather than straight into the airflow.
+//   * LOAD FACTOR    - how many times its own weight the airframe is pulling.
+//                      1 g in level flight, 9 g in a hard turn.
+//   * TRIM           - solving for the control positions that hold a steady
+//                      condition, so a run does not begin with the aircraft
+//                      already tumbling.
+//   * KIAS           - indicated airspeed in knots: what an airspeed gauge
+//                      shows, which falls with altitude even when the true
+//                      speed through the air does not.
+//
+// ---------------------------------------------------------------------------
+// THIS HEADER DELIBERATELY EXPOSES NO JSBSim TYPES, AND NO raylib ONES EITHER.
+// ---------------------------------------------------------------------------
+// The .cpp beside it is the ONLY file in the project that includes JSBSim, in
+// exactly the way Physics.cpp is the only file that includes Jolt, and
+// FileDialog.cpp the only one that includes <windows.h>. The reason is the same
+// and it is not theoretical: JSBSim brings a namespace full of very short names
+// (`FGColumnVector3`, `Element`, `Table`), a global `SGPath`, and its own math
+// types, into a project whose rendering library already occupies the global
+// namespace with `Color`, `Ray`, `Matrix` and `Plane`. Any header that let
+// those meet would force every future file to fight the collision.
+//
+// So the structs below are plain floats. The caller converts them to raylib's
+// Vector3 and Quaternion on its side of the wall; this file never sees one.
+//
+// ---------------------------------------------------------------------------
+// UNITS AND AXES ARE CONVERTED HERE, ONCE.
+// ---------------------------------------------------------------------------
+// JSBSim is an aerospace tool and works in FEET, KNOTS and SLUGS, with its
+// world axes pointing NORTH / EAST / DOWN and its aircraft axes pointing
+// NOSE / RIGHT WING / BELLY. This engine works in METRES with +Y up and an
+// object facing its own -Z. Neither convention is wrong and neither is going to
+// change, so the conversion has to live somewhere - and it lives HERE, so that
+// every caller sees metres, and a unit mistake can only ever be in one file.
+//
+// The axis mapping, written out because it is impossible to guess:
+//     engine +X  =  EAST        engine +Y  =  UP        engine -Z  =  NORTH
+// which is a right-handed set, matching the engine's own. Note the world is
+// FLAT: JSBSim simulates a round rotating earth, and this takes the aircraft's
+// north/east offset from where it started and treats that as a plane. Over the
+// tens of kilometres this game covers, the difference is far below a pixel.
+// ============================================================================
+
+#include <memory>   // std::unique_ptr, for the pointer that hides the FDM
+#include <string>   // the error text, and the aircraft name
+
+namespace eng {
+
+// --- What comes OUT of the simulation ---------------------------------------
+// Read-only: this is what the aircraft is doing, sampled after the last step.
+// Everything is in engine units (metres, m/s, engine axes) EXCEPT the few
+// fields whose aviation unit is the whole point of showing them - an airspeed
+// tape reads knots, an altimeter reads feet, and converting those to metres per
+// second would make the instruments lie about what a pilot would see.
+struct FlightState {
+    // Where it is, in world space, metres. Relative to the world position the
+    // run was started from - see FlightStart below.
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+
+    // Which way it is pointing, as a quaternion in the engine's own convention
+    // (an unrotated aircraft faces -Z, +Y is up). Assign straight into a
+    // Transform3D's rotation.
+    float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;
+
+    // How fast it is going, world axes, metres per second. This is the whole
+    // velocity vector, not just the speed along the nose: an aircraft in a
+    // sideslip or a stall is emphatically not going where it points.
+    float vx = 0.0f, vy = 0.0f, vz = 0.0f;
+
+    // The instrument readings. Kept in their aviation units on purpose.
+    float airspeedKt = 0.0f;   // INDICATED airspeed, knots - what a gauge shows
+    float altitudeFt = 0.0f;   // above sea level, feet - what an altimeter shows
+    float altitudeM  = 0.0f;   // the same altitude in metres, for game logic
+    float mach       = 0.0f;   // speed as a fraction of the local speed of sound
+
+    // The aerodynamic state. These are what make an FDM worth having: they say
+    // HOW the aircraft is flying, not merely where it is.
+    float alphaDeg     = 0.0f;   // angle of attack - large means near a stall
+    float betaDeg      = 0.0f;   // sideslip - non-zero means flying crabbed
+    float loadFactor   = 1.0f;   // g. 1 in level flight, negative when pushing over
+
+    // The attitude in degrees, which is what a HUD wants to draw and what is
+    // far easier to read in a debug panel than four quaternion components.
+    float rollDeg    = 0.0f;   // positive = right wing down
+    float pitchDeg   = 0.0f;   // positive = nose up
+    float headingDeg = 0.0f;   // 0 = north, 90 = east, 0..360
+
+    // How hard the engine is actually working, 0..1. This LAGS the throttle
+    // command - a jet engine takes seconds to spool - which is exactly why the
+    // engine note should follow this rather than the stick position.
+    float enginePower = 0.0f;
+};
+
+// --- What goes IN ------------------------------------------------------------
+// The pilot's four inputs, and nothing else. Every one is normalised, so a
+// script never has to know what deflection in degrees a real F-16's elevator
+// reaches: full back stick is -1 whatever aircraft is loaded.
+struct FlightControls {
+    // -1 .. +1. NEGATIVE is nose UP, which is not a typo: an elevator makes the
+    // nose rise by deflecting UPWARD, which is a negative surface angle in the
+    // aerospace sign convention JSBSim uses. Getting this backwards produces an
+    // aircraft that flies perfectly and inverts every input, so it is called
+    // out here rather than left to be discovered in the air.
+    float elevator = 0.0f;
+
+    // -1 .. +1. Positive rolls RIGHT (right wing down).
+    float aileron = 0.0f;
+
+    // -1 .. +1. Positive yaws RIGHT.
+    float rudder = 0.0f;
+
+    // 0 .. 1. How far the throttle lever is forward. On an afterburning engine
+    // like the F-16's the top of this range lights the burner.
+    float throttle = 0.0f;
+
+    // 0 = up, 1 = down. Retracted by default: this game starts in the air, and
+    // extended gear on a fighter is a large amount of drag for no reason.
+    float gear = 0.0f;
+
+    // 0 .. 1, wheel brakes. Only means anything on the ground.
+    float brake = 0.0f;
+};
+
+// --- Where a run BEGINS -------------------------------------------------------
+// A flight model cannot simply be dropped at a position the way a rigid body
+// can: it has to be given a whole flight CONDITION, because an aircraft placed
+// at 3000 m with no airspeed is not "at 3000 m", it is falling.
+struct FlightStart {
+    // The world position, in metres, that the aircraft begins at. This also
+    // becomes the origin the simulation's north/east offsets are measured from,
+    // so the game world's coordinates and JSBSim's stay in step for the run.
+    float x = 0.0f, y = 3000.0f, z = 0.0f;
+
+    // Which way it is pointing when the run starts, degrees, 0 = north.
+    float headingDeg = 0.0f;
+
+    // How fast it is going, knots indicated. Must be enough for the wing to fly
+    // or the run opens with a stall.
+    float airspeedKt = 350.0f;
+
+    // The initial climb or dive angle, degrees, positive up. Zero is level.
+    float pathAngleDeg = 0.0f;
+
+    // Solve for the controls that hold this condition before the first step, so
+    // the run does not begin with the aircraft already pitching. Worth leaving
+    // on; it costs a few milliseconds once.
+    bool trim = true;
+};
+
+// --- The simulation itself -----------------------------------------------------
+// One instance is one aircraft. Copying is disabled because an FDM owns a large
+// amount of internal state that has no meaningful copy - use a reference or move
+// it, exactly as with any other simulation object.
+class FlightModel {
+public:
+    FlightModel();
+    ~FlightModel();
+
+    FlightModel(const FlightModel&)            = delete;
+    FlightModel& operator=(const FlightModel&) = delete;
+    FlightModel(FlightModel&&) noexcept;
+    FlightModel& operator=(FlightModel&&) noexcept;
+
+    // Read an aircraft description off disk and build a simulation of it.
+    //
+    // `dataDir` is the folder holding `aircraft/` and `engine/` - in this
+    // project, "assets/jsbsim". `aircraft` is the name of a subfolder of
+    // `aircraft/`, e.g. "f16", which must contain a matching `<name>.xml`.
+    //
+    // Returns false and fills Error() if anything is missing or malformed.
+    // Failure is NOT fatal by design: the entity simply does not fly, exactly
+    // as a missing model file draws a fallback rather than crashing the editor.
+    // The aircraft data is read at RUNTIME, so a typo here is a runtime problem
+    // that must be reported rather than a build error that cannot happen.
+    bool Load(const std::string& dataDir, const std::string& aircraft);
+
+    // Is there a working simulation? Every call below is safe either way, and
+    // does nothing when there is not.
+    bool Ready() const;
+
+    // Why Load failed, or "" if it did not.
+    const std::string& Error() const;
+
+    // Put the aircraft into a starting flight condition. Safe to call again to
+    // restart a run without reloading the aircraft description, which is the
+    // point: parsing the XML is slow, resetting is not.
+    void Reset(const FlightStart& start);
+
+    // Set the pilot's inputs. These persist until changed - a control does not
+    // spring back on its own, exactly like a real one being held.
+    void SetControls(const FlightControls& controls);
+    const FlightControls& Controls() const;
+
+    // Advance by `dt` seconds of game time.
+    //
+    // JSBSim runs at a FIXED RATE OF ITS OWN (120 Hz for the stock aircraft),
+    // because integrating an aerodynamic model is only stable at a constant
+    // step - the same reason the rigid-body world in Physics.cpp runs at a fixed
+    // 60 Hz. The frame time it is handed is anything but constant, so this banks
+    // the real time that has passed and spends it in whole steps, carrying the
+    // remainder into the next frame. Nothing is lost or double-counted, and the
+    // caller never has to know what rate the simulation wants.
+    void Advance(float dt);
+
+    // What the aircraft is doing, as of the last step. Cheap: the values are
+    // sampled once per Advance, not read from the property tree on demand.
+    const FlightState& State() const;
+
+    // The simulation's own step size in seconds, and how many steps the last
+    // Advance actually ran. The second is a diagnostic worth having: a frame
+    // that ran zero steps or hit the ceiling is the first thing to check when
+    // the aircraft feels sluggish or jumpy.
+    float FixedStepSeconds() const;
+    int   LastStepCount() const;
+
+private:
+    // The PIMPL ("pointer to implementation") idiom, and the thing that makes
+    // the quarantine at the top of this file possible. The class that actually
+    // holds the FDM is DECLARED here and DEFINED only inside the .cpp, so this
+    // header never has to name a JSBSim type - not even to say how big one is.
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
+};
+
+} // namespace eng

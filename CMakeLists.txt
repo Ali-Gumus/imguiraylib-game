@@ -246,6 +246,9 @@ add_library(engine STATIC
     src/engine/Particles.cpp
     src/engine/Audio.cpp
     src/engine/Physics.cpp
+    # The aerodynamic flight model. This is the ONLY file that includes JSBSim,
+    # the same quarantine Physics.cpp keeps around Jolt - see FlightModel.h.
+    src/engine/FlightModel.cpp
     src/engine/ModelDefs.cpp
 )
 # PUBLIC: anything linking engine can #include "engine/Application.h".
