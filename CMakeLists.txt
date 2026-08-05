@@ -218,6 +218,7 @@ add_library(engine STATIC
     src/engine/components/Model.cpp
     src/engine/components/Terrain.cpp
     src/engine/components/Minimap.cpp
+    src/engine/components/JSBSim.cpp
     # The scripting API. One file per subject, each carrying both the sol2
     # bindings and the description of what they expose, so the two cannot drift
     # apart. LuaBindings.h declares them; LuaApiRegistry collects the docs.

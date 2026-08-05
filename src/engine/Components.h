@@ -18,6 +18,7 @@
 #include "engine/components/Collider.h"
 #include "engine/components/Graph.h"
 #include "engine/components/Health.h"
+#include "engine/components/JSBSim.h"
 #include "engine/components/Light.h"
 #include "engine/components/Minimap.h"
 #include "engine/components/Model.h"

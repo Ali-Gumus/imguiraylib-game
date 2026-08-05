@@ -1412,6 +1412,9 @@ private:
             bool hasMinimap = e->GetComponent<eng::MinimapComponent>() != nullptr;
             if (ImGui::MenuItem("Minimap", nullptr, false, !hasMinimap))
                 e->AddComponent<eng::MinimapComponent>();
+            bool hasFdm = e->GetComponent<eng::JSBSimComponent>() != nullptr;
+            if (ImGui::MenuItem("JSBSim Flight Model", nullptr, false, !hasFdm))
+                e->AddComponent<eng::JSBSimComponent>();
             ImGui::EndPopup();
         }
 

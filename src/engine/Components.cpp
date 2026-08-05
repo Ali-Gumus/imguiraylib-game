@@ -85,6 +85,7 @@ std::unique_ptr<Component> MakeComponent(const std::string& name) {
     if (name == "Model")  return std::make_unique<ModelComponent>();
     if (name == "Terrain") return std::make_unique<TerrainComponent>();
     if (name == "Minimap") return std::make_unique<MinimapComponent>();
+    if (name == "JSBSim") return std::make_unique<JSBSimComponent>();
     return nullptr;   // unknown type: caller skips it
 }
 } // namespace eng
