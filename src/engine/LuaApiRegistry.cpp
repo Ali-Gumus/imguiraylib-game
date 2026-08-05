@@ -84,6 +84,7 @@ const std::vector<LuaApiEntry>& GetLuaApiEntries() {
         DescribeTerrainBindings(reg);
         DescribeMinimapBindings(reg);
         DescribeScriptBindings(reg);
+        DescribeJSBSimBindings(reg);
         DescribeCameraBindings(reg);
         return reg.Entries();
     }();

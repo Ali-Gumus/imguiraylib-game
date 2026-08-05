@@ -102,6 +102,19 @@ void JSBSimComponent::OnStart(Entity& owner) {
     start.trim         = trimOnStart;
 
     fdm->Reset(start);
+
+    // Adopt the controls the aircraft was TRIMMED at, rather than leaving them
+    // at zero. Trimming solves for the throttle and elevator that hold the
+    // starting condition, and starting from zero would throw that answer away
+    // the moment the first frame pushed the controls back in - the aircraft
+    // would settle into a stable cruise and then, with no error anywhere, close
+    // the throttle and glide.
+    //
+    // A script that sets the controls overwrites these on its first update, so
+    // this costs nothing where there is one and is the difference between
+    // flying and gliding where there is not.
+    m_controls = fdm->Controls();
+
     m_fdm = std::move(fdm);
 
     // Put the entity where the trimmed aircraft actually ended up. Trimming can

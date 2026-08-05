@@ -74,6 +74,7 @@ void RegisterShapeBindings(sol::state& lua);
 void RegisterTerrainBindings(sol::state& lua);
 void RegisterMinimapBindings(sol::state& lua);
 void RegisterScriptBindings(sol::state& lua);
+void RegisterJSBSimBindings(sol::state& lua);
 
 // The camera component, its projection enum, and Scene.createCamera.
 void RegisterCameraBindings(sol::state& lua);

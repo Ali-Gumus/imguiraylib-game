@@ -74,6 +74,7 @@ void ScriptComponent::Load() {
     RegisterTerrainBindings(m_lua);
     RegisterMinimapBindings(m_lua);
     RegisterScriptBindings(m_lua);
+    RegisterJSBSimBindings(m_lua);
     RegisterCameraBindings(m_lua);
 
     // --- Actually run the script -------------------------------------------

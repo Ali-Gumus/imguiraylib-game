@@ -241,6 +241,7 @@ add_library(engine STATIC
     src/engine/bindings/TerrainBindings.cpp
     src/engine/bindings/MinimapBindings.cpp
     src/engine/bindings/ScriptBindings.cpp
+    src/engine/bindings/JSBSimBindings.cpp
     src/engine/bindings/CameraBindings.cpp
     src/engine/FileDialog.cpp
     src/engine/Lighting.cpp

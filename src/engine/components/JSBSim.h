@@ -159,6 +159,15 @@ public:
     void SetControls(const FlightControls& c) { m_controls = c; }
     const FlightControls& Controls() const { return m_controls; }
 
+    // The same set, writable one field at a time. This is what the Lua
+    // properties (`jsb.throttle = 0.9`) are built on: a script setting one
+    // control should not have to read all six, change one, and write them back.
+    //
+    // Nothing is pushed into the simulation here - the whole set is handed over
+    // once per frame in OnUpdate - so writing to this between frames is free
+    // and the order the fields are set in never matters.
+    FlightControls& MutableControls() { return m_controls; }
+
 private:
     // Built on Play, released on Stop. Held by pointer rather than by value so
     // that an entity sitting in the editor with this component attached pays
