@@ -4,8 +4,20 @@ out/
 .claude/
 HANDOVER.md
 
-# Large model assets are kept local, not in the repo. The small hand-written
-# placeholder models stay tracked so a fresh clone still has something to draw.
-assets/models/*
-!assets/models/jet.obj
-!assets/models/ground.obj
+# Models and their textures ARE tracked, deliberately.
+#
+# They used to be kept out because they are large, with two hand-written
+# placeholders left in so a clone had something to draw. That stopped being a
+# sensible trade once the game started depending on them: a fresh clone built
+# and ran, but the aircraft, the camps and the gun vehicles were all missing, so
+# what it produced was not the game. An asset the game needs to be itself
+# belongs with the code that needs it.
+#
+# The whole folder is about 11 MB, which is nothing next to the dependencies
+# CMake downloads on the first configure.
+#
+# Worth knowing: git keeps every version of a binary for ever, and cannot pack
+# them the way it packs text. Swapping a 6 MB model repeatedly grows the
+# repository by 6 MB each time, and deleting the file later does not shrink it
+# again. Settling on a model before committing it costs nothing; churning
+# through several does.
