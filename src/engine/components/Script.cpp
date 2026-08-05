@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include "engine/Components.h"
 #include "engine/LuaBindings.h"
 #include "engine/FileDialog.h"
@@ -247,6 +248,75 @@ bool ScriptComponent::IsPropertyOverridden(const std::string& name) const {
     return false;
 }
 
+// The contents a brand-new script starts with.
+//
+// It is a WORKING script, not an empty file: every hook the engine calls is
+// present and spelled correctly, with a `properties` table already exposing one
+// tunable. That is the whole point of it existing.
+//
+// A hook is optional, and a script that misspells one is not an error - the
+// engine simply never finds `onupdate` and the script sits there doing nothing
+// with no complaint anywhere. Handing over the correct names is the difference
+// between that and a script that runs the moment it is made.
+//
+// The unused hooks are left commented rather than deleted, so the file also
+// answers "what else can this react to" without a trip to the documentation.
+static const char* kScriptTemplate =
+R"(-- A new script.
+--
+-- Attach it to an entity and it runs while the game is playing. Every function
+-- below is optional: delete the ones you do not need.
+
+-- Tunable numbers, shown as editable fields in the Inspector and saved per
+-- entity. Only numbers - the Inspector has no field for anything else yet.
+properties = {
+    speed = 10,
+}
+
+-- Runs once, when play begins or when this entity is spawned.
+function onStart(entity)
+end
+
+-- Runs every frame. `dt` is how many seconds passed since the last one, so
+-- multiply anything per-second by it and the result is the same however fast
+-- the machine is running.
+function onUpdate(entity, dt)
+    -- entity.transform:translateLocal(0, 0, -properties.speed * dt)
+end
+
+-- Runs when this entity is destroyed - by damage, by a script, or by the whole
+-- position it belonged to being levelled.
+function onDestroy(entity)
+end
+
+-- Runs when the physics simulation reports a contact. Needs a Collider and a
+-- RigidBody on this entity, or it is never called.
+--   other  the entity that was hit
+--   speed  how fast the two were closing, in metres per second
+--   x,y,z  where on the surfaces they met
+-- function onCollision(entity, other, speed, x, y, z)
+-- end
+
+-- Runs after the 3D view is drawn, for anything measured in pixels. `w` and `h`
+-- are the size of the game view. Draw.* calls ONLY work in here.
+-- function onDrawHud(entity, w, h)
+--     Draw.text("hello", 20, 20, 20)
+-- end
+)";
+
+bool WriteScriptTemplate(const std::string& path) {
+    // "does it already exist" is checked first, because this is reached from a
+    // save dialog that has already asked about overwriting - but a template is
+    // not worth losing a written script over if that is ever called from
+    // somewhere else.
+    if (std::ifstream(path).good()) return false;
+
+    std::ofstream out(path, std::ios::binary);
+    if (!out) return false;
+    out << kScriptTemplate;
+    return out.good();
+}
+
 void ScriptComponent::OnInspector() {
     // Load the script the first time it's shown (unless it already failed), so
     // its properties appear without pressing a button. This only runs the
@@ -261,6 +331,31 @@ void ScriptComponent::OnInspector() {
     buf[sizeof(buf) - 1] = '\0';                 // ensure it ends with a 0 byte
     if (ImGui::InputText("Path", buf, sizeof(buf)))
         path = buf;
+
+    // Make a new script here and now, the way New Graph makes a new graph.
+    //
+    // Without this, adding behaviour to an entity meant leaving the editor,
+    // creating an empty file somewhere, remembering which hooks the engine
+    // calls and exactly how they are spelled, and only then coming back. Every
+    // one of those steps is a chance to get a name subtly wrong - and a
+    // misspelled hook is never reported, because a script is not REQUIRED to
+    // implement any of them. It simply does nothing, for ever, silently.
+    //
+    // Starting from a file that already has the right names spelled correctly
+    // removes that entire class of mistake.
+    if (ImGui::Button("New Script...")) {
+        std::string picked = SaveFileDialog(
+            "Lua scripts (*.lua)\0*.lua\0All files\0*.*\0", "lua", "new_script.lua");
+        if (!picked.empty()) {
+            if (WriteScriptTemplate(picked)) {
+                path = picked;
+                Load();               // run it straight away, so it is live
+            } else {
+                m_error = "Could not create " + picked;
+            }
+        }
+    }
+    ImGui::SameLine();
 
     // A button that opens the native file picker filtered to .lua files.
     if (ImGui::Button("Browse...")) {

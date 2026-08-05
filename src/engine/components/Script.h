@@ -9,6 +9,15 @@
 #include <vector>
 
 namespace eng {
+
+// Write a starter script to `path`: a working file with every lifecycle hook
+// already present and correctly spelled, plus a `properties` table.
+//
+// Returns false if the file already exists or could not be written. Refusing to
+// overwrite is deliberate - this is a template, and no template is worth losing
+// a script someone has written.
+bool WriteScriptTemplate(const std::string& path);
+
 // ============================================================================
 // ScriptComponent: makes an entity run a Lua script file every frame.
 // ----------------------------------------------------------------------------
