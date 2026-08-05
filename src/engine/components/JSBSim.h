@@ -169,6 +169,12 @@ public:
     FlightControls& MutableControls() { return m_controls; }
 
 private:
+    // Fire onCollision on this entity's components when the aircraft first
+    // touches the ground. Declared here rather than being written inline
+    // because it is a policy - when is a touchdown an event? - and not part of
+    // the update's flow.
+    void ReportGroundContact(Entity& owner, const FlightState& s);
+
     // Built on Play, released on Stop. Held by pointer rather than by value so
     // that an entity sitting in the editor with this component attached pays
     // nothing for a simulation it is not running.
@@ -176,6 +182,11 @@ private:
 
     FlightControls m_controls;
     std::string    m_error;
+
+    // Was it touching the ground last frame? A contact event means the moment
+    // two things BEGIN touching, so this is what stops an aircraft parked on a
+    // runway reporting a collision every frame it sits there.
+    bool m_onGround = false;
 };
 
 } // namespace eng

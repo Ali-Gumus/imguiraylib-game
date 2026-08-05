@@ -35,31 +35,12 @@ void RegisterTerrainBindings(sol::state& lua) {
     // a building, a spawn point. Without it a script can only guess a height,
     // and a guess is either buried in a hillside or hovering above a valley.
     //
-    // The terrain is drawn inside its entity's world matrix, so a world point
-    // has to be brought into the terrain's own frame before it can be looked up,
-    // and the answer carried back out. Doing it through the matrix rather than
-    // by assuming the terrain sits unrotated at the origin means a moved,
-    // turned or scaled terrain still answers correctly.
+    // The lookup itself lives in Terrain.cpp beside the height function, because
+    // the flight model needs the same answer and two copies of a coordinate
+    // conversion is how the two come to disagree.
     lua["Scene"]["groundHeight"] = [](float x, float z) -> float {
         Scene* sc = Scene::Current();
-        if (!sc) return 0.0f;
-        for (Entity& e : sc->Entities()) {
-            auto* t = e.GetComponent<TerrainComponent>();
-            if (!t) continue;
-
-            const Matrix world = sc->WorldMatrix(e);
-            const Matrix inv   = MatrixInvert(world);
-
-            // The query point at ground level in the terrain's frame. Y is
-            // unknown - it is what we are asking for - so the point is dropped
-            // in at the terrain's own zero and only x and z are used.
-            const Vector3 local = Vector3Transform({x, 0.0f, z}, inv);
-            const float   ly    = t->HeightAt(local.x, local.z);
-
-            // And back out to world, which is where the caller works.
-            return Vector3Transform({local.x, ly, local.z}, world).y;
-        }
-        return 0.0f;
+        return sc ? GroundHeightAt(*sc, x, z) : 0.0f;
     };
 }
 

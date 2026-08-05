@@ -82,6 +82,11 @@ void RegisterJSBSimBindings(sol::state& lua) {
         "altitudeFt",  StateProp<&FlightState::altitudeFt>(),
         "mach",        StateProp<&FlightState::mach>(),
 
+        // Height above the GROUND rather than above sea level. Over a landscape
+        // these are completely different numbers, and this is the one that says
+        // whether the aircraft is about to hit something.
+        "altitudeAgl", StateProp<&FlightState::altitudeAglM>(),
+
         // The aerodynamic state - the reason a flight model is worth having.
         // alpha is the angle between where the wing POINTS and where it is
         // GOING, and it is what lift comes from; a large one means near a
@@ -156,6 +161,7 @@ void DescribeJSBSimBindings(LuaApiRegistry& api) {
     j.Prop("airspeedKt",  "INDICATED airspeed in knots - what a gauge shows");
     j.Prop("altitude",    "Metres above sea level");
     j.Prop("altitudeFt",  "Feet above sea level - what an altimeter shows");
+    j.Prop("altitudeAgl", "Metres above the GROUND. Over hills this is not the same as altitude");
     j.Prop("mach",        "Speed as a fraction of the local speed of sound");
     j.Prop("alpha",       "Angle of attack, degrees. Lift comes from this; a big one means near a stall");
     j.Prop("beta",        "Sideslip, degrees. Non-zero means flying crabbed");

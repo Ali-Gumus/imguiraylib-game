@@ -641,4 +641,24 @@ void TerrainComponent::OnInspector() {
     if (ImGui::Button("Regenerate")) Rebuild();
 }
 
+float GroundHeightAt(Scene& scene, float worldX, float worldZ) {
+    for (Entity& e : scene.Entities()) {
+        auto* t = e.GetComponent<TerrainComponent>();
+        if (!t) continue;
+
+        const Matrix world = scene.WorldMatrix(e);
+        const Matrix inv   = MatrixInvert(world);
+
+        // The query point at ground level in the terrain's frame. Y is unknown
+        // - it is what is being asked for - so the point is dropped in at the
+        // terrain's own zero and only x and z are used.
+        const Vector3 local = Vector3Transform({worldX, 0.0f, worldZ}, inv);
+        const float   ly    = t->HeightAt(local.x, local.z);
+
+        // And back out to world, which is where the caller works.
+        return Vector3Transform({local.x, ly, local.z}, world).y;
+    }
+    return 0.0f;   // no terrain in the scene: sea level
+}
+
 } // namespace eng

@@ -62,6 +62,12 @@ constexpr const char* kPosNorthFt = "position/from-start-neu-n-ft";
 constexpr const char* kPosEastFt  = "position/from-start-neu-e-ft";
 constexpr const char* kAltSlFt    = "position/h-sl-ft";
 
+// Height above the ground, and the ground's own height above sea level. The
+// second is WRITABLE, and writing to it is the only way the simulation learns
+// that the world is not a flat sea - see SetTerrainElevation.
+constexpr const char* kAltAglFt   = "position/h-agl-ft";
+constexpr const char* kTerrainFt  = "position/terrain-elevation-asl-ft";
+
 constexpr const char* kVelNorthFps = "velocities/v-north-fps";
 constexpr const char* kVelEastFps  = "velocities/v-east-fps";
 constexpr const char* kVelDownFps  = "velocities/v-down-fps";
@@ -99,6 +105,7 @@ constexpr const char* kIcGammaDeg   = "ic/gamma-deg";   // flight path angle
 constexpr const char* kIcPhiDeg     = "ic/phi-deg";
 constexpr const char* kIcLatDeg     = "ic/lat-gc-deg";
 constexpr const char* kIcLonDeg     = "ic/long-gc-deg";
+constexpr const char* kIcTerrainFt  = "ic/terrain-elevation-ft";
 
 // The latitude and longitude the game world sits at. It has to be SOMEWHERE,
 // because JSBSim's atmosphere and gravity are functions of position on a real
@@ -268,8 +275,9 @@ void FlightModel::Impl::Sample() {
     state.y = altFt * kFeetToMetres;    // sea level is y = 0 in this game
     state.z = originZ - northM;         // -Z is North, so North is -Z
 
-    state.altitudeFt = altFt;
-    state.altitudeM  = state.y;
+    state.altitudeFt   = altFt;
+    state.altitudeM    = state.y;
+    state.altitudeAglM = Get(kAltAglFt) * kFeetToMetres;
 
     // --- Velocity. Same mapping; "down" becomes "up" by negation.
     state.vx =  Get(kVelEastFps)  * kFeetToMetres;
@@ -415,6 +423,12 @@ void FlightModel::Reset(const FlightStart& start) {
     im.Set(kIcGammaDeg, start.pathAngleDeg);   // climb angle, 0 = level
     im.Set(kIcPhiDeg, 0.0);                    // wings level
 
+    // Where the ground is under the starting point. Set BEFORE RunIC, because
+    // the initial condition is built against it: an aircraft started at 3000 m
+    // over a 700 m mountain has 2300 m of air beneath it, and the trim that
+    // follows should be solved in a world that already agrees with that.
+    im.Set(kIcTerrainFt, start.terrainElevationM / kFeetToMetres);
+
     // Start with the engine already running and spooled. -1 means "every
     // engine". Without this the F-16 loads cold: the throttle does nothing at
     // all and the aircraft simply glides, with no error to explain it.
@@ -453,6 +467,11 @@ void FlightModel::Reset(const FlightStart& start) {
 
 void FlightModel::SetControls(const FlightControls& controls) {
     m_impl->controls = controls;
+}
+
+void FlightModel::SetTerrainElevation(float metresAboveSeaLevel) {
+    if (!m_impl->ready) return;
+    m_impl->Set(kTerrainFt, metresAboveSeaLevel / kFeetToMetres);
 }
 
 void FlightModel::Advance(float dt) {

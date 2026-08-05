@@ -1,6 +1,7 @@
 #include "engine/components/JSBSim.h"
 
 #include "engine/Scene.h"
+#include "engine/components/Terrain.h"   // GroundHeightAt, and finding the terrain
 #include "imgui.h"
 #include "raymath.h"
 
@@ -55,6 +56,7 @@ void JSBSimComponent::OnStart(Entity& owner) {
     m_error.clear();
     m_fdm.reset();          // a restart must not inherit the last run's aircraft
     m_controls = FlightControls{};
+    m_onGround = false;
 
     // Unticked means "this component is not the thing flying the aircraft", so
     // nothing is built at all. See the warning in the header: this is how the
@@ -101,6 +103,13 @@ void JSBSimComponent::OnStart(Entity& owner) {
     start.pathAngleDeg = startPathAngleDeg;
     start.trim         = trimOnStart;
 
+    // Where the ground is under the starting point, so the simulation agrees
+    // with the landscape from its very first step. An aircraft authored at
+    // 1000 m over a 700 m ridge has 300 m beneath it, not 1000, and the trim is
+    // solved against that.
+    if (Scene* scene = Scene::Current())
+        start.terrainElevationM = GroundHeightAt(*scene, start.x, start.z);
+
     fdm->Reset(start);
 
     // Adopt the controls the aircraft was TRIMMED at, rather than leaving them
@@ -125,6 +134,82 @@ void JSBSimComponent::OnStart(Entity& owner) {
     OnUpdate(0.0f, owner);
 }
 
+// Report the aircraft touching the ground, through the SAME hook a physics
+// impact uses. A script therefore handles hitting a hill with the onCollision
+// it already has, rather than with a second mechanism that only aircraft have.
+//
+// WHY THIS IS HERE AT ALL, rather than in the physics world. The rigid-body
+// simulation reports a contact only when at least one of the two bodies is
+// DYNAMIC. An aircraft flown by a flight model is Kinematic - the flight model
+// owns where it is, and a dynamic body would fight it for that - and the
+// landscape is Static. Kinematic against Static is a pair the simulation never
+// tests, so it produces no contact, no matter how squarely the two meet.
+// Measured: a kinematic capsule dropped from 2000 m through a 440 m hill
+// reported nothing at any point. So the ground contact has to come from the
+// side that actually knows about the ground, which is the flight model.
+//
+// Fires ONCE per touchdown, on the transition from airborne to touching, which
+// is what a contact event means everywhere else in the engine - an aircraft
+// sitting on a runway should not be reporting a collision sixty times a second.
+void JSBSimComponent::ReportGroundContact(Entity& owner, const FlightState& s) {
+    // TWO thresholds, not one, and the gap between them is the point.
+    //
+    // Height above ground is measured to the aircraft's reference point, so
+    // kTouchM is a small margin standing in for the distance down to whatever
+    // touches first - wheels if they are down, the belly if they are not.
+    //
+    // kClearM is the height it must regain before it counts as airborne again,
+    // and it is deliberately much higher. With a single threshold the aircraft
+    // sits right on it: the ground reactions push it up a few centimetres, it
+    // settles back, and every one of those flutters reads as a fresh impact.
+    // Measured before this gap existed: one descent into a hillside reported
+    // two strikes. Requiring it to properly get away before it can arrive again
+    // is what a contact event means - the moment two things BEGIN touching -
+    // and it still reports a genuine bounce, where an aircraft skips off the
+    // ground and comes back down.
+    constexpr float kTouchM = 0.5f;
+    constexpr float kClearM = 5.0f;
+
+    if (m_onGround) {
+        // Already down. Only clear the flag once it is convincingly flying.
+        if (s.altitudeAglM > kClearM) m_onGround = false;
+        return;
+    }
+    if (s.altitudeAglM > kTouchM) return;   // still airborne; nothing to report
+    m_onGround = true;
+
+    Scene* scene = Scene::Current();
+    if (!scene) return;
+
+    // The thing struck is the terrain entity, so a script can read its tag and
+    // treat hitting the ground differently from hitting an aircraft. If the
+    // scene has no terrain there is nothing to name as the other party, and the
+    // event is skipped rather than invented.
+    Entity* ground = nullptr;
+    for (Entity& e : scene->Entities())
+        if (e.GetComponent<TerrainComponent>()) { ground = &e; break; }
+    if (!ground) return;
+
+    // How hard. The DOWNWARD speed rather than the total, because that is what
+    // separates a landing from a crash: an aircraft crossing a valley at 600
+    // m/s is not hitting anything, and one settling onto a runway at 2 m/s has
+    // touched the same ground as one arriving at 200.
+    const float closingSpeed = -s.vy > 0.0f ? -s.vy : 0.0f;
+    const Vector3 point{s.x, s.y, s.z};
+
+    // Every component on the aircraft, which is how the physics contact
+    // dispatcher does it - the script is the usual listener, but nothing here
+    // assumes that is the only one.
+    //
+    // The pointers are SNAPSHOT before any hook runs. A script that adds a
+    // component while being notified would otherwise reallocate the vector
+    // being walked and leave this loop holding freed memory.
+    std::vector<Component*> comps;
+    comps.reserve(owner.components.size());
+    for (const auto& c : owner.components) comps.push_back(c.get());
+    for (Component* c : comps) c->OnCollision(owner, *ground, closingSpeed, point);
+}
+
 void JSBSimComponent::OnDestroy(Entity& owner) {
     // Release the simulation as soon as the entity goes. It is runtime state
     // and nothing outside the run should be holding a whole aerodynamic model.
@@ -134,12 +219,32 @@ void JSBSimComponent::OnDestroy(Entity& owner) {
 void JSBSimComponent::OnUpdate(float dt, Entity& owner) {
     if (!m_fdm || !m_fdm->Ready()) return;
 
-    // Controls first, then time. The inputs a script set this frame must be in
+    Scene* scene = Scene::Current();
+
+    // Tell the simulation how high the ground is HERE, before it takes a step.
+    //
+    // A flight model has a ground in it - undercarriage, wheels that take
+    // weight, an airframe that strikes - but no idea what shape the landscape
+    // is. Left untold it believes the world is a flat sea at zero, so an
+    // aircraft at 300 m over a 700 m mountain reads as 300 m up in clear air
+    // and flies straight through the hill. This one line is what makes the
+    // landscape exist as far as the aerodynamics are concerned.
+    //
+    // Sampled at the aircraft's own position and therefore re-sampled every
+    // frame, because the answer changes as it moves.
+    if (scene) {
+        const FlightState& prev = m_fdm->State();
+        m_fdm->SetTerrainElevation(GroundHeightAt(*scene, prev.x, prev.z));
+    }
+
+    // Controls next, then time. The inputs a script set this frame must be in
     // place before the steps that respond to them run.
     m_fdm->SetControls(m_controls);
     m_fdm->Advance(dt);
 
     const FlightState& s = m_fdm->State();
+
+    ReportGroundContact(owner, s);
 
     const Vector3    worldPos{s.x, s.y, s.z};
     const Quaternion worldRot{s.qx, s.qy, s.qz, s.qw};
@@ -149,7 +254,6 @@ void JSBSimComponent::OnUpdate(float dt, Entity& owner) {
     // normally is - the two are the same thing and the values go straight
     // across. This is the same world/local bridge Physics.cpp crosses when it
     // writes a simulated body back onto its entity.
-    Scene* scene = Scene::Current();
     const Entity* parent =
         (scene && owner.parent != kInvalidEntity) ? scene->FindConst(owner.parent)
                                                   : nullptr;
@@ -240,6 +344,8 @@ void JSBSimComponent::OnInspector() {
     ImGui::Separator();
     ImGui::Text("%.0f kt  M%.2f", s.airspeedKt, s.mach);
     ImGui::Text("%.0f m  (%.0f ft)", s.altitudeM, s.altitudeFt);
+    ImGui::Text("%.0f m above ground%s", s.altitudeAglM,
+                m_onGround ? "  [ON GROUND]" : "");
     ImGui::Text("alpha %.1f  beta %.1f  %.1f g", s.alphaDeg, s.betaDeg,
                 s.loadFactor);
     ImGui::Text("roll %.0f  pitch %.0f  hdg %.0f", s.rollDeg, s.pitchDeg,

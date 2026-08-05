@@ -101,6 +101,13 @@ struct FlightState {
     float altitudeM  = 0.0f;   // the same altitude in metres, for game logic
     float mach       = 0.0f;   // speed as a fraction of the local speed of sound
 
+    // Height above the GROUND, metres - which over a landscape is a completely
+    // different number from height above sea level, and is the one that decides
+    // whether the aircraft is about to hit something. Zero or below means it is
+    // touching. Only meaningful once SetTerrainElevation has been told where the
+    // ground is; without that the simulation believes the world is all sea.
+    float altitudeAglM = 0.0f;
+
     // The aerodynamic state. These are what make an FDM worth having: they say
     // HOW the aircraft is flying, not merely where it is.
     float alphaDeg     = 0.0f;   // angle of attack - large means near a stall
@@ -169,6 +176,12 @@ struct FlightStart {
     // The initial climb or dive angle, degrees, positive up. Zero is level.
     float pathAngleDeg = 0.0f;
 
+    // How high the ground is beneath the starting point, metres above sea
+    // level. Set alongside the position, because "3000 m up" over a 700 m
+    // mountain range is 2300 m of air, and the simulation has to agree with the
+    // landscape from the first step rather than from the first update.
+    float terrainElevationM = 0.0f;
+
     // Solve for the controls that hold this condition before the first step, so
     // the run does not begin with the aircraft already pitching. Worth leaving
     // on; it costs a few milliseconds once.
@@ -218,6 +231,20 @@ public:
     // spring back on its own, exactly like a real one being held.
     void SetControls(const FlightControls& controls);
     const FlightControls& Controls() const;
+
+    // Tell the simulation how high the ground is beneath the aircraft, in
+    // metres above sea level.
+    //
+    // THIS MATTERS MORE THAN IT LOOKS. A flight dynamics model has a ground in
+    // it: undercarriage that touches down, wheels that take weight, an airframe
+    // that strikes. But it has no idea what shape the landscape is, so unless
+    // it is told, it believes the entire world is a flat sea at zero - and an
+    // aircraft flying at 300 m over a 700 m mountain is, as far as the
+    // simulation is concerned, 300 m up in clear air.
+    //
+    // The value is only correct beneath the aircraft's CURRENT position, so
+    // over a landscape this has to be updated as it moves, every frame.
+    void SetTerrainElevation(float metresAboveSeaLevel);
 
     // Advance by `dt` seconds of game time.
     //

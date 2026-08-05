@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace eng { class Scene; }   // GroundHeightAt below only needs the name
+
 namespace eng {
 
 // How many of `octaves` a terrain mesh of this resolution can actually show.
@@ -168,4 +170,24 @@ private:
     bool  m_built = false;
     bool  m_tried = false;
 };
+
+// How high the ground is at a WORLD point, in world metres. Returns 0 - which
+// reads as sea level - when the scene has no terrain, so a caller can use it
+// without first asking whether a landscape exists.
+//
+// This is what anything standing on or flying over the landscape needs: a gun
+// emplacement, a spawn point, and the flight model, which has to be told where
+// the ground is or it assumes the whole world is at sea level.
+//
+// The terrain is drawn through its entity's world matrix, so a world point is
+// brought into the terrain's own frame before being looked up and the answer
+// carried back out. Going through the matrix rather than assuming the terrain
+// sits unrotated at the origin means a moved, turned or scaled terrain still
+// answers correctly.
+//
+// It lives here, beside the height function it wraps, because there are now two
+// callers - the `Scene.groundHeight` binding and JSBSimComponent - and two
+// copies of a coordinate conversion is exactly how the two come to disagree.
+float GroundHeightAt(Scene& scene, float worldX, float worldZ);
+
 } // namespace eng
