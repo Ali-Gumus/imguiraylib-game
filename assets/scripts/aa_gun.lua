@@ -62,15 +62,47 @@ properties = {
     -- neighbours. 30 metres above the gun is enough to clear the emplacement.
     min_target_height = 30,
 
-    -- How far in front of the mounting each shell appears. Must clear the gun's
-    -- own collider, or the shell is born inside a solid object and is shoved
-    -- aside instead of flying. See gun.lua for the same trap.
-    -- It MUST clear hit_radius, measured from the collider's centre. With a
-    -- 20 metre ball sitting 5 metres up, a muzzle 14 metres forward is still
-    -- inside it - sqrt(14^2 + 5^2) is under 15 - and a shell born inside a solid
-    -- object is shoved aside instead of flying, which reads as the gun simply
-    -- not shooting. Raise this whenever hit_radius rises.
-    muzzle = 26,
+    -- WHERE THE END OF THE BARREL IS, as an offset from the entity's own
+    -- position, in metres. Three numbers rather than one, because a muzzle is a
+    -- POINT ON THE MODEL and a single distance along the nose can only ever
+    -- describe a gun whose barrel comes out of its own origin.
+    --
+    -- The three axes are the GUN'S OWN, not the world's:
+    --   muzzle_forward - down the barrel, the way it is aiming
+    --   muzzle_up      - how high the barrel sits above the entity's position,
+    --                    which is at ground level (a vehicle's wheels)
+    --   muzzle_right   - sideways, for a barrel that is not on the centreline
+    --
+    -- Using the gun's own axes rather than the world's matters because
+    -- aa_gun.lua turns the WHOLE ENTITY to aim, so the body tips back as it
+    -- elevates. A point fixed in the model's axes tips with it and stays on the
+    -- barrel; a fixed height in WORLD axes stays level while the model rises
+    -- out from under it, and the flash drifts off the barrel exactly when the
+    -- gun is doing the most interesting thing.
+    --
+    -- These depend entirely on HOW BIG THE MODEL IS DRAWN, which is `scale` in
+    -- models.lua. The mesh was measured with raylib: 389.2 x 305.3 x 364.8 in
+    -- its own units, so at the scale of 0.1 the game uses it is drawn about
+    --     38.9 wide x 30.5 tall x 36.5 deep METRES,
+    -- with its pivot at the BOTTOM (which is right for something standing on
+    -- the ground) but sitting 3.2 m off centre sideways - which is one reason
+    -- `muzzle_right` is worth having.
+    --
+    -- The values below follow from that: roughly the front face (half of 36.5)
+    -- and high up the body. TUNE THEM BY EYE - they are a starting point from
+    -- the geometry, not a claim about where the barrel art actually is.
+    --
+    -- The muzzle MUST also clear the gun's own collider, or the shell is born
+    -- inside a solid object and is shoved aside instead of flying, which reads
+    -- as the gun simply not shooting. The collider is a ball of `hit_radius`
+    -- centred `hit_offset_y` above the entity, so what has to exceed
+    -- `hit_radius` is the distance from THAT centre, not from the entity.
+    -- Checked for the values below: the offset (0, 20, 18) is
+    -- sqrt((20-5)^2 + 18^2) = 23.4 m from the ball's centre, clearing its 20 m
+    -- radius. Re-check this whenever hit_radius or these numbers change.
+    muzzle_forward = 18,
+    muzzle_up      = 20,
+    muzzle_right   = 0,
 
     -- The size of its hittable volume, so the player can destroy it.
     --
@@ -100,6 +132,13 @@ properties = {
     body_width  = 9,
     body_height = 5,
     body_depth  = 12,
+
+    -- Where the death explosion goes off, and how big it is. Up the gun's own
+    -- axis from its position, for the same reason the muzzle is: the entity's
+    -- position is on the ground, so a blast centred there goes off under the
+    -- vehicle instead of on it. Half the 30.5 m drawn height, measured above.
+    explode_up   = 15,
+    explode_size = 1.5,
 }
 
 -- Runtime state.
@@ -110,6 +149,27 @@ local cooldown = 0            -- seconds until it can fire again
 -- means this works against any aircraft however it is being moved.
 local px, py, pz = nil, nil, nil
 local vx, vy, vz = 0, 0, 0
+
+-- Where the end of the barrel is in the world, from the three offsets above.
+--
+-- The transform hands back its own three axes as world-space unit vectors, so
+-- the offset is applied by walking that many metres along each in turn. This is
+-- the standard way to turn a point ON an object into a point IN the world, and
+-- it is why the offsets are written in the gun's axes rather than the world's:
+-- the axes themselves carry whichever way the gun happens to be pointing.
+--
+-- Returns three numbers rather than a table, matching how the rest of this API
+-- talks about positions (Fx.burst and Scene.spawn both take loose x, y, z).
+local function muzzlePoint(t)
+    local P = properties
+    local p = t.position
+    local f = t:forward()
+    local u = t:up()
+    local r = t:right()
+    return p.x + f.x * P.muzzle_forward + u.x * P.muzzle_up + r.x * P.muzzle_right,
+           p.y + f.y * P.muzzle_forward + u.y * P.muzzle_up + r.y * P.muzzle_right,
+           p.z + f.z * P.muzzle_forward + u.z * P.muzzle_up + r.z * P.muzzle_right
+end
 
 function onStart(entity)
     local P = properties
@@ -246,21 +306,36 @@ function onUpdate(entity, dt)
     --
     -- No velocity is passed because the gun is bolted to the ground: unlike an
     -- aircraft it has no motion of its own to add to the muzzle velocity.
-    Scene.spawn("AAShell",
-        gp.x + f.x * P.muzzle, gp.y + f.y * P.muzzle, gp.z + f.z * P.muzzle,
-        f.x, f.y, f.z,
-        "assets/scripts/enemy_bullet.lua")
+    local mx, my, mz = muzzlePoint(t)
+    Scene.spawn("AAShell", mx, my, mz, f.x, f.y, f.z,
+                "assets/scripts/enemy_bullet.lua")
 
-    Fx.burst("muzzle", gp.x + f.x * P.muzzle, gp.y + f.y * P.muzzle,
-             gp.z + f.z * P.muzzle, 1.5)
-    Audio.playAt("shot", gp.x, gp.y, gp.z)
+    -- The flash belongs at the end of the barrel, not at the vehicle, which is
+    -- the whole reason the muzzle is a point rather than a distance.
+    Fx.burst("muzzle", mx, my, mz, 1.5)
+    Audio.playAt("shot", mx, my, mz)
 end
 
 -- Blow up when destroyed, and pay out. Ground targets are worth more than a
 -- helicopter because killing one means flying into its own engagement range.
 function onDestroy(entity)
-    local p = entity.transform.position
+    local P = properties
+    local t = entity.transform
+    local p = t.position
     Hud.add("score", 3)
-    Fx.burst("explosion", p.x, p.y, p.z, 1.5)
+
+    -- Centred on the BODY, not on the entity's position. The model's pivot is at
+    -- the bottom of the mesh, because that is what a thing standing on the
+    -- ground wants - the entity's position is where its wheels are. An explosion
+    -- there goes off under the vehicle and reads as a blast in the dirt beside
+    -- it rather than as the vehicle itself coming apart.
+    --
+    -- `explode_up` rather than the collider's own `hit_offset_y`, because the two
+    -- answer different questions: one is where the thing LOOKS like it is, and
+    -- the other is what a shell has to touch to count as a hit.
+    local u = t:up()
+    Fx.burst("explosion", p.x + u.x * P.explode_up,
+                          p.y + u.y * P.explode_up,
+                          p.z + u.z * P.explode_up, P.explode_size)
     Audio.playAt("explosion", p.x, p.y, p.z)
 end

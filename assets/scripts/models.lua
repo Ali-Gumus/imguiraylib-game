@@ -117,26 +117,33 @@ Model.define("jet", {
 -- middle.
 -- =============================================================================
 
--- The anti-aircraft vehicle: a 96L6E mobile radar on its transporter.
+-- The anti-aircraft gun emplacement.
 --
--- Measured 598.4 x 855.3 x 1383.3 in its own units, with its longest axis
--- already along Z - the engine's forward - so it needs no rotation. The real
--- vehicle is about 13 metres long, so 13/1383.3 = 0.0094. That implies 5.6 m
--- wide and 8.0 m tall, which is the right shape for one with its array raised:
--- a second and third dimension agreeing is the check that the first was read
--- off the correct axis.
+-- Measured with raylib: 389.2 x 305.3 x 364.8 in its own units, so at the 0.1
+-- below it is drawn about 38.9 x 30.5 x 36.5 METRES. That is roughly ten times
+-- a real towed anti-aircraft gun, and it is deliberate rather than an error:
+-- these stand three to nine kilometres away, and something the true size is
+-- invisible at that range while still shooting at you, which reads as being
+-- shot at by nothing. `hit_radius` in aa_gun.lua is 20 - a 40 m ball - which
+-- was tuned to this drawn size, so the collider and the model do agree.
 --
--- Its pivot sits at the BOTTOM of the mesh (the measured centre is 427.7 up a
--- 855-unit body), which is what you want for something standing on the ground:
--- the entity's position is where its wheels are. Left uncentred for that reason.
+-- Its pivot sits at the BOTTOM of the mesh, which is what you want for
+-- something standing on the ground: the entity's position is where its base is.
+-- Left uncentred for that reason. Note it is 31.7 units - about 3.2 m - off
+-- centre SIDEWAYS, which is why aa_gun.lua's muzzle offset has a sideways axis.
 --
 -- aa_gun.lua turns the whole entity to aim, so it will tip about that base
 -- rather than traversing a turret. Set `rot` if it ends up facing the wrong way.
+--
+-- (The scale is NOT derived from a known real dimension the way the other
+-- models here are. The mesh is nearly cubic, so there is no obvious length to
+-- divide by, and 0.1 was chosen for visibility. The muzzle and explosion
+-- offsets in aa_gun.lua are fitted to it, so changing it means retuning those.)
 Model.define("aa_vehicle", {
     file    = "assets/models/mp_drum_artillery_dam.obj",
     texture = "assets/models/mp_drum_artillery_boforsbody_c.jpeg",
     scale   = 0.1,
-    rot   = {0, 0, 0},
+    rot   = {0, 90, 0},
     pos   = {0, 0, 0},
 })
 
