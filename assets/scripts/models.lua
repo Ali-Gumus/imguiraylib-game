@@ -15,6 +15,22 @@
 --
 -- Fields (all optional except the file):
 --   file    path to the model, relative to the project root (.obj/.glb/.gltf)
+--   texture an image painted over the model, relative to the project root.
+--           LEAVE IT OUT for a model that carries its own textures inside it,
+--           which a .glb normally does.
+--
+--           It is for the other kind: a mesh distributed alongside loose image
+--           files. An .obj always is - its .mtl names images by a path that
+--           stops being true the moment the files are moved - and a .gltf often
+--           is too. When the material ends up with no image, the mesh draws
+--           with a plain white one, so the model appears in the right place at
+--           the right size in a flat untextured colour. That looks far more
+--           like a lighting problem than a missing file, which is what makes it
+--           worth knowing about.
+--
+--           One image covers every material on the model. A mesh split into
+--           several parts each wanting its own image cannot be described here;
+--           that needs the model file's own material data to be right.
 --   scale   how much to resize the MODEL. Model files vary enormously in what
 --           one unit means; this brings them into the game's own scale, where
 --           one unit is one metre. It resizes the drawing only - the entity
@@ -114,8 +130,9 @@ Model.define("jet", {
 -- aa_gun.lua turns the whole entity to aim, so it will tip about that base
 -- rather than traversing a turret. Set `rot` if it ends up facing the wrong way.
 Model.define("aa_vehicle", {
-    file  = "assets/models/96l6e_mobile_anti-air_radar.glb",
-    scale = 0.0094,
+    file    = "assets/models/mp_drum_artillery_dam.obj",
+    texture = "assets/models/mp_drum_artillery_boforsbody_c.jpeg",
+    scale   = 0.1,
     rot   = {0, 0, 0},
     pos   = {0, 0, 0},
 })
@@ -128,7 +145,7 @@ Model.define("aa_vehicle", {
 -- assuming 1.0.
 Model.define("hangar", {
     file  = "assets/models/aircraft_hangar.glb",
-    scale = 1.0,
+    scale = 6.0,
     rot   = {0, 0, 0},
     pos   = {0, 0, 0},
 })
@@ -139,7 +156,7 @@ Model.define("hangar", {
 -- its own file whenever you have one.
 Model.define("hut", {
     file  = "assets/models/aircraft_hangar.glb",
-    scale = 0.5,
+    scale = 4,
     rot   = {0, 0, 0},
     pos   = {0, 0, 0},
 })
