@@ -74,23 +74,26 @@ Model.define("heli", {
     pos   = {-9.9, -276.8, 227.2},
 })
 
--- The player's jet, for reference and for spawning allies later. Nothing
--- spawns this yet.
+-- An F-16, for spawning allies or a second player aircraft. Nothing spawns this
+-- yet, so it costs nothing until something does.
 --
--- Measured 250.0 x 59.4 x 152.6 in its own units, and built along X rather
--- than Z, which is what the rot below turns round. An F-14 is 19.1 metres
--- long, so 19.1/250 = 0.0764. Its wings are swept in this model, and the
--- width that scale implies is 11.66 metres against a real swept span of
--- 11.58 -- again, a second dimension agreeing.
+-- These numbers are COPIED FROM THE PLAYER'S OWN JET rather than measured
+-- again. That aircraft is authored in the scene file with its model already
+-- sized and centred, so anything spawned from here comes out identical to the
+-- one being flown - which is the point of an ally looking like a wingman rather
+-- than like a different aeroplane.
 --
--- Its pivot sits 160 units out along X, which is over twelve metres once
--- scaled: far outside the aircraft, so without the shift below it would swing
--- around a point in mid-air rather than bank about itself.
+-- If the player's jet is ever re-tuned in the Inspector, copy the three numbers
+-- across again: the scene file and this define are two separate records of the
+-- same set-up and nothing keeps them in step automatically.
+--
+-- It used to name an F-14 that is no longer in the project, which loaded
+-- nothing and reported `mdl?` in the toolbar.
 Model.define("jet", {
-    file  = "assets/models/f-14_tomcat_top_gun_gear_up_downloadable.glb",
-    scale = 0.0764,
-    rot   = {0, -90, 0},
-    pos   = {-160.8, -94.1, -29.7},
+    file  = "assets/models/f16-c_falcon.glb",
+    scale = 1.71,
+    rot   = {0, 0, 0},
+    pos   = {0, -10, 0.8},
 })
 
 -- =============================================================================
