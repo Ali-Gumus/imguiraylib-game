@@ -233,6 +233,19 @@ function onUpdate(entity, dt)
     -- shows what the pilot has asked for.
     Hud.set("throttle", throttle)
 
+    -- Fuel, for the gauge and the low-fuel caption. Published as BOTH a
+    -- fraction and a quantity: the fraction drives the bar and the warning
+    -- thresholds without the HUD needing to know what this aircraft's tanks
+    -- hold, and the pounds are what a pilot can actually reason about.
+    --
+    -- Only a flight model that HAS fuel publishes these, which is why the HUD
+    -- hides the gauge rather than drawing an empty one: flight_sim.lua has no
+    -- fuel in it at all, and a gauge reading zero would be a lie rather than an
+    -- absence. With the component's `unlimitedFuel` ticked the fraction simply
+    -- stays at 1 and the gauge sits full, which is the truth in that case too.
+    Hud.set("fuel", jsb.fuel)
+    Hud.set("fuel_fraction", jsb.fuelFraction)
+
     -- Tie the engine note to how hard the engine is actually working rather
     -- than to the lever. A jet takes seconds to spool up, and a note that
     -- follows the lever instead sounds like a switch being flicked - the lag is

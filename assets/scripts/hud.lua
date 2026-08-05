@@ -100,6 +100,7 @@ properties = {
     show_tapes  = 1,   -- airspeed, altitude and heading scales
     show_fpm    = 1,   -- the flight path marker
     show_bank   = 1,   -- the bank scale and its pointer
+    show_fuel   = 1,   -- the fuel gauge and its low-fuel caption
 
     -- How many degrees apart the pitch ladder bars are. Ten is the usual choice;
     -- five gives a finer ladder for gentle flying and clutters a fast one.
@@ -109,6 +110,20 @@ properties = {
     -- flight_sim.lua models stalls at roughly 57 metres per second, so 70 gives
     -- a little warning before it actually happens rather than after.
     stall_speed = 70,
+
+    -- The fractions of a full load at which the fuel gauge starts warning and
+    -- then goes red, and at which the caption begins to flash.
+    --
+    -- Both are shares of what the run STARTED with rather than of tank
+    -- capacity, because that is what the flight model publishes and it is the
+    -- honest question: a quarter of what you took off with is a quarter of your
+    -- endurance, whatever the tanks could theoretically hold.
+    --
+    -- A quarter is early enough to still do something about it. Real aircraft
+    -- call this "bingo" - the point at which you turn for home - and the whole
+    -- value of the number is that it arrives before the problem does.
+    fuel_warn = 0.25,
+    fuel_low  = 0.10,
 
     -- The speed of sound in metres per second, used only to turn airspeed into a
     -- Mach number. 340 is the sea-level figure; it genuinely falls with altitude
@@ -753,6 +768,51 @@ function onDrawHud(entity, w, h)
     end
 
     -- =======================================================================
+    -- FUEL, bottom left, directly above the power gauge
+    --
+    -- Beside the throttle on purpose: the throttle is what SPENDS this, and a
+    -- pilot deciding whether to use the afterburner wants both numbers in one
+    -- glance rather than at opposite corners of the glass.
+    --
+    -- Published by the flight script, and ABSENT when there is none - a flight
+    -- model with no fuel in it (flight_sim.lua) publishes nothing, and the gauge
+    -- then hides itself rather than reading zero and claiming an empty aircraft.
+    -- That is the same -1 sentinel the airspeed and the power gauge use.
+    -- =======================================================================
+    local fuel_frac = -1
+    if P.show_fuel > 0 then fuel_frac = Hud.get("fuel_fraction", -1) end
+    if fuel_frac >= 0 then
+        fuel_frac = clamp(fuel_frac, 0, 1)
+        local bx, by, bw, bh = 28, h - 84, 168, 12
+
+        -- Amber then red as it empties, matching the damage bar. Colour
+        -- registers before a length does: you see "red" before you have read
+        -- how much bar is left, which is the whole point of a warning colour.
+        local tone = "hud"
+        if fuel_frac < P.fuel_low then tone = "bad"
+        elseif fuel_frac < P.fuel_warn then tone = "warn" end
+
+        -- The pounds are shown as well as the percentage where the flight model
+        -- publishes them. A percentage says how much is left; a quantity is what
+        -- you can actually reason about against a distance home.
+        local lbs = Hud.get("fuel", -1)
+        local label = string.format("FUEL %3.0f%%", fuel_frac * 100)
+        if lbs >= 0 then
+            label = string.format("FUEL %3.0f%%  %d LB", fuel_frac * 100,
+                                  math.floor(lbs + 0.5))
+        end
+        text_l(label, bx, by - 16, 18, tone)
+
+        Draw.rectLines(bx, by, bw, bh)
+        Draw.rect(bx + 2, by + 2, (bw - 4) * fuel_frac, bh - 4, tone)
+
+        -- A mark at the warning fraction, so "getting low" is a place on the
+        -- gauge rather than a number to remember.
+        Draw.line(bx + bw * P.fuel_warn, by - 3,
+                  bx + bw * P.fuel_warn, by + bh + 3)
+    end
+
+    -- =======================================================================
     -- DAMAGE, bottom centre
     --
     -- Scene.health returns current and maximum together. An entity with no
@@ -800,6 +860,21 @@ function onDrawHud(entity, w, h)
             text_c("STALL", cx, wy, 26, "warn")
         elseif hpmax > 0 and hp / hpmax < 0.25 then
             text_c("DAMAGE", cx, wy, 26, "bad")
+        end
+
+        -- Low fuel gets its OWN line rather than joining the cascade above,
+        -- because running dry and being shot up are unrelated problems and
+        -- hiding one behind the other is how a pilot gets surprised by the
+        -- quiet one. An aircraft can perfectly well be damaged AND low on fuel,
+        -- and that is exactly when both need saying.
+        --
+        -- Running out is not survivable in the way a stall is: there is no
+        -- thrust afterwards, at any throttle setting, for the rest of the
+        -- flight. So the caption goes red at fuel_low rather than staying amber.
+        if fuel_frac >= 0 and fuel_frac < P.fuel_warn then
+            text_c(fuel_frac < P.fuel_low and "FUEL" or "LOW FUEL",
+                   cx, wy + 30, 24,
+                   fuel_frac < P.fuel_low and "bad" or "warn")
         end
     end
 
