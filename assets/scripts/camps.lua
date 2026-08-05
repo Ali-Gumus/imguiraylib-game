@@ -53,6 +53,16 @@ properties = {
     -- Fixes the layout: the same seed builds the same world every run, which
     -- makes the map learnable and a bug reproducible. Change it for a new one.
     seed = 20260803,
+
+    -- Seconds between the last camp falling and a fresh set appearing
+    -- elsewhere on the map.
+    --
+    -- Camps used to be built once and never again, which left the game in a
+    -- strange state: the aircraft kept coming wave after wave while the ground
+    -- war was simply over, and the objective counter sat at zero for the rest
+    -- of the run. A pause first, so that finishing the last one is a moment
+    -- rather than something immediately undone.
+    rebuild_delay = 8,
 }
 
 -- A repeatable pseudo-random sequence, written out rather than using
@@ -92,9 +102,19 @@ local function placeOnGround(name, x, z, lift, dirx, diry, dirz,
     Scene.spawn(name, x, y, z, dirx, diry, dirz, script, tag, hp, model)
 end
 
-function onStart(entity)
+-- Seconds until the next set is built, once the field is clear. `nil` means
+-- there are camps standing and nothing is pending.
+local rebuildIn = nil
+
+-- Build one complete set of camps. Called at the start, and again each time the
+-- last one is destroyed.
+--
+-- The random sequence is NOT reseeded here, so each set carries on from where
+-- the previous one stopped and lands somewhere new - while the whole run stays
+-- reproducible from the one seed in the properties. Reseeding per set would
+-- rebuild the same four camps in the same places for ever.
+local function buildCamps()
     local P = properties
-    rngState = P.seed
 
     for camp = 1, P.camp_count do
         -- Camps are placed by ANGLE AND DISTANCE from the origin rather than by
@@ -153,10 +173,39 @@ function onStart(entity)
     end
 end
 
+function onStart(entity)
+    rngState  = properties.seed
+    rebuildIn = nil
+    buildCamps()
+end
+
 function onUpdate(entity, dt)
     -- How many camps are still standing, for the HUD. Counted rather than
-    -- remembered, so it cannot drift out of step with the world: an HQ that is
+    -- remembered, so it cannot drift out of step with the world: a camp that is
     -- destroyed stops being counted the moment it is gone, whatever destroyed
     -- it and whether or not anything told this script about it.
-    Hud.set("camps", Scene.count("camp"))
+    local standing = Scene.count("camp")
+    Hud.set("camps", standing)
+
+    -- A fresh set once the map is cleared, after a pause.
+    --
+    -- Deliberately NOT tied to the wave counter, even though the aircraft are.
+    -- The two are separate fronts: waves arrive on their own schedule and camps
+    -- replace themselves on theirs, so clearing the ground does not wait on the
+    -- air being clear or the other way round. It also keeps this script from
+    -- needing to know anything about gamemanager.lua.
+    if standing > 0 then
+        rebuildIn = nil
+        return
+    end
+
+    -- The count is zero for the frame in which a set is built too, because a
+    -- spawn is only queued and lands at the end of the frame. Resetting the
+    -- timer after building rather than clearing it is what stops that reading
+    -- as "still empty" and building a second set on top of the first.
+    rebuildIn = (rebuildIn or properties.rebuild_delay) - dt
+    if rebuildIn > 0 then return end
+
+    buildCamps()
+    rebuildIn = properties.rebuild_delay
 end
