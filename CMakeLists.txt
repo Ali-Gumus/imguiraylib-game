@@ -164,6 +164,33 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(JoltPhysics)
 
+# ---- JSBSim (flight dynamics) ----------------------------------------
+# The aerodynamics of a real aircraft: lift, drag, thrust, control surfaces
+# and the moments they produce, read from an aircraft description rather
+# than hand-tuned. It replaces the energy model in flight_sim.lua.
+#
+# Like Jolt, its build script expects to be the top-level project, so the
+# options below switch off everything that is not the library itself. Each
+# is here because it either fails to build as a guest or drags in a
+# dependency this project has no use for:
+#   - the Python module needs Python and Cython
+#   - the utilities and tests are stand-alone programs
+#   - the docs need Doxygen
+#   - SYSTEM_EXPAT would look for a system XML parser; JSBSim ships its own
+set(BUILD_SHARED_LIBS      OFF CACHE BOOL "" FORCE)
+set(BUILD_PYTHON_MODULE    OFF CACHE BOOL "" FORCE)
+set(BUILD_UTILITIES        OFF CACHE BOOL "" FORCE)
+set(BUILD_DOCS             OFF CACHE BOOL "" FORCE)
+set(SYSTEM_EXPAT           OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTS           OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    jsbsim
+    GIT_REPOSITORY https://github.com/JSBSim-Team/jsbsim.git
+    GIT_TAG        v1.3.1        # pinned like every other dependency
+)
+FetchContent_MakeAvailable(jsbsim)
+
 add_library(rlimgui STATIC ${rlimgui_SOURCE_DIR}/rlImGui.cpp)
 target_include_directories(rlimgui PUBLIC ${rlimgui_SOURCE_DIR})
 # rlImGui's code includes both raylib.h and imgui.h, so it must link both.
@@ -224,7 +251,14 @@ add_library(engine STATIC
 # PUBLIC: anything linking engine can #include "engine/Application.h".
 target_include_directories(engine PUBLIC src)
 # PUBLIC so editor code can also call raylib/ImGui directly for its panels.
-target_link_libraries(engine PUBLIC rlimgui sol2 lua nlohmann_json::nlohmann_json Jolt)
+target_link_libraries(engine PUBLIC rlimgui sol2 lua nlohmann_json::nlohmann_json Jolt libJSBSim)
+# JSBSim's headers are not exported by its target, so the path is given here.
+# PRIVATE, and that is the intention rather than an oversight: JSBSim is to be
+# quarantined inside one file the way Jolt is inside Physics.cpp (see §5.19 of
+# the handover). Anything that can include <FGFDMExec.h> can leak its types into
+# a header, and JSBSim brings its own SGPath, FGColumnVector3 and a namespace
+# full of short names into a project that already has raylib's globals.
+target_include_directories(engine PRIVATE ${jsbsim_SOURCE_DIR}/src)
 # Win32 native file dialogs (FileDialog.cpp): common dialog + window APIs.
 target_link_libraries(engine PUBLIC comdlg32 user32)
 # sol2's "safety on" mode: friendly errors instead of crashes when Lua
