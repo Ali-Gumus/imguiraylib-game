@@ -90,6 +90,27 @@ properties = {
     sound_volume_up = 1.0,
     sound_pitch     = 1.5,
     sound_pitch_up  = 1.0,
+
+    -- --- Meeting the ground -------------------------------------------------
+    -- Three outcomes, decided by how fast the aircraft is going DOWN when it
+    -- arrives and whether it is in any state to be landing.
+    --
+    -- A LANDING needs all three: the gear down, the wings roughly level, and a
+    -- descent rate no worse than a firm arrival. Get all three right and it
+    -- costs nothing. This is what the gear key is for, and it is genuinely
+    -- possible now that the flight model knows where the ground is.
+    landing_speed = 5,     -- metres per second of descent, at most
+    landing_bank  = 15,    -- degrees of roll, at most
+
+    -- A SCRAPE is everything gentle that is not a landing: clipping a hilltop,
+    -- or putting it down wheels-up. It hurts but is survivable, so misjudging a
+    -- low pass is a fright rather than an instant end to the run.
+    scrape_speed  = 15,    -- descent rate below which contact only damages
+    scrape_damage = 1,     -- hit points lost. The jet starts with 3
+
+    -- A CRASH is anything faster. The number is large rather than exact
+    -- because it must finish the aircraft whatever its remaining health is.
+    crash_damage  = 999,
 }
 
 -- State that must persist between frames. The control positions live here
@@ -100,6 +121,7 @@ local aileron  = 0
 local rudder   = 0
 local throttle = 0
 local gear_down = false
+local wrecked   = false   -- has the ground already finished this aircraft off?
 
 -- Move `current` toward `target` at `rate` units per second, without
 -- overshooting. This is the whole of the ramping described above, and it is
@@ -135,6 +157,7 @@ function onStart(entity)
     throttle = properties.start_throttle
     elevator, aileron, rudder = 0, 0, 0
     gear_down = false
+    wrecked   = false
 
     -- Start the engine note. It runs for as long as the aircraft exists; the
     -- volume and pitch are set every frame below.
@@ -210,4 +233,87 @@ function onUpdate(entity, dt)
     Audio.loopAt("jet", p.x, p.y, p.z,
                  P.sound_volume + power * P.sound_volume_up,
                  P.sound_pitch  + power * P.sound_pitch_up)
+end
+
+-- Called by the engine when this aircraft strikes something.
+--
+-- TWO DIFFERENT KINDS OF EVENT ARRIVE HERE, and telling them apart is the first
+-- thing this does:
+--
+--   * A PHYSICS contact, from the rigid-body simulation. An enemy round hitting
+--     the aircraft reports to both sides, so this hook is called for it - but
+--     the round's own script already applies the damage, plays the sound and
+--     destroys itself. There is nothing to do on this side, and doing anything
+--     would double it.
+--
+--   * A GROUND strike, from the flight model. This one has no rigid-body
+--     contact behind it at all: a kinematic aircraft against static terrain is
+--     a pair the physics simulation never tests, whatever motion type it is
+--     given, so the flight model - which is the only thing that knows the shape
+--     of the landscape - reports it instead.
+--
+-- The two are separated by asking whether what was hit IS the terrain, rather
+-- than by its tag: a tag is a string anyone can rename in the Inspector, and
+-- getting this test wrong means either being shot down by hilltops or flying
+-- through them.
+--
+-- `speed` is the DOWNWARD closing speed, not the total. That distinction is the
+-- whole of the landing/crash judgement: an aircraft crossing a valley at 600
+-- metres per second is not hitting anything, and one settling onto the ground
+-- at 2 is doing it on purpose.
+function onCollision(entity, other, speed, x, y, z)
+    if not other:hasComponent_Terrain() then return end
+
+    -- The ground is large and the aircraft may touch it repeatedly while it
+    -- slides to a halt. Once it has been written off, stop reacting.
+    if wrecked then return end
+
+    local P = properties
+    local jsb = entity:getComponent_JSBSim()
+    local roll = jsb and math.abs(jsb.roll) or 0
+
+    -- --- A landing ----------------------------------------------------------
+    -- Gear down, wings level, and arriving gently. Costs nothing, and is worth
+    -- having as a real outcome rather than as a technicality: it is the only
+    -- reason the gear key exists.
+    if gear_down and speed <= P.landing_speed and roll <= P.landing_bank then
+        Audio.playAt("impact", x, y, z)
+        return
+    end
+
+    -- --- A scrape -----------------------------------------------------------
+    -- Slow, but not a landing: wheels up, or a wing down, or a clipped hilltop.
+    -- Survivable, so a misjudged low pass is a fright rather than the end.
+    if speed < P.scrape_speed then
+        Fx.burst("spark", x, y, z)
+        Audio.playAt("impact", x, y, z)
+        Scene.damage(entity, P.scrape_damage)
+        return
+    end
+
+    -- --- A crash ------------------------------------------------------------
+    -- Flying into the ground. Nothing survives this, so it is not scaled by
+    -- speed: the aircraft is finished whatever health it had left.
+    wrecked = true
+    Fx.burst("explosion", x, y, z, 3.0)
+    Audio.playAt("explosion", x, y, z)
+
+    -- Stop the engine note before the aircraft goes. There is one stream per
+    -- sound NAME rather than per source, and nothing stops it when the entity
+    -- that started it is destroyed - so without this the wreck keeps howling
+    -- over the game-over screen.
+    Audio.loopStop("jet")
+
+    -- Destroying the player is what ends the run: gamemanager.lua watches for
+    -- the player tag disappearing and raises the game-over screen. Damage
+    -- rather than a direct destroy, so the health bar and any other listener
+    -- see the same thing they would from being shot down.
+    Scene.damage(entity, P.crash_damage)
+end
+
+-- The aircraft is going away, for any reason - shot down, crashed, or the run
+-- being stopped. Silence the engine, since the loop is keyed by name and would
+-- otherwise outlive the thing making the noise.
+function onDestroy(entity)
+    Audio.loopStop("jet")
 end
