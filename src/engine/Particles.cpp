@@ -361,6 +361,36 @@ void DrawParticles(const Camera3D& camera) {
     // behind it, and the burst would break into visible plates.
     rlDisableDepthMask();
 
+    // --- The billboard's own axes, worked out ONCE for the whole burst -------
+    //
+    // WHY THIS IS NOT DrawBillboard(). raylib's convenience version is
+    // "billboard locked on axis-Y": it takes `right` from the camera but hard-
+    // codes `up` to WORLD up, {0,1,0}. That is right for a tree or a bush,
+    // which should stay upright however the camera moves - and quietly wrong
+    // for a particle.
+    //
+    // The failure is not a small one, and it appears exactly when the game is
+    // most interesting to look at. The chase camera ROLLS with the aircraft
+    // (see chasecam.lua), so in a banked turn the camera's right vector tilts
+    // toward the vertical - toward world up. The two vectors the quad is built
+    // from therefore converge: the square shears into a parallelogram, and as
+    // the bank approaches ninety degrees they become parallel and it collapses
+    // to a line. Effects look like flat cut-outs and then vanish, and because
+    // the quad is centred by stepping back along both axes, an unsquare one is
+    // also centred in the wrong PLACE - which reads as the effect sitting
+    // ahead of or behind where it was fired, depending which way the turn went.
+    //
+    // Taking BOTH axes from the view matrix fixes it. The quad is then always
+    // square-on to the camera whatever the camera is doing, which is what a
+    // billboard is for. The rows are the view matrix's first two columns, which
+    // is where raylib itself reads `right` from.
+    const Matrix matView = MatrixLookAt(camera.position, camera.target,
+                                        camera.up);
+    const Vector3 camUp{matView.m1, matView.m5, matView.m9};
+
+    // The whole texture, every time - these particles are one soft dot.
+    const Rectangle src{0.0f, 0.0f, (float)s_dot.width, (float)s_dot.height};
+
     for (const Particle& p : s_particles) {
         // How far through its life this particle is, from 0 at birth to 1 at
         // death. Everything visual is interpolated across that number.
@@ -378,7 +408,12 @@ void DrawParticles(const Camera3D& camera) {
         // a two-dimensional dot passes for a three-dimensional puff from every
         // angle. It is the standard way to draw particles: real geometry per
         // particle would cost hundreds of times more for no visible gain.
-        DrawBillboard(camera, s_dot, p.pos, size, col);
+        //
+        // The origin is half the size along each axis, which is what centres
+        // the square on the particle's position rather than hanging it from a
+        // corner.
+        DrawBillboardPro(camera, s_dot, src, p.pos, camUp, {size, size},
+                         {size * 0.5f, size * 0.5f}, 0.0f, col);
     }
 
     // Flush again while the state is still set, then restore it - otherwise the
