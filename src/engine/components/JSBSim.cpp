@@ -102,6 +102,7 @@ void JSBSimComponent::OnStart(Entity& owner) {
     start.airspeedKt   = startAirspeedKt;
     start.pathAngleDeg = startPathAngleDeg;
     start.trim         = trimOnStart;
+    start.fuelLb       = startFuelLb;
 
     // Where the ground is under the starting point, so the simulation agrees
     // with the landscape from its very first step. An aircraft authored at
@@ -367,6 +368,23 @@ void JSBSimComponent::OnInspector() {
                           "condition, so the run does not open with the\n"
                           "aircraft settling. Leave on unless investigating\n"
                           "what the untrimmed aircraft does.");
+
+    // Fuel load. Zero is a real setting here, not an empty field, so the label
+    // has to say what it means or it reads as "no fuel".
+    ImGui::DragFloat("Start fuel (lb)", &startFuelLb, 25.0f, 0.0f, 20000.0f,
+                     startFuelLb <= 0.0f ? "as the aircraft says"
+                                         : "%.0f lb");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How much fuel to take off with. ZERO means whatever\n"
+                          "the aircraft description carries - 3000 lb for the\n"
+                          "stock F-16.\n\n"
+                          "Spread across the tanks in the proportions the\n"
+                          "aircraft was authored with, so the centre of gravity\n"
+                          "stays put and tanks it carries EMPTY stay empty.\n"
+                          "Capacity still applies: the F-16's two internal tanks\n"
+                          "hold about 6970 lb between them, and more than that\n"
+                          "is clamped.\n\n"
+                          "Does nothing visible while Unlimited fuel is on.");
 
     ImGui::Checkbox("Unlimited fuel", &unlimitedFuel);
     if (ImGui::IsItemHovered())

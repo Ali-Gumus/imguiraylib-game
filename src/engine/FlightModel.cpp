@@ -282,6 +282,16 @@ struct FlightModel::Impl {
     }
     void Set(const char* name, double value) { fdm.SetPropertyValue(name, value); }
 
+    // How much fuel is aboard, in pounds, added up from the tanks themselves.
+    // See the note where this is used for why the propulsion model's own total
+    // is not trusted. A tank slot the aircraft does not have reads 0, so
+    // probing a fixed number of them costs nothing but a few lookups.
+    float TankTotalLb() const {
+        double sum = 0.0;
+        for (int i = 0; i < kMaxTanks; ++i) sum += Get(TankProperty(i).c_str());
+        return static_cast<float>(sum);
+    }
+
     // Copy the simulation's state into `state`, converting units and axes once.
     // Called after every Advance rather than on demand, so that reading the
     // state a dozen times in a frame costs a dozen struct reads instead of a
@@ -346,7 +356,16 @@ void FlightModel::Impl::Sample() {
     // rather than against the tanks' capacity - which is the number a gauge
     // should show when an aircraft is authored to take off half full, as the
     // stock F-16 is.
-    state.fuelLb = Get(kFuelLb);
+    // Summed from the TANKS rather than read from propulsion/total-fuel-lbs.
+    //
+    // That total is a value the propulsion model recomputes while it runs, so
+    // it is one step out of date the moment anything writes to a tank - and
+    // Reset does exactly that when a start load is asked for. Measured: loading
+    // 6000 lb and reading the total immediately afterwards still reported the
+    // 3000 the aircraft was authored with, which would have made the gauge
+    // divide by the wrong number and sit pinned at full for half the flight.
+    // The tanks themselves are never stale.
+    state.fuelLb = TankTotalLb();
     state.fuelFraction = startFuelLb > 0.0f
         ? Clamp(state.fuelLb / startFuelLb, 0.0f, 1.0f) : 0.0f;
 }
@@ -504,20 +523,45 @@ void FlightModel::Reset(const FlightStart& start) {
         }
     }
 
-    // Whatever the aircraft description put in the tanks is this run's full
-    // load. Read AFTER RunIC, since that is what applies the initial condition.
-    im.startFuelLb = im.Get(kFuelLb);
-
-    // Remember each tank individually too, for SetUnlimitedFuel. Only the ones
-    // that started with something in them: a tank the aircraft carries empty
-    // (the F-16's two external ones) should stay empty, or "unlimited fuel"
-    // would silently hang extra weight on the airframe.
+    // Remember each tank individually, for SetUnlimitedFuel. Only the ones that
+    // started with something in them: a tank the aircraft carries empty (the
+    // F-16's two external ones) should stay empty, or "unlimited fuel" would
+    // silently hang extra weight on the airframe.
+    //
+    // Read AFTER RunIC, since that is what applies the initial condition.
     im.startTanks.clear();
     for (int i = 0; i < kMaxTanks; ++i) {
         const std::string property = TankProperty(i);
         const double amount = im.Get(property.c_str());
         if (amount > 0.0) im.startTanks.emplace_back(property, amount);
     }
+
+    // A requested fuel load replaces the authored one, SCALED so every tank
+    // keeps its share. Pouring the lot into the first tank would put the same
+    // total on board with the centre of gravity in the wrong place, and would
+    // fill tanks the aircraft was authored to carry empty - see FlightStart.
+    if (start.fuelLb > 0.0f && !im.startTanks.empty()) {
+        double authored = 0.0;
+        for (const auto& [property, amount] : im.startTanks) authored += amount;
+
+        if (authored > 0.0) {
+            const double scale = start.fuelLb / authored;
+            for (auto& [property, amount] : im.startTanks) {
+                im.Set(property.c_str(), amount * scale);
+                // Read back rather than trusting the write: a tank has a
+                // capacity and silently clamps to it, so this is what is
+                // actually aboard. Storing the clamped figure also keeps
+                // SetUnlimitedFuel restoring a load that really fits.
+                amount = im.Get(property.c_str());
+            }
+        }
+    }
+
+    // What is aboard now is this run's full load, and what fuelFraction is a
+    // fraction OF. Taken after any scaling above, so a gauge reads full at the
+    // start whatever was asked for - and summed from the tanks, because the
+    // propulsion model's own total has not caught up with the writes yet.
+    im.startFuelLb = im.TankTotalLb();
 
     im.Sample();
 }

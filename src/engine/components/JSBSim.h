@@ -83,6 +83,7 @@ public:
         c->startAirspeedKt   = startAirspeedKt;
         c->startPathAngleDeg = startPathAngleDeg;
         c->trimOnStart       = trimOnStart;
+        c->startFuelLb       = startFuelLb;
         c->unlimitedFuel     = unlimitedFuel;
         return c;
     }
@@ -94,6 +95,7 @@ public:
         out["startAirspeedKt"]   = startAirspeedKt;
         out["startPathAngleDeg"] = startPathAngleDeg;
         out["trimOnStart"]       = trimOnStart;
+        out["startFuelLb"]       = startFuelLb;
         out["unlimitedFuel"]     = unlimitedFuel;
     }
     void Deserialize(const nlohmann::json& in) override {
@@ -103,6 +105,7 @@ public:
         startAirspeedKt   = in.value("startAirspeedKt", startAirspeedKt);
         startPathAngleDeg = in.value("startPathAngleDeg", startPathAngleDeg);
         trimOnStart       = in.value("trimOnStart", trimOnStart);
+        startFuelLb       = in.value("startFuelLb", startFuelLb);
         unlimitedFuel     = in.value("unlimitedFuel", unlimitedFuel);
     }
 
@@ -142,6 +145,25 @@ public:
     // aircraft settles, which reads as a bug in the controls rather than a
     // starting condition. Costs a few milliseconds, once.
     bool trimOnStart = true;
+
+    // How much fuel to take off with, in pounds. ZERO means "whatever the
+    // aircraft description says" - 3000 lb for the stock F-16, which is its two
+    // internal tanks at about 43% full.
+    //
+    // This is here rather than in the aircraft's XML because it is a GAMEPLAY
+    // number, not a property of the aircraft type: it decides how long a sortie
+    // can last. Editing the XML would change it for every F-16 at once, and
+    // buries a tuning value in a file full of aerodynamic coefficients.
+    //
+    // The amount is spread across the tanks in the proportions the aircraft was
+    // authored with, so the centre of gravity stays where it should be and
+    // tanks the aircraft carries empty stay empty. Tank capacity still applies,
+    // so a very large number is clamped rather than honoured - the F-16's two
+    // internal tanks hold about 6970 lb between them.
+    //
+    // Has no visible effect while `unlimitedFuel` is ticked, since the tanks are
+    // then topped back up to this load anyway.
+    float startFuelLb = 0.0f;
 
     // Never run out of fuel. ON by default, and that default is a GAME
     // decision rather than a simulation one.

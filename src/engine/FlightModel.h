@@ -228,6 +228,28 @@ struct FlightStart {
     // landscape from the first step rather than from the first update.
     float terrainElevationM = 0.0f;
 
+    // How much fuel to begin with, in pounds. ZERO MEANS "WHATEVER THE AIRCRAFT
+    // DESCRIPTION SAYS", which is the sensible default: the stock F-16 is
+    // authored with 3000 lb in its two internal tanks.
+    //
+    // Set it to change how long the aircraft can fly without editing the
+    // aircraft's XML - which would change it for every aircraft of that type at
+    // once, and is a fiddly place to keep a gameplay number.
+    //
+    // The amount is spread across the tanks IN THE PROPORTIONS THE AIRCRAFT WAS
+    // AUTHORED WITH, rather than poured into the first one. Two reasons, and
+    // the second is easy to overlook:
+    //   * fuel is mass, and where it sits moves the centre of gravity;
+    //   * a tank the aircraft carries EMPTY stays empty. The stock F-16 has two
+    //     external drop tanks at zero, and filling those would hang several
+    //     tonnes on the airframe - it would still fly, it would turn and
+    //     accelerate noticeably worse, and nothing would say why.
+    //
+    // Each tank still has a capacity, so asking for more than the filled tanks
+    // can hold is clamped rather than honoured. State().fuelLb after Reset is
+    // what was actually loaded.
+    float fuelLb = 0.0f;
+
     // Solve for the controls that hold this condition before the first step, so
     // the run does not begin with the aircraft already pitching. Worth leaving
     // on; it costs a few milliseconds once.
