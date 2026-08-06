@@ -62,9 +62,37 @@ function onUpdate(entity, dt)
         local t = entity.transform
         local f = t:forward()
         local p = t.position
-        local mx = p.x + f.x * P.muzzle
-        local my = p.y + f.y * P.muzzle
-        local mz = p.z + f.z * P.muzzle
+
+        -- WHERE THE JET WILL BE AT THE END OF THIS FRAME, not where it is now.
+        --
+        -- The flight model is a component further down this entity's list - that
+        -- is where Add Component puts a new one - so it has not run yet when
+        -- this does. The position read above is therefore where the aircraft was
+        -- when the LAST frame ended, and by the time the round actually exists
+        -- the jet has moved on by a whole frame.
+        --
+        -- That distance is speed x frame time, so it grows as the frame rate
+        -- falls, which is why the problem comes and goes with the frame rate
+        -- rather than staying put. Measured at 317 m/s: 5.3 m at 60 fps, 10.6 m
+        -- at 30, 15.9 m at 20. The muzzle only stands 10 m out in front, so
+        -- below about 30 fps the round is born BEHIND the nose - inside the
+        -- jet's own 15 m collider, where being solid means it is shoved aside
+        -- instead of flying, which is the round going somewhere strange.
+        --
+        -- Stepping forward by one frame of the jet's own velocity lands on where
+        -- it will actually be. The same measurement with this applied: 0.01 m at
+        -- 60 fps, and never worse than 1.3 m.
+        --
+        -- IF THE COMPONENT ORDER IS EVER CHANGED so the flight model runs BEFORE
+        -- this script, the position read above would already be current and this
+        -- would overshoot by the same amount it now corrects.
+        local ex = p.x + vx * dt
+        local ey = p.y + vy * dt
+        local ez = p.z + vz * dt
+
+        local mx = ex + f.x * P.muzzle
+        local my = ey + f.y * P.muzzle
+        local mz = ez + f.z * P.muzzle
         -- The three nils are the tag, health and model a bullet does not want;
         -- the velocity has to come after them because it was added to the call
         -- last, and renumbering the arguments would have broken every existing
