@@ -54,9 +54,38 @@ properties = {
     -- The proper fix is collision filtering, so a projectile simply ignores the
     -- entity that fired it. Until that exists, this is the workaround.
     spawn_clearance = 8.0,
+
+    -- HOW MANY ROUNDS THE AIRCRAFT CARRIES. The F-16's M61A1 holds 511.
+    --
+    -- Zero means UNLIMITED, which is the arcade option and the same convention
+    -- the JSBSim component's fuel uses - a magazine you can empty is a real
+    -- constraint and deserves to be opt-in rather than sprung on a scene that
+    -- was tuned without one.
+    ammo_capacity = 511,
+
+    -- HOW MANY ROUNDS EACH VISIBLE SHOT COSTS, and the reason this exists is
+    -- worth reading before changing either number.
+    --
+    -- A real M61 fires a HUNDRED rounds a second. This gun spawns one tracer
+    -- every `fire_rate` seconds - five a second - because a hundred entities a
+    -- second would be absurd and invisible. So one tracer here stands for a
+    -- short burst there, and if each cost a single round the 511-round magazine
+    -- would last a hundred seconds of held trigger instead of the five it
+    -- really gives.
+    --
+    -- Twenty is the ratio between the two rates (100 / 5), which makes the
+    -- magazine last about as long as the real one: 511 / 20 is 25 shots, and at
+    -- five a second that is five seconds of trigger. Lower it for a longer,
+    -- more forgiving magazine.
+    rounds_per_shot = 20,
 }
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)
+local ammo     = 0      -- rounds left; see onStart
+
+function onStart(entity)
+    ammo = properties.ammo_capacity
+end
 
 -- BOTH things this script creates need the jet's own velocity:
 --
@@ -89,8 +118,28 @@ function onUpdate(entity, dt)
     local v = entity.velocity
     local vx, vy, vz = v.x, v.y, v.z
 
+    -- Publish the magazine for the HUD. Done every frame rather than only when
+    -- a shot is fired, so the readout appears as soon as the run starts instead
+    -- of after the first trigger pull.
+    --
+    -- An unlimited magazine publishes -1, which is the sentinel the HUD already
+    -- uses to mean "there is nothing to show here" - so switching ammo off
+    -- hides the counter rather than parking it at a number that never moves.
+    local unlimited = P.ammo_capacity <= 0
+    Hud.set("ammo", unlimited and -1 or ammo)
+    Hud.set("ammo_max", unlimited and -1 or P.ammo_capacity)
+
+    -- An empty magazine simply does not fire. No click, no dry-fire sound:
+    -- there is no sound file for one, and a missing sound is silent anyway.
+    if not unlimited and ammo <= 0 then return end
+
     if Input.keyDown("SPACE") and cooldown <= 0 then
         cooldown = P.fire_rate
+
+        if not unlimited then
+            ammo = ammo - P.rounds_per_shot
+            if ammo < 0 then ammo = 0 end
+        end
         local t = entity.transform
         local f = t:forward()
         local p = t.position

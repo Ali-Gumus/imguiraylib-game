@@ -125,6 +125,12 @@ properties = {
     fuel_warn = 0.25,
     fuel_low  = 0.10,
 
+    -- The same idea for the gun: the fractions of a full magazine at which the
+    -- rounds counter turns amber and then red. Rounds go faster than fuel, so
+    -- the warning is later - a quarter of a magazine is still several bursts.
+    ammo_warn = 0.30,
+    ammo_low  = 0.12,
+
     -- Where along the power gauge the afterburner lights, 0 to 1. Half way for
     -- the F-16, whose control system doubles the lever onto the engine's 0-to-2
     -- throttle range. An aircraft whose system stretches it differently needs
@@ -859,6 +865,35 @@ function onDrawHud(entity, w, h)
         -- gauge rather than a number to remember.
         Draw.line(bx + bw * P.fuel_warn, by - 3,
                   bx + bw * P.fuel_warn, by + bh + 3)
+    end
+
+    -- =======================================================================
+    -- ROUNDS REMAINING, above the fuel gauge
+    --
+    -- A COUNT, not a bar. Fuel is a quantity you judge as a proportion - "a
+    -- quarter left" is the useful reading - but ammunition is counted, and a
+    -- pilot deciding whether to take another shot wants the number. Real gun
+    -- displays show rounds for exactly that reason.
+    --
+    -- Published by gun.lua, and -1 when the magazine is unlimited, so switching
+    -- ammunition off hides this rather than parking it on a number that never
+    -- moves. Gated on the aircraft as well, for the reason the gauges above it
+    -- are: the store keeps the last count for ever.
+    -- =======================================================================
+    local ammo = -1
+    if player ~= nil then ammo = Hud.get("ammo", -1) end
+    if ammo >= 0 then
+        local ammo_max = Hud.get("ammo_max", -1)
+        local frac = (ammo_max > 0) and (ammo / ammo_max) or 1
+
+        local tone = "hud"
+        if frac <= 0 then tone = "bad"
+        elseif frac < P.ammo_low then tone = "bad"
+        elseif frac < P.ammo_warn then tone = "warn" end
+
+        local label = (ammo > 0) and string.format("GUN %d", math.floor(ammo))
+                                 or "GUN EMPTY"
+        text_l(label, 28, h - 116, 18, tone)
     end
 
     -- =======================================================================
