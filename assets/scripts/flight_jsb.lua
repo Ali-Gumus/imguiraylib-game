@@ -103,7 +103,7 @@ properties = {
     -- aircraft's OWN axes, metres. Negative forward is behind it. Tune these
     -- against the model the same way the AA gun's muzzle is tuned - by eye,
     -- while it is running.
-    nozzle_back = 4,
+    nozzle_back = 6.7,
     nozzle_up   = 0.0,
 
     -- How far behind the nozzle the flame reaches at full reheat, metres. The
