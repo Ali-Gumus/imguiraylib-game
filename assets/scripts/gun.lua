@@ -8,20 +8,52 @@
 -- Tunable values, shown as editable fields in the Inspector.
 properties = {
     fire_rate = 0.2,   -- seconds between shots (smaller = faster fire)
-    -- How far in front of the jet each bullet appears.
+
+    -- WHERE THE GUN ACTUALLY IS, as an offset from the entity's position in the
+    -- aircraft's OWN axes, metres. This is what you see: the muzzle flash and
+    -- the report come from here.
     --
-    -- This must clear the jet's OWN COLLIDER, not just its model. A bullet is
-    -- now a solid physical object, so one born inside the aircraft that fired
-    -- it starts the frame overlapping it and is shoved aside instead of flying
-    -- straight. The jet's collider is a capsule running nose to tail, so this
-    -- needs to be past its front cap - check the green wireframe in the
-    -- viewport and put the muzzle beyond it.
+    --   muzzle_forward - toward the nose
+    --   muzzle_up      - above the centreline
+    --   muzzle_right   - to starboard; NEGATIVE puts it to port
     --
-    -- At the F-16's real size that capsule is 15 metres long and centred on the
-    -- aircraft, so its front cap sits 7.5 metres ahead; 10 clears it with a
-    -- couple of metres to spare. RAISE THIS AGAIN if the collider grows - a
-    -- round appearing inside its own shooter does not travel.
-    muzzle    = 10.0,
+    -- The defaults are an F-16's M61 Vulcan, which is not on the centreline and
+    -- never has been: it sits in the PORT wing root, its muzzle port high on the
+    -- left side of the fuselage just ahead of the wing. On a 15 m airframe whose
+    -- origin is its middle, that is roughly two metres forward of centre, a bit
+    -- over half a metre to the left, and half a metre up.
+    --
+    -- Tune by eye against the model, the way aa_gun.lua's muzzle is tuned.
+    muzzle_forward = 2.3,
+    muzzle_up      = 0.450,
+    muzzle_right   = -0.8,
+
+    -- HOW FAR ALONG THE LINE OF FIRE THE ROUND IS ACTUALLY CREATED, metres.
+    --
+    -- This exists because of a collision problem that has no other cheap fix,
+    -- and it is worth understanding rather than tuning blindly.
+    --
+    -- A bullet is a solid physical object and so is the jet. The real gun port
+    -- is INSIDE the aircraft's own collision capsule - it is a gun buried in a
+    -- fuselage, so of course it is - and a round born inside another solid body
+    -- starts the frame overlapping it and gets shoved aside instead of flying.
+    -- The symptom is rounds that curve away or simply do not appear.
+    --
+    -- So the flash stays at the real gun port and the ROUND is created further
+    -- along the same line, clear of the airframe. That is not a fudge: the gun
+    -- is boresighted along the nose, so this is the same line of fire either
+    -- way - the round merely skips its first few metres, which at a thousand
+    -- metres a second is three thousandths of a second, and it is travelling
+    -- far too fast to see there anyway.
+    --
+    -- The jet's capsule is 12.6 m long with a 1.2 m radius, centred on the
+    -- aircraft, so it reaches 7.5 m forward. From a muzzle 2 m forward, 8 more
+    -- puts the round at 10 m - clear, with the same margin the old single
+    -- distance had. RAISE THIS IF THE COLLIDER GROWS.
+    --
+    -- The proper fix is collision filtering, so a projectile simply ignores the
+    -- entity that fired it. Until that exists, this is the workaround.
+    spawn_clearance = 8.0,
 }
 
 local cooldown = 0      -- seconds until the gun can fire again (runtime state)
@@ -90,19 +122,33 @@ function onUpdate(entity, dt)
         local ey = p.y + vy * dt
         local ez = p.z + vz * dt
 
-        local mx = ex + f.x * P.muzzle
-        local my = ey + f.y * P.muzzle
-        local mz = ez + f.z * P.muzzle
+        -- The gun port, in world space. The offset is written in the aircraft's
+        -- own axes, so it is applied by walking that far along each of them -
+        -- which is what keeps the gun on the same spot of the airframe however
+        -- the aircraft is banked or pitched. Same construction aa_gun.lua uses.
+        local r = t:right()
+        local u = t:up()
+        local mx = ex + f.x * P.muzzle_forward + u.x * P.muzzle_up + r.x * P.muzzle_right
+        local my = ey + f.y * P.muzzle_forward + u.y * P.muzzle_up + r.y * P.muzzle_right
+        local mz = ez + f.z * P.muzzle_forward + u.z * P.muzzle_up + r.z * P.muzzle_right
+
+        -- The round starts further along the same line, clear of the aircraft's
+        -- own collider - see spawn_clearance above for why it cannot start at
+        -- the gun itself.
+        local bx = mx + f.x * P.spawn_clearance
+        local by = my + f.y * P.spawn_clearance
+        local bz = mz + f.z * P.spawn_clearance
+
         -- The three nils are the tag, health and model a bullet does not want;
         -- the velocity has to come after them because it was added to the call
         -- last, and renumbering the arguments would have broken every existing
         -- caller and every graph that generates one.
-        Scene.spawn("Bullet", mx, my, mz, f.x, f.y, f.z,
+        Scene.spawn("Bullet", bx, by, bz, f.x, f.y, f.z,
             "assets/scripts/bullet.lua", nil, nil, nil, vx, vy, vz)
-        -- A flash where the bullet leaves the gun, at the same point the bullet
-        -- itself is created, carrying the jet's velocity so it stays at the
-        -- nose instead of falling behind.
-        Fx.burst("muzzle", mx, my, mz, 1.0, vx, vy, vz)
+        -- The flash belongs at the GUN, not where the round clears the airframe.
+        -- It carries the jet's velocity so it stays on the muzzle instead of
+        -- falling behind.
+        Fx.burst("muzzle", mx, my, mz, 0.2, vx, vy, vz)
         -- The report. Its pitch varies slightly per shot (set in sounds.lua), so
         -- sustained fire sounds like a gun rather than one repeated sample.
         -- Fired from the muzzle. On the player's own jet that is right beside
