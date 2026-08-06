@@ -125,6 +125,27 @@ struct FlightState {
     // engine note should follow this rather than the stick position.
     float enginePower = 0.0f;
 
+    // How far into AFTERBURNER the engine is, 0 (dry) to 1 (full reheat).
+    //
+    // An afterburner is raw fuel sprayed into the exhaust behind the turbine
+    // and lit. It buys a large amount of extra thrust for an enormous amount of
+    // extra fuel - on this engine, 17,800 lb of thrust dry against 29,000 with
+    // reheat, for nearly three times the consumption - and it is the thing that
+    // produces the visible flame out of the tailpipe.
+    //
+    // WHERE THE NUMBER COMES FROM, because it is not where you would guess.
+    // JSBSim's turbine offers three ways of triggering reheat, and this
+    // aircraft uses the one where the THROTTLE RANGE IS EXTENDED: the engine's
+    // own throttle position runs 0 to 2, everything above 1 is afterburner, and
+    // the aircraft's flight control system is what stretches the pilot's 0-to-1
+    // lever onto it. The F-16 doubles it, so reheat begins at the HALFWAY point
+    // of the lever and is fully lit at the top.
+    //
+    // Reading the engine's position rather than the lever means this stays
+    // right for an aircraft whose control system stretches it differently, and
+    // reads a harmless 0 for one that has no afterburner at all.
+    float afterburner = 0.0f;
+
     // FUEL, which in a real aircraft is finite and in a flight model is finite
     // too. This is not a detail: an aircraft that runs its tanks dry loses
     // thrust entirely, and the symptom is an engine that seems to cut out while

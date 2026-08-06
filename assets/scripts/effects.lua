@@ -90,3 +90,59 @@ Fx.define("muzzle", {
     drag        = 5.0,
     up_bias     = 0.0,
 })
+
+-- =============================================================================
+-- THE ENGINE. Two effects, emitted CONTINUOUSLY rather than as a one-off burst,
+-- so both are deliberately tiny: a handful of particles per frame at sixty
+-- frames a second is already a steady cloud, and the same numbers that make a
+-- good explosion would fill the 2048-particle budget in a couple of seconds.
+--
+-- Both are emitted carrying the aircraft's own velocity, so they sit at the
+-- tailpipe instead of being left behind - see flight_jsb.lua. A trail that
+-- hangs in the air would need the opposite, and a much longer life.
+-- =============================================================================
+
+-- Dry thrust: the shimmer of hot gas leaving the nozzle. Barely there on
+-- purpose. This is the one that says the engine is RUNNING, and an exhaust you
+-- notice is an exhaust that has stopped reading as exhaust.
+--
+-- A faint blue-grey rather than orange, because dry exhaust is not burning -
+-- it is just hot. Remember dark colours cannot be drawn additively at all, so
+-- "faint" here has to mean a dim colour with low alpha, not a dark one.
+Fx.define("jet_exhaust", {
+    count       = 2,
+    speed_min   = 0.5,
+    speed_max   = 3.0,
+    life_min    = 0.06,
+    life_max    = 0.14,
+    size_start  = 1.2,
+    size_end    = 2.0,      -- widens as it disperses, unlike a spark
+    color_start = {120, 140, 170, 90},
+    color_end   = {60, 70, 90, 0},
+    gravity     = 0.0,
+    drag        = 3.0,
+    up_bias     = 0.0,
+})
+
+-- Reheat: raw fuel burning in the exhaust, which is what makes the flame you
+-- can see from miles away. Bright, and started well below white so that the
+-- overlap of several does the brightening rather than saturating flat.
+--
+-- The colour runs from a pale blue-white core out to orange, which is the way
+-- round a real afterburner goes - hottest and bluest at the nozzle, cooling to
+-- orange down the plume. size_end is larger than size_start for the same
+-- reason the plume spreads.
+Fx.define("jet_burner", {
+    count       = 3,
+    speed_min   = 1.0,
+    speed_max   = 6.0,
+    life_min    = 0.08,
+    life_max    = 0.20,
+    size_start  = 1.6,
+    size_end    = 2.0,
+    color_start = {180, 200, 255, 200},
+    color_end   = {255, 110, 20, 0},
+    gravity     = 0.0,
+    drag        = 2.0,
+    up_bias     = 0.0,
+})

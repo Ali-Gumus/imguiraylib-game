@@ -86,6 +86,12 @@ constexpr const char* kLoadFactor = "forces/load-factor";
 constexpr const char* kEngineN2   = "propulsion/engine[0]/n2";
 constexpr const char* kFuelLb     = "propulsion/total-fuel-lbs";
 
+// The ENGINE's throttle position, which is not the pilot's lever: the flight
+// control system stretches one onto the other, and everything above 1 is
+// afterburner. See FlightState::afterburner. An aircraft that does not define
+// this reads 0, which lands on "no reheat" rather than on nonsense.
+constexpr const char* kThrottlePos = "fcs/throttle-pos-norm";
+
 // How many tank slots to look for. JSBSim numbers them from zero and offers no
 // count, so they are probed; anything past the last one simply reads as absent.
 // Eight is well past what any aircraft here carries.
@@ -329,6 +335,11 @@ void FlightModel::Impl::Sample() {
     // what actually LAGS: a jet engine takes seconds to spool up, and an engine
     // note that follows the lever instead of the spool sounds like a switch.
     state.enginePower = Clamp(Get(kEngineN2) * 0.01f, 0.0f, 1.0f);
+
+    // Everything above 1 on the engine's own throttle is reheat, so subtracting
+    // 1 turns its position into "how far into afterburner". Clamped, so a dry
+    // engine and an aircraft that has no afterburner both read 0.
+    state.afterburner = Clamp(Get(kThrottlePos) - 1.0f, 0.0f, 1.0f);
 
     // Fuel, and how much of the run's starting load is left. `startFuelLb` is
     // captured by Reset, so the fraction is against what this run began with

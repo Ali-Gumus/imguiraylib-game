@@ -125,6 +125,12 @@ properties = {
     fuel_warn = 0.25,
     fuel_low  = 0.10,
 
+    -- Where along the power gauge the afterburner lights, 0 to 1. Half way for
+    -- the F-16, whose control system doubles the lever onto the engine's 0-to-2
+    -- throttle range. An aircraft whose system stretches it differently needs
+    -- this changed to match.
+    burner_mark = 0.5,
+
     -- The speed of sound in metres per second, used only to turn airspeed into a
     -- Mach number. 340 is the sea-level figure; it genuinely falls with altitude
     -- (to about 295 in the stratosphere), which this deliberately ignores - the
@@ -770,9 +776,16 @@ function onDrawHud(entity, w, h)
         text_l(string.format("PWR %3.0f%%", thr * 100), bx, by - 16, 18)
         Draw.rectLines(bx, by, bw, bh)
         Draw.rect(bx + 2, by + 2, (bw - 4) * thr, bh - 4, "dim")
-        -- A mark at the point where the afterburner would light on a real
-        -- engine, so full military power is a position rather than a guess.
-        Draw.line(bx + bw * 0.8, by - 3, bx + bw * 0.8, by + bh + 3)
+        -- A mark where the afterburner lights, so full military power is a
+        -- position on the gauge rather than a guess.
+        --
+        -- HALFWAY, not four fifths. The F-16's flight control system doubles the
+        -- pilot's lever onto the engine's own 0-to-2 throttle range, and
+        -- everything above 1 on that range is reheat - so the burner lights at
+        -- the MIDDLE of this bar. The 0.8 that used to be here was a reasonable
+        -- guess about a real engine and simply not what this aircraft does.
+        Draw.line(bx + bw * P.burner_mark, by - 3,
+                  bx + bw * P.burner_mark, by + bh + 3)
     end
 
     -- =======================================================================

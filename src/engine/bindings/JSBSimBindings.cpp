@@ -108,6 +108,12 @@ void RegisterJSBSimBindings(sol::state& lua) {
         // engine note should follow this rather than the lever position.
         "enginePower", StateProp<&FlightState::enginePower>(),
 
+        // How far into afterburner, 0 to 1. On this F-16 reheat begins at the
+        // HALFWAY point of the throttle lever, because its flight control
+        // system doubles the lever onto the engine's 0-to-2 range and
+        // everything above 1 is reheat. Drive the tailpipe flame from this.
+        "afterburner", StateProp<&FlightState::afterburner>(),
+
         // Fuel remaining, and how much of the run's starting load that is. Even
         // with unlimitedFuel on these are published, so a gauge drawn from them
         // simply sits at full rather than needing a special case.
@@ -178,6 +184,8 @@ void DescribeJSBSimBindings(LuaApiRegistry& api) {
     j.Prop("pitch",       "Degrees, positive nose up");
     j.Prop("heading",     "Degrees, 0 north and 90 east");
     j.Prop("enginePower", "0 to 1, and it LAGS the throttle. Drive the engine note from this");
+    j.Prop("afterburner", "0 dry to 1 full reheat. On the F-16 it lights at HALF throttle, "
+                          "because its FCS doubles the lever onto the engine's 0-to-2 range");
     j.Prop("fuel",        "Fuel remaining, pounds. When it hits zero the engine stops for good");
     j.Prop("fuelFraction", "Fuel remaining as 0 to 1 of what the run started with - for a gauge");
     j.Method("velocity() -> Vector3", "Where it is GOING, world axes, m/s - not the same as where it points");

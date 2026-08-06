@@ -98,6 +98,25 @@ properties = {
     sound_pitch     = 1.5,
     sound_pitch_up  = 1.0,
 
+    -- --- The engine, seen ---------------------------------------------------
+    -- Where the tailpipe is, as an offset from the entity's position in the
+    -- aircraft's OWN axes, metres. Negative forward is behind it. Tune these
+    -- against the model the same way the AA gun's muzzle is tuned - by eye,
+    -- while it is running.
+    nozzle_back = 6.7,
+    nozzle_up   = 0.0,
+
+    -- How far behind the nozzle the flame reaches at full reheat, metres. The
+    -- plume is drawn as a short line of emission points rather than one, which
+    -- is what gives it length instead of a blob; `burner_steps` is how many.
+    burner_length = 2.0,
+    burner_steps  = 3,
+
+    -- Multiplies the size of both effects. The exhaust is sized for a fighter;
+    -- a larger or smaller aircraft wants this changed rather than the presets,
+    -- which are shared.
+    exhaust_scale = 0.5,
+
     -- --- Meeting the ground -------------------------------------------------
     -- Three outcomes, decided by how fast the aircraft is going DOWN when it
     -- arrives and whether it is in any state to be landing.
@@ -129,6 +148,16 @@ local rudder   = 0
 local throttle = 0
 local gear_down = false
 local wrecked   = false   -- has the ground already finished this aircraft off?
+
+-- Declared here, defined further down, because onUpdate calls it.
+--
+-- A Lua local is only visible to code written AFTER it, so a function defined
+-- below onUpdate would not be in scope inside it - the name would fall through
+-- to a global, find nothing, and fail at the first call with "attempt to call a
+-- nil value". Naming the local up here and assigning it later fixes that: the
+-- function below closes the same variable, and by the time onUpdate actually
+-- runs it holds the function.
+local drawEngine
 
 -- Move `current` toward `target` at `rate` units per second, without
 -- overshooting. This is the whole of the ramping described above, and it is
@@ -260,6 +289,59 @@ function onUpdate(entity, dt)
     Audio.loopAt("jet", p.x, p.y, p.z,
                  P.sound_volume + power * P.sound_volume_up,
                  P.sound_pitch  + power * P.sound_pitch_up)
+
+    drawEngine(entity, jsb, dt)
+end
+
+-- The exhaust and the afterburner flame, emitted fresh every frame.
+--
+-- WHY THE PARTICLES CARRY THE AIRCRAFT'S VELOCITY. A particle is born standing
+-- still in the world, so on a jet doing 300 metres a second one lasting a tenth
+-- of a second would be thirty metres behind the tailpipe before it died - the
+-- flame would be a streak pointing back to where the aircraft used to be.
+-- Handing each burst the aircraft's own motion pins it to the nozzle. (Real
+-- exhaust IS left behind, and a contrail would want exactly the opposite; a
+-- flame is attached to the engine making it.)
+--
+-- WHY THE POSITION IS STEPPED FORWARD BY ONE FRAME. The flight model is a
+-- component further down this entity's list, so it has not run yet and the
+-- transform still holds where the aircraft was when the last frame ended. The
+-- same correction gun.lua makes, and for the same reason - without it the flame
+-- sits further behind the jet the lower the frame rate goes.
+drawEngine = function(entity, jsb, dt)
+    local P = properties
+    local t = entity.transform
+    local f = t:forward()
+    local u = t:up()
+    local v = entity.velocity
+    local p = t.position
+
+    -- The nozzle, in world space, one frame ahead.
+    local nx = p.x + v.x * dt - f.x * P.nozzle_back + u.x * P.nozzle_up
+    local ny = p.y + v.y * dt - f.y * P.nozzle_back + u.y * P.nozzle_up
+    local nz = p.z + v.z * dt - f.z * P.nozzle_back + u.z * P.nozzle_up
+
+    -- Dry exhaust whenever the engine is turning at all. Scaled by how hard it
+    -- is working, so idling shows a wisp and military power a proper plume.
+    local power = jsb.enginePower
+    if power > 0.05 then
+        Fx.burst("jet_exhaust", nx, ny, nz, P.exhaust_scale * (0.4 + power * 0.6), v.x, v.y, v.z)
+    end
+
+    -- Reheat. Emitted at several points down the plume rather than all at the
+    -- nozzle, because a flame has LENGTH and a single emission point gives a
+    -- ball. Each step is a little smaller than the one before it, so the plume
+    -- tapers the way a real one does.
+    local ab = jsb.afterburner
+    if ab <= 0.01 then return end
+
+    local steps = math.max(1, math.floor(P.burner_steps))
+    local reach = P.burner_length * ab
+    for i = 0, steps - 1 do
+        local along = (i / steps) * reach
+        local taper = 1 - (i / steps) * 0.55
+        Fx.burst("jet_burner", nx - f.x * along, ny - f.y * along, nz - f.z * along, P.exhaust_scale * ab * taper, v.x, v.y, v.z)
+    end
 end
 
 -- Called by the engine when this aircraft strikes something.
