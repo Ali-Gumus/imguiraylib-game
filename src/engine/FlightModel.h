@@ -329,6 +329,26 @@ public:
     float FixedStepSeconds() const;
     int   LastStepCount() const;
 
+    // Time that has been handed to Advance but NOT yet simulated, in seconds.
+    // Always less than one step.
+    //
+    // WHAT IT IS FOR, and it matters more than it sounds. The simulation only
+    // ever advances in whole steps, so after a frame there is almost always a
+    // leftover: the state describes the aircraft at a moment slightly BEFORE
+    // now. Drawing it there makes the aircraft move in lumps rather than
+    // smoothly - measured, a 20 ms frame and a 14 ms frame both moved it
+    // exactly 5.28 m, because both spent the same two steps.
+    //
+    // At a steady 60 fps this is invisible, because a frame is exactly two of
+    // the F-16's 120 Hz steps and the leftover is always zero. It only appears
+    // when the frame rate moves - and then the aircraft judders, and anything
+    // positioned by predicting where it will be lands somewhere else.
+    //
+    // Multiplying the velocity by this and adding it to the position carries
+    // the state forward to the actual present, which is the standard cure for
+    // watching a fixed-rate simulation through variable frames.
+    float PendingSeconds() const;
+
 private:
     // The PIMPL ("pointer to implementation") idiom, and the thing that makes
     // the quarantine at the top of this file possible. The class that actually

@@ -384,6 +384,8 @@ const FlightState& FlightModel::State() const { return m_impl->state; }
 const FlightControls& FlightModel::Controls() const { return m_impl->controls; }
 int FlightModel::LastStepCount() const { return m_impl->lastSteps; }
 
+float FlightModel::PendingSeconds() const { return m_impl->accumulator; }
+
 float FlightModel::FixedStepSeconds() const {
     return static_cast<float>(m_impl->fdm.GetDeltaT());
 }

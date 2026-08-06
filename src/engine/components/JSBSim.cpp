@@ -262,7 +262,35 @@ void JSBSimComponent::OnUpdate(float dt, Entity& owner) {
 
     ReportGroundContact(owner, s);
 
-    const Vector3    worldPos{s.x, s.y, s.z};
+    // WHERE THE AIRCRAFT IS *NOW*, not where the last completed step left it.
+    //
+    // The flight model only advances in whole steps of its own fixed rate, so
+    // after a frame there is almost always a leftover of time it has been given
+    // but not yet simulated. Its state therefore describes a moment slightly in
+    // the past, and drawing the aircraft there makes it move in LUMPS: measured,
+    // a 20 ms frame and a 14 ms frame both moved it exactly 5.28 m, because both
+    // spent the same two steps.
+    //
+    // At a steady 60 fps this is invisible - a frame is exactly two of the
+    // F-16's 120 Hz steps and there is never a leftover. It only shows when the
+    // frame rate moves, and then it shows twice over: the aircraft judders, and
+    // anything a script positions by predicting where the aircraft will be
+    // (a muzzle flash, the engine plume) lands up to a step's travel away from
+    // it - nearly two metres at cruise, changing every frame, which reads as the
+    // effect glitching back and forth.
+    //
+    // Carrying the state forward by the unspent time along the velocity puts the
+    // aircraft where it actually is at this instant. That is the standard cure
+    // for watching a fixed-rate simulation through variable-length frames, and
+    // it makes the motion smooth AND the predictions exact at the same time.
+    //
+    // Only the POSITION is carried forward. Doing the same for the orientation
+    // would need the angular rate and would buy far less: a tenth of a degree of
+    // rotation is invisible where two metres of position is not.
+    const float pending = m_fdm->PendingSeconds();
+    const Vector3    worldPos{s.x + s.vx * pending,
+                              s.y + s.vy * pending,
+                              s.z + s.vz * pending};
     const Quaternion worldRot{s.qx, s.qy, s.qz, s.qw};
 
     // The simulation works in WORLD space; an entity stores a LOCAL transform
