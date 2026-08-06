@@ -325,6 +325,23 @@ function onDrawHud(entity, w, h)
     -- that needs it checks first.
     local player = Scene.findByTag("player")
 
+    -- Is the run over? Read once, up here, because two different groups of
+    -- elements below have to hide when it is.
+    --
+    -- WHY ANYTHING NEEDS TO ASK. The Hud value store is never cleared - it is a
+    -- plain table of named numbers that scripts publish into, and a dead
+    -- aircraft simply stops publishing rather than erasing what it last said.
+    -- So `Hud.get("throttle")` keeps returning the setting the engine died at,
+    -- for ever. Anything drawn straight from a stored value therefore has to be
+    -- gated on something that is still true, or it hangs on screen after the
+    -- thing it describes has gone.
+    --
+    -- The two gates are different on purpose:
+    --   * gauges that describe the AIRCRAFT hide when there is no aircraft;
+    --   * mission state hides when the run is OVER, since the game-over panel
+    --     is then the only thing worth reading.
+    local game_over = Hud.get("game_over", 0) > 0
+
     -- =======================================================================
     -- THE AIRCRAFT'S ATTITUDE
     --
@@ -765,12 +782,16 @@ function onDrawHud(entity, w, h)
     -- =======================================================================
     -- ENGINE POWER, bottom left
     --
-    -- Published by flight_sim.lua, so it only appears once a flight script has
-    -- set it and a scene with no aircraft is not cluttered with a gauge reading
-    -- zero forever.
+    -- Published by the flight script, so it only appears once one has set it and
+    -- a scene with no aircraft is not cluttered with a gauge reading zero.
+    --
+    -- Gated on the AIRCRAFT still existing as well as on the value having been
+    -- published, because the store keeps the last throttle setting for ever - so
+    -- without this the gauge sat over the game-over screen still reporting the
+    -- power the engine died at.
     -- =======================================================================
     local thr = Hud.get("throttle", -1)
-    if thr >= 0 then
+    if thr >= 0 and player ~= nil then
         thr = clamp(thr, 0, 1)
         local bx, by, bw, bh = 28, h - 52, 168, 12
         text_l(string.format("PWR %3.0f%%", thr * 100), bx, by - 16, 18)
@@ -799,9 +820,16 @@ function onDrawHud(entity, w, h)
     -- model with no fuel in it (flight_sim.lua) publishes nothing, and the gauge
     -- then hides itself rather than reading zero and claiming an empty aircraft.
     -- That is the same -1 sentinel the airspeed and the power gauge use.
+    --
+    -- And gated on the aircraft existing, for the same reason the power gauge
+    -- is: the stored fraction outlives the aeroplane it describes. Leaving
+    -- fuel_frac at -1 also suppresses the low-fuel caption further down, which
+    -- would otherwise flash over the game-over screen.
     -- =======================================================================
     local fuel_frac = -1
-    if P.show_fuel > 0 then fuel_frac = Hud.get("fuel_fraction", -1) end
+    if P.show_fuel > 0 and player ~= nil then
+        fuel_frac = Hud.get("fuel_fraction", -1)
+    end
     if fuel_frac >= 0 then
         fuel_frac = clamp(fuel_frac, 0, 1)
         local bx, by, bw, bh = 28, h - 100, 168, 12
@@ -906,25 +934,30 @@ function onDrawHud(entity, w, h)
     -- the top edge now belongs to the heading tape. Game state is not flight
     -- information and does not deserve the centre of the display.
     -- =======================================================================
-    local score = Hud.get("score", -1)
-    if score >= 0 then
-        text_l(string.format("SCORE %d", score), 28, 26, P.text_size)
-    end
-    local wave = Hud.get("wave", -1)
-    if wave >= 0 then
-        text_r(string.format("WAVE %d", wave), w - 28, 26, P.text_size)
-    end
+    -- All of this hides once the run is OVER. The game-over panel below carries
+    -- the final score itself, so leaving these up would both repeat it and leave
+    -- a wave and camp count describing a fight that has stopped.
+    if not game_over then
+        local score = Hud.get("score", -1)
+        if score >= 0 then
+            text_l(string.format("SCORE %d", score), 28, 26, P.text_size)
+        end
+        local wave = Hud.get("wave", -1)
+        if wave >= 0 then
+            text_r(string.format("WAVE %d", wave), w - 28, 26, P.text_size)
+        end
 
-    -- How many enemy camps are still standing - the thing the whole sortie is
-    -- about, so it sits under the wave counter rather than among the flight
-    -- instruments. Published by camps.lua, and absent in a scene that has no
-    -- camps, which is why it hides itself rather than reading zero.
-    local camps = Hud.get("camps", -1)
-    if camps >= 0 then
-        local s = (camps > 0) and string.format("CAMPS %d", camps)
-                              or "ALL CAMPS DESTROYED"
-        text_r(s, w - 28, 26 + P.text_size + 6, 18,
-               (camps > 0) and "hud" or "warn")
+        -- How many enemy camps are still standing - the thing the whole sortie
+        -- is about, so it sits under the wave counter rather than among the
+        -- flight instruments. Published by camps.lua, and absent in a scene
+        -- that has no camps, which is why it hides rather than reading zero.
+        local camps = Hud.get("camps", -1)
+        if camps >= 0 then
+            local s = (camps > 0) and string.format("CAMPS %d", camps)
+                                  or "ALL CAMPS DESTROYED"
+            text_r(s, w - 28, 26 + P.text_size + 6, 18,
+                   (camps > 0) and "hud" or "warn")
+        end
     end
 
     -- =======================================================================
@@ -933,7 +966,7 @@ function onDrawHud(entity, w, h)
     -- Drawn last so it covers everything above it. gamemanager.lua sets the
     -- flag; the editor watches the same flag to know that R should restart.
     -- =======================================================================
-    if Hud.get("game_over", 0) > 0 then
+    if game_over then
         Draw.rect(0, 0, w, h, "dark")           -- dim the frozen world
 
         local t1 = "GAME OVER"
