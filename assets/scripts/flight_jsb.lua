@@ -104,13 +104,13 @@ properties = {
     -- against the model the same way the AA gun's muzzle is tuned - by eye,
     -- while it is running.
     nozzle_back = 6.7,
-    nozzle_up   = 0.0,
+    nozzle_up   = 0.1,
 
     -- How far behind the nozzle the flame reaches at full reheat, metres. The
     -- plume is drawn as a short line of emission points rather than one, which
     -- is what gives it length instead of a blob; `burner_steps` is how many.
-    burner_length = 2.0,
-    burner_steps  = 3,
+    burner_length = 2.5,
+    burner_steps  = 10,
 
     -- Multiplies the size of both effects. The exhaust is sized for a fighter;
     -- a larger or smaller aircraft wants this changed rather than the presets,
