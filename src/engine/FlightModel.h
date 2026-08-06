@@ -158,6 +158,24 @@ struct FlightState {
     // can be drawn without the caller knowing the aircraft's tank capacity.
     float fuelLb       = 0.0f;
     float fuelFraction = 1.0f;
+
+    // Thrust the engine is producing, pounds. Zero means it is not running.
+    //
+    // THIS IS THE HONEST TEST OF WHETHER THE ENGINE IS ALIGHT, and the two
+    // obvious alternatives are both wrong, which is worth recording because
+    // each looks right:
+    //   * the THROTTLE is a request. A lever forward on empty tanks asks for
+    //     full power and gets nothing.
+    //   * the FUEL FLOW is also a request. Measured on a starved F-16, the
+    //     flow property still read 12.2 lb/s with the tanks at zero - it is
+    //     what the engine is demanding, not what it is receiving.
+    // Thrust is the only one of the three that actually collapses: it goes to
+    // exactly 0 the moment the tanks run dry.
+    //
+    // So anything representing COMBUSTION - the exhaust plume, the afterburner
+    // flame, an engine note - should be gated on this, or it carries on after
+    // the fire has gone out.
+    float thrustLb = 0.0f;
 };
 
 // --- What goes IN ------------------------------------------------------------

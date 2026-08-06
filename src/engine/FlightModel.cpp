@@ -84,6 +84,12 @@ constexpr const char* kAlphaDeg   = "aero/alpha-deg";
 constexpr const char* kBetaDeg    = "aero/beta-deg";
 constexpr const char* kLoadFactor = "forces/load-factor";
 constexpr const char* kEngineN2   = "propulsion/engine[0]/n2";
+
+// What the engine is producing, pounds of thrust. Zero means it is not
+// running - out of fuel, or shut down - whatever the throttle lever happens to
+// be doing. See FlightState::thrustLb.
+
+constexpr const char* kThrustLb   = "propulsion/engine[0]/thrust-lbs";
 constexpr const char* kFuelLb     = "propulsion/total-fuel-lbs";
 
 // The ENGINE's throttle position, which is not the pilot's lever: the flight
@@ -346,10 +352,22 @@ void FlightModel::Impl::Sample() {
     // note that follows the lever instead of the spool sounds like a switch.
     state.enginePower = Clamp(Get(kEngineN2) * 0.01f, 0.0f, 1.0f);
 
+    // What the engine is actually producing. See FlightState::thrustLb for why
+    // this rather than the throttle or the fuel flow, both of which keep
+    // reporting a healthy figure on empty tanks.
+    state.thrustLb = Get(kThrustLb);
+
     // Everything above 1 on the engine's own throttle is reheat, so subtracting
     // 1 turns its position into "how far into afterburner". Clamped, so a dry
     // engine and an aircraft that has no afterburner both read 0.
     state.afterburner = Clamp(Get(kThrottlePos) - 1.0f, 0.0f, 1.0f);
+
+    // ...but a throttle POSITION is a request, not a flame. An afterburner is
+    // raw fuel sprayed into the exhaust and lit, so an engine producing nothing
+    // has no reheat however far forward the lever is. Without this an aircraft
+    // that had run its tanks dry still reported full reheat and still drew the
+    // plume, because the lever had never moved.
+    if (state.thrustLb <= 0.0f) state.afterburner = 0.0f;
 
     // Fuel, and how much of the run's starting load is left. `startFuelLb` is
     // captured by Reset, so the fraction is against what this run began with

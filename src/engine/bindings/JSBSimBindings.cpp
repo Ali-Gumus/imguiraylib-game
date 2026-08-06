@@ -119,6 +119,7 @@ void RegisterJSBSimBindings(sol::state& lua) {
         // simply sits at full rather than needing a special case.
         "fuel",        StateProp<&FlightState::fuelLb>(),
         "fuelFraction", StateProp<&FlightState::fuelFraction>(),
+        "thrust",      StateProp<&FlightState::thrustLb>(),
 
         // Where it is GOING, which in an aircraft is not the same as where it
         // is pointing: one in a sideslip or a stall is emphatically not moving
@@ -188,6 +189,7 @@ void DescribeJSBSimBindings(LuaApiRegistry& api) {
                           "because its FCS doubles the lever onto the engine's 0-to-2 range");
     j.Prop("fuel",        "Fuel remaining, pounds. When it hits zero the engine stops for good");
     j.Prop("fuelFraction", "Fuel remaining as 0 to 1 of what the run started with - for a gauge");
+    j.Prop("thrust",       "Pounds of thrust. ZERO means the engine is not running, whatever the throttle or the fuel flow says - gate flames and the engine note on this");
     j.Method("velocity() -> Vector3", "Where it is GOING, world axes, m/s - not the same as where it points");
     j.Prop("speed",       "Metres per second along the flight path");
     j.Prop("ready",       "Is there a working simulation? False while stopped, or if the aircraft failed to load");

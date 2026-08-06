@@ -321,6 +321,12 @@ drawEngine = function(entity, jsb, dt)
     local ny = p.y + v.y * dt - f.y * P.nozzle_back + u.y * P.nozzle_up
     local nz = p.z + v.z * dt - f.z * P.nozzle_back + u.z * P.nozzle_up
 
+    -- NOTHING BURNING, NOTHING TO SEE. Both plumes are combustion, so the first
+    -- question is whether the engine is actually producing anything - which is not
+    -- the same as what the throttle is set to. On empty tanks the lever can sit
+    -- fully forward, and the fuel FLOW still reads healthy, while thrust is zero.
+    if jsb.thrust <= 0 then return end
+
     -- Dry exhaust whenever the engine is turning at all. Scaled by how hard it
     -- is working, so idling shows a wisp and military power a proper plume.
     local power = jsb.enginePower
