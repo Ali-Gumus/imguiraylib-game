@@ -310,22 +310,22 @@ end
 -- sits further behind the jet the lower the frame rate goes.
 drawEngine = function(entity, jsb, dt)
     local P = properties
-    local t = entity.transform
-    local f = t:forward()
-    local u = t:up()
-    local v = entity.velocity
-    local p = t.position
 
-    -- The nozzle, in world space, one frame ahead.
-    local nx = p.x + v.x * dt - f.x * P.nozzle_back + u.x * P.nozzle_up
-    local ny = p.y + v.y * dt - f.y * P.nozzle_back + u.y * P.nozzle_up
-    local nz = p.z + v.z * dt - f.z * P.nozzle_back + u.z * P.nozzle_up
+    -- The nozzle in the AIRCRAFT'S OWN AXES, which is all an attached burst
+    -- needs: -Z is the way the nose points, so -nozzle_back on Z is that far
+    -- behind it, and +Y is out of the canopy. The engine re-places the particles
+    -- from these every frame, so nothing here has to know where the aircraft is,
+    -- which way it is pointing, or how fast it is going.
+    local ox = 0
+    local oy = P.nozzle_up
+    local oz = P.nozzle_back      -- +Z is BEHIND, since the nose is -Z
 
     -- Dry exhaust whenever the engine is turning at all. Scaled by how hard it
     -- is working, so idling shows a wisp and military power a proper plume.
     local power = jsb.enginePower
     if power > 0.05 then
-        Fx.burst("jet_exhaust", nx, ny, nz, P.exhaust_scale * (0.4 + power * 0.6), v.x, v.y, v.z)
+        Fx.attachedBurst(entity, "jet_exhaust", ox, oy, oz,
+                         P.exhaust_scale * (0.4 + power * 0.6))
     end
 
     -- Reheat. Emitted at several points down the plume rather than all at the
@@ -340,7 +340,8 @@ drawEngine = function(entity, jsb, dt)
     for i = 0, steps - 1 do
         local along = (i / steps) * reach
         local taper = 1 - (i / steps) * 0.55
-        Fx.burst("jet_burner", nx - f.x * along, ny - f.y * along, nz - f.z * along, P.exhaust_scale * ab * taper, v.x, v.y, v.z)
+        Fx.attachedBurst(entity, "jet_burner", ox, oy, oz + along,
+                         P.exhaust_scale * ab * taper)
     end
 end
 

@@ -44,6 +44,28 @@ struct Particle {
     Color   c1{255, 255, 255, 0};     // colour at death
     float   gravity = 0.0f; // downward acceleration, world units per second^2
     float   drag    = 0.0f; // how quickly it loses speed, per second
+
+    // --- ATTACHED effects ------------------------------------------------
+    // The entity this particle is pinned to, or kInvalidEntity for the usual
+    // free-flying kind. An attached particle ignores `carrier` entirely: every
+    // frame it is placed at its entity's current position and orientation plus
+    // `anchor`, with only its own spread added on top.
+    //
+    // WHY CARRYING THE EMITTER'S VELOCITY IS NOT ENOUGH, which is not obvious.
+    // A carried particle is released with the emitter's velocity and then flies
+    // STRAIGHT. An aircraft does not: lift bends its path continuously. So the
+    // particle is left behind in the direction opposite the lift - toward the
+    // belly - and since lift points out of the canopy whatever the aircraft is
+    // doing, the effect slides bellyward at ANY roll or pitch. Measured on a
+    // 0.2 s effect: 0.19 m at 2.2 g, 0.45 m at 3.9 g, and the other way in
+    // negative g.
+    //
+    // That is right for something genuinely released into the air - smoke, a
+    // spark, a shell case. It is wrong for a flame, which is combustion held at
+    // the nozzle and does not fly off the back. Those are attached instead.
+    EntityID follow = kInvalidEntity;
+    Vector3  anchor{};      // where on the entity, in its OWN axes
+    Vector3  spread{};      // how far its own motion has carried it from there
 };
 
 // The recipe for one kind of effect. Values given as a low..high pair are
@@ -250,7 +272,12 @@ void ShutdownParticles() {
 
 // Fire a burst using a recipe by name. Everything funnels through here so that
 // the C++ and Lua entry points cannot drift apart.
-static void BurstPreset(const Preset& r, Vector3 pos, float scale, Vector3 inherit) {
+// The one emitter both public entry points funnel through. `follow` is
+// kInvalidEntity for an ordinary burst, in which case `pos` is a world point
+// and `inherit` the emitter's velocity; for an attached one `pos` is the anchor
+// in the entity's own axes and `inherit` is unused.
+static void BurstPreset(const Preset& r, Vector3 pos, float scale, Vector3 inherit,
+                        EntityID follow = kInvalidEntity) {
     if (!s_ready) return;
     if (scale <= 0.0f) scale = 1.0f;
 
@@ -269,6 +296,17 @@ static void BurstPreset(const Preset& r, Vector3 pos, float scale, Vector3 inher
         // it was born. Kept apart from the spread above so that drag cannot bleed
         // it away - see the note on Particle::carrier.
         p.carrier = inherit;
+
+        // An attached particle keeps its anchor instead, and starts with no
+        // spread of its own accumulated yet. Its `pos` is filled in by the
+        // first update from the entity it is pinned to, so it is left at the
+        // anchor here rather than at a world point that would be meaningless.
+        p.follow = follow;
+        if (follow != kInvalidEntity) {
+            p.anchor  = pos;
+            p.spread  = {0.0f, 0.0f, 0.0f};
+            p.carrier = {0.0f, 0.0f, 0.0f};
+        }
 
         p.life    = RandRange(r.lifeMin, r.lifeMax);
         p.age     = 0.0f;
@@ -296,6 +334,14 @@ static void BurstPreset(const Preset& r, Vector3 pos, float scale, Vector3 inher
     }
 }
 
+void BurstNamedOn(const char* preset, EntityID entity, Vector3 anchor,
+                  float scale) {
+    if (preset == nullptr || entity == kInvalidEntity) return;
+    auto it = s_presets.find(preset);
+    const Preset& r = (it != s_presets.end()) ? it->second : FallbackPreset();
+    BurstPreset(r, anchor, scale, {0.0f, 0.0f, 0.0f}, entity);
+}
+
 void BurstNamed(const char* preset, Vector3 pos, float scale, Vector3 inherit) {
     if (preset == nullptr) return;
     auto it = s_presets.find(preset);
@@ -309,8 +355,48 @@ void BurstNamed(const char* preset, Vector3 pos, float scale, Vector3 inherit) {
     BurstPreset(FallbackPreset(), pos, scale, inherit);
 }
 
-void UpdateParticles(float dt) {
+// The world pose of an entity an attached particle is pinned to, cached for the
+// frame. Without the cache this would decompose a matrix once PER PARTICLE, and
+// a plume is a hundred of them all pinned to the same aircraft.
+namespace {
+struct PoseCache {
+    EntityID   id = kInvalidEntity;
+    bool       found = false;
+    Vector3    pos{};
+    Quaternion rot{0.0f, 0.0f, 0.0f, 1.0f};
+};
+PoseCache s_pose;   // one entry is enough: particles are walked in creation
+                    // order, so a burst's worth of them hit it in a row
+}
+
+static bool LookUpPose(Scene& scene, EntityID id, Vector3& pos, Quaternion& rot) {
+    if (s_pose.id != id) {
+        s_pose.id    = id;
+        s_pose.found = false;
+        if (const Entity* e = scene.FindConst(id)) {
+            s_pose.found = true;
+            if (e->parent == kInvalidEntity) {
+                // The overwhelming case, and the cheap one: a local transform
+                // with no parent already IS the world transform.
+                s_pose.pos = e->transform.position;
+                s_pose.rot = e->transform.rotation;
+            } else {
+                Vector3 scl;
+                MatrixDecompose(scene.WorldMatrix(*e, /*ignoreScale=*/true),
+                                &s_pose.pos, &s_pose.rot, &scl);
+            }
+        }
+    }
+    pos = s_pose.pos;
+    rot = s_pose.rot;
+    return s_pose.found;
+}
+
+void UpdateParticles(Scene& scene, float dt) {
     if (dt <= 0.0f) return;
+
+    // A new frame: whatever was cached last frame is stale.
+    s_pose.id = kInvalidEntity;
 
     for (int i = 0; i < (int)s_particles.size(); ) {
         Particle& p = s_particles[i];
@@ -334,8 +420,35 @@ void UpdateParticles(float dt) {
         float keep = 1.0f - p.drag * dt;
         if (keep < 0.0f) keep = 0.0f;      // a huge dt must not reverse it
         p.vel = Vector3Scale(p.vel, keep);
-        p.pos = Vector3Add(p.pos,
-                           Vector3Scale(Vector3Add(p.vel, p.carrier), dt));
+
+        if (p.follow != kInvalidEntity) {
+            Vector3    ePos;
+            Quaternion eRot;
+            if (LookUpPose(scene, p.follow, ePos, eRot)) {
+                // Placed afresh from the entity every frame rather than moved
+                // along from where it was. That is the whole point: no amount
+                // of manoeuvring can leave it behind, because its position is
+                // never integrated in the first place.
+                //
+                // The anchor is in the entity's own axes so the effect stays on
+                // the nozzle through any roll; the spread is added in WORLD
+                // axes, because a puff that has already drifted outward should
+                // not be swung about by the aircraft rolling afterwards.
+                p.spread = Vector3Add(p.spread, Vector3Scale(p.vel, dt));
+                p.pos = Vector3Add(
+                    Vector3Add(ePos, Vector3RotateByQuaternion(p.anchor, eRot)),
+                    p.spread);
+            } else {
+                // The entity has gone - shot down, or the run stopped. Cut the
+                // particle loose exactly where it is and let it finish its life
+                // as an ordinary one, so a burst never blinks out of existence
+                // because the thing that made it was destroyed.
+                p.follow = kInvalidEntity;
+            }
+        } else {
+            p.pos = Vector3Add(p.pos,
+                               Vector3Scale(Vector3Add(p.vel, p.carrier), dt));
+        }
 
         i++;
     }
@@ -427,5 +540,11 @@ void DrawParticles(const Camera3D& camera) {
 void ClearParticles() { s_particles.clear(); }
 
 int AliveParticleCount() { return (int)s_particles.size(); }
+
+bool ParticlePosition(int index, Vector3& out) {
+    if (index < 0 || index >= (int)s_particles.size()) return false;
+    out = s_particles[index].pos;
+    return true;
+}
 
 } // namespace eng

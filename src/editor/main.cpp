@@ -227,7 +227,7 @@ public:
         // Age the visual effects. This runs whether or not the game is playing:
         // a burst fired on the last frame before Stop should still finish
         // gracefully rather than freeze in mid-air.
-        eng::UpdateParticles(dt);
+        eng::UpdateParticles(m_scene, dt);
 
         // Place the listener before anything can play a sound this frame, or
         // positioned sounds would be judged against where the listener was on
