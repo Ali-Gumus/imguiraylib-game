@@ -109,8 +109,8 @@ properties = {
     -- How far behind the nozzle the flame reaches at full reheat, metres. The
     -- plume is drawn as a short line of emission points rather than one, which
     -- is what gives it length instead of a blob; `burner_steps` is how many.
-    burner_length = 2.5,
-    burner_steps  = 8,
+    burner_length = 2.0,
+    burner_steps  = 6,
 
     -- Multiplies the size of both effects. The exhaust is sized for a fighter;
     -- a larger or smaller aircraft wants this changed rather than the presets,

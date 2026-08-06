@@ -893,7 +893,7 @@ function onDrawHud(entity, w, h)
 
         local label = (ammo > 0) and string.format("GUN %d", math.floor(ammo))
                                  or "GUN EMPTY"
-        text_l(label, 28, h - 116, 18, tone)
+        text_l(label, 28, h - 150, 18, tone)
     end
 
     -- =======================================================================
