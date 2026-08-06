@@ -77,6 +77,6 @@ function onDestroy(entity)
     Scene.destroyNear("aa",   p.x, p.y, p.z, P.blast_radius)
 
     -- And a blast at the centre of it, over the top of all of those.
-    Fx.burst("explosion", p.x, p.y, p.z, 6.0)
+    Fx.burst("explosion", p.x, p.y, p.z, 30.0)
     Audio.playAt("explosion", p.x, p.y, p.z)
 end

@@ -115,8 +115,8 @@ Fx.define("jet_exhaust", {
     speed_max   = 3.0,
     life_min    = 0.06,
     life_max    = 0.14,
-    size_start  = 1.2,
-    size_end    = 2.4,      -- widens as it disperses, unlike a spark
+    size_start  = 1.6,
+    size_end    = 2.0,      -- widens as it disperses, unlike a spark
     color_start = {255, 100, 100, 120},
     color_end   = {60, 70, 90, 0},
     gravity     = 0.0,

@@ -138,7 +138,7 @@ properties = {
     -- position is on the ground, so a blast centred there goes off under the
     -- vehicle instead of on it. Half the 30.5 m drawn height, measured above.
     explode_up   = 15,
-    explode_size = 1.5,
+    explode_size = 10,
 }
 
 -- Runtime state.
