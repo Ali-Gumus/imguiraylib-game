@@ -92,7 +92,7 @@ Sound.define("explosion", {
 -- The player being hit. Deliberately distinct from "impact": the player needs to
 -- know instantly that the damage was theirs.
 Sound.define("hit_taken", {
-    file      = "assets/sounds/hit_taken.wav",
+    file      = "assets/sounds/floraphonic-metal-hit.mp3",
     volume    = 0.8,
     pitch_min = 0.95,
     pitch_max = 1.05,
