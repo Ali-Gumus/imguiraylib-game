@@ -10,7 +10,7 @@
         {
           "path": "assets/scripts/gun.lua",
           "props": {
-            "fire_rate": 0.05000000074505806
+            "fire_rate": 0.00016670000331941992
           },
           "type": "Script"
         },
@@ -440,5 +440,5 @@
       }
     }
   ],
-  "nextID": 13391
+  "nextID": 17279
 }
