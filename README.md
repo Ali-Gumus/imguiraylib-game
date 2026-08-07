@@ -68,7 +68,7 @@ world transforms up the parent chain.
 | **Scripting** | Lua per component via sol2, each with its own sandboxed interpreter |
 | **Serialization** | scenes and node graphs as human-readable JSON |
 
-![Lit geometry and particle effects](docs/effects.png)
+![Guns firing in afterburner](docs/combat.png)
 
 ## Gameplay is Lua
 
@@ -137,6 +137,8 @@ guessing at names. The graph is the source of truth; the generated `.lua` is an
 artifact.
 
 ## The game
+
+![Flying over the terrain, with the radar and enemy contacts](docs/gameplay.png)
 
 Fly an F-16 over a landscape of ridges and valleys. **The flight model is
 JSBSim**, so the aircraft is flown rather than driven: it stalls if you ask too
