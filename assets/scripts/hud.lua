@@ -99,6 +99,7 @@ properties = {
     show_ladder = 1,   -- horizon line and climb/dive bars
     show_tapes  = 1,   -- airspeed, altitude and heading scales
     show_fpm    = 1,   -- the flight path marker
+    show_bullet_path = 1,  -- where the rounds will actually go
     show_bank   = 1,   -- the bank scale and its pointer
     show_fuel   = 1,   -- the fuel gauge and its low-fuel caption
 
@@ -142,6 +143,32 @@ properties = {
     -- (to about 295 in the stratosphere), which this deliberately ignores - the
     -- readout is a sense of speed, not a flight-planning instrument.
     sound_speed = 340,
+
+    -- --- THE BULLET PATH ----------------------------------------------------
+    -- These four MUST match gun.lua and bullet.lua. The path drawn on the glass
+    -- is a prediction of what those two scripts will actually do, so if they
+    -- disagree the sight lies - and it lies quietly, which is worse than not
+    -- having one. A script cannot read another script's properties, so they are
+    -- repeated here the way aa_gun.lua repeats the shell speed it leads with.
+    --
+    -- gun_speed is bullet.lua's `speed`; gun_gravity is its `gravity` factor.
+    gun_speed   = 1036,   -- muzzle velocity, metres per second
+    gun_gravity = 1.0,    -- 1 = full drop, 0 = flies perfectly straight
+
+    -- How far out the aiming pipper sits, in metres. This is the range the sight
+    -- is solved FOR: rounds pass through the pipper at exactly this distance and
+    -- everywhere else they are somewhere along the dotted path leading to it.
+    -- 800 m is inside the gun's useful reach and outside a collision.
+    gun_range = 800,
+
+    -- The muzzle in the aircraft's OWN axes, metres - gun.lua's three muzzle
+    -- values. It matters that this is not the aircraft's centre: the gun sits in
+    -- the port wing root, so the rounds start nearly a metre to the left of
+    -- where the pilot is looking, and at close range that offset is the
+    -- difference between a hit and a miss.
+    muzzle_forward =  2.3,
+    muzzle_up      =  0.450,
+    muzzle_right   = -0.8,
 }
 
 -- ---------------------------------------------------------------------------
@@ -609,6 +636,105 @@ function onDrawHud(entity, w, h)
             Draw.line(fx - rad, fy, fx - rad - 11, fy)  -- left wing
             Draw.line(fx + rad, fy, fx + rad + 11, fy)  -- right wing
             Draw.line(fx, fy - rad, fx, fy - rad - 8)   -- tail fin
+        end
+    end
+
+    -- =======================================================================
+    -- THE BULLET PATH, AND THE PIPPER AT THE END OF IT
+    --
+    -- The fixed cross above is a BORESIGHT: it shows where the barrel points,
+    -- which is not where the rounds go. Two things bend the path away from it,
+    -- and both are worth understanding because they are what the sight is for.
+    --
+    -- FIRST, THE ROUNDS INHERIT THE AIRCRAFT'S OWN MOTION. A muzzle velocity is
+    -- measured against the gun, so a round leaves at `gun_speed` ALONG THE NOSE
+    -- plus whatever the aircraft was already doing. In level flight those are
+    -- nearly the same direction and nothing much happens. In a hard turn they
+    -- are not: an aircraft pulling at ten degrees of angle of attack is
+    -- travelling well below its nose, so the round gets a sideways shove of
+    -- speed x sin(alpha) - at 300 m/s that is over fifty metres a second across
+    -- the barrel, and the path bends a couple of degrees off the boresight.
+    -- That is a whole aircraft's length of miss at range.
+    --
+    -- SECOND, GRAVITY. Much the smaller effect here: this round is fast, so over
+    -- 800 metres it falls only a couple of metres. It is included because it
+    -- costs nothing and because it is what makes the path a CURVE - which is the
+    -- thing that tells a player, without any text, that the rounds are objects
+    -- flying through the world rather than a line drawn from the nose.
+    --
+    -- The path is computed the same way bullet.lua actually flies: a starting
+    -- point at the muzzle, a starting velocity, and constant acceleration
+    -- downward. Then each sample is converted to a direction as seen from the
+    -- aircraft, and placed with the same two angles every other symbol uses.
+    -- =======================================================================
+    if P.show_bullet_path > 0 and player ~= nil then
+        local t   = player.transform
+        local p   = t.position
+
+        -- The muzzle, in the world. The aircraft's three axes carry whichever
+        -- way it happens to be pointing, so walking along each in turn turns a
+        -- point ON the aircraft into a point IN the world.
+        local mx = p.x + fwd.x * P.muzzle_forward + up.x * P.muzzle_up + rgt.x * P.muzzle_right
+        local my = p.y + fwd.y * P.muzzle_forward + up.y * P.muzzle_up + rgt.y * P.muzzle_right
+        local mz = p.z + fwd.z * P.muzzle_forward + up.z * P.muzzle_up + rgt.z * P.muzzle_right
+
+        -- Muzzle velocity along the nose, plus the aircraft's own.
+        local bx = fwd.x * P.gun_speed + vel_x
+        local by = fwd.y * P.gun_speed + vel_y
+        local bz = fwd.z * P.gun_speed + vel_z
+
+        local bsp = math.sqrt(bx * bx + by * by + bz * bz)
+        if bsp > 1 then
+            -- Total time of flight to the pipper's range. Measured along the
+            -- round's own speed rather than the nose's, because the two differ
+            -- by exactly the inherited motion described above.
+            local ft = P.gun_range / bsp
+
+            -- Rounds cannot be aimed once the magazine is empty, and a sight
+            -- that keeps promising hits is worse than one that admits it.
+            local ammo = Hud.get("ammo", -1)
+            local live = (ammo < 0) or (ammo > 0)
+            local col  = live and "hud" or "dim"
+
+            -- ONE MARK, NOT A TRAIL OF THEM. Drawing the path as a row of dots
+            -- at increasing ranges is the obvious idea and it does not work: the
+            -- round's sideways drift and its forward travel BOTH grow with time,
+            -- so the angle off the boresight barely changes with range and every
+            -- point on the trajectory lands on nearly the same pixel. Only
+            -- gravity separates them, and over this range that is about one
+            -- pixel. The trail reads as a smudge inside the pipper rather than
+            -- as a curve, so the pipper is the whole sight.
+            local wx = mx + bx * ft
+            local wy = my + by * ft - 0.5 * 9.81 * P.gun_gravity * ft * ft
+            local wz = mz + bz * ft
+
+            -- The direction from the aircraft to that point, as a unit vector,
+            -- then the same two angles the flight path marker is placed with.
+            local dx, dy, dz = wx - p.x, wy - p.y, wz - p.z
+            local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if d > 0.001 then
+                dx, dy, dz = dx / d, dy / d, dz / d
+
+                local f_dot = dot(dx, dy, dz, fwd.x, fwd.y, fwd.z)
+                -- Behind the aircraft there is nothing sensible to draw, and the
+                -- angles below would fold back onto the display.
+                if f_dot > 0.01 then
+                    local r_dot = dot(dx, dy, dz, rgt.x, rgt.y, rgt.z)
+                    local u_dot = dot(dx, dy, dz, up.x, up.y, up.z)
+
+                    local ax = math.deg(math.atan(r_dot, f_dot))
+                    local ay = math.deg(math.atan(-u_dot, f_dot))
+
+                    local sx = cx + clamp(ax * ppd, -w * 0.45, w * 0.45)
+                    local sy = cy + clamp(ay * ppd, -h * 0.45, h * 0.45)
+
+                    -- Put this on a target at `gun_range` and the rounds arrive
+                    -- there. A ring rather than a blob, so what is being shot at
+                    -- stays visible inside the very mark meant to aim at it.
+                    Draw.circleLines(sx, sy, 9, col)
+                    Draw.circle(sx, sy, 1.5, col)
+                end
+            end
         end
     end
 
