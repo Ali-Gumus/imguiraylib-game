@@ -10,7 +10,9 @@
         {
           "path": "assets/scripts/gun.lua",
           "props": {
-            "fire_rate": 0.00016670000331941992
+            "ammo_capacity": 500.0,
+            "fire_rate": 0.00016670000331941992,
+            "rounds_per_shot": 1.0
           },
           "type": "Script"
         },
@@ -97,10 +99,11 @@
           "dataDir": "assets/jsbsim",
           "enabled": true,
           "startAirspeedKt": 350.0,
+          "startFuelLb": 0.0,
           "startPathAngleDeg": 0.0,
           "trimOnStart": true,
           "type": "JSBSim",
-          "unlimitedFuel": true
+          "unlimitedFuel": false
         }
       ],
       "id": 1,
@@ -440,5 +443,5 @@
       }
     }
   ],
-  "nextID": 17279
+  "nextID": 18065
 }
