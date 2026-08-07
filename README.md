@@ -1,7 +1,9 @@
 # imguiraylib-game
 
-A **3D game engine and editor**, written from scratch in C++20 — and a
-**jet combat game** built with it.
+A **3D game engine and editor**, written from scratch in C++20 — and
+**Winchester**, a jet combat game built with it.
+
+_Winchester_ — brevity code for "out of ammunition."
 
 ![The editor](docs/editor.png)
 
