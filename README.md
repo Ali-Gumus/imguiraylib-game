@@ -1,14 +1,14 @@
 # imguiraylib-game
 
-A **3D game engine and editor**, written from scratch in C++20 — and
+A **3D game engine and editor**, written from scratch in C++20 - and
 **Winchester**, a jet combat game built with it.
 
-_Winchester_ — brevity code for "out of ammunition."
+_Winchester_ - brevity code for "out of ammunition."
 
 ![The editor](docs/editor.png)
 
 The engine is a static library that knows nothing about the editor. Two
-executables link it: the **editor**, and the **game** — a standalone runtime with
+executables link it: the **editor**, and the **game** - a standalone runtime with
 no editor in it, which is what a player downloads. Gameplay is written in Lua, or
 built visually as node graphs that generate Lua. Everything here is hand-written
 on top of raylib, Dear ImGui and sol2; the only large pieces not written here are
@@ -18,7 +18,7 @@ each.
 ## Play it
 
 Builds are on the [Releases](https://github.com/Ali-Gumus/imguiraylib-game/releases)
-page — unzip and run `game.exe`. Nothing to install; the C++ runtime ships with
+page - unzip and run `game.exe`. Nothing to install; the C++ runtime ships with
 it.
 
 | | |
@@ -26,7 +26,7 @@ it.
 | **W / S** | pitch (W raises the nose) |
 | **A / D** | roll |
 | **Q / E** | rudder |
-| **Shift / Ctrl** | throttle — the top of the range lights the afterburner |
+| **Shift / Ctrl** | throttle - the top of the range lights the afterburner |
 | **G** | landing gear |
 | **Space** | guns |
 | **R** | restart after a game over |
@@ -34,7 +34,7 @@ it.
 
 The controls **ramp rather than snap**. A keyboard has two positions and a stick
 has a continuum, so mapping a key straight to a control surface makes tapping W a
-genuine 9 g snatch — which is most of why a real flight model feels unflyable
+genuine 9 g snatch - which is most of why a real flight model feels unflyable
 from a keyboard.
 
 ## What it does
@@ -49,9 +49,9 @@ trick that makes the viewport feel native:
 - **Inspector** for the transform and every component, with live-editable script
   properties
 - **Node editor** for visual scripting
-- **Script API** panel — a searchable reference generated from the bindings
+- **Script API** panel - a searchable reference generated from the bindings
   themselves, so it cannot go stale
-- **Build** panel — builds the standalone game and streams the compiler's output
+- **Build** panel - builds the standalone game and streams the compiler's output
   into a log while the editor keeps running
 - **Play / Stop**, which snapshots the scene and restores it afterwards, so
   playing never alters what you authored
@@ -63,9 +63,9 @@ world transforms up the parent chain.
 |---|---|
 | **Transforms** | quaternion rotation (no gimbal lock), scale that propagates through parents |
 | **Rendering** | primitives, `.obj`/`.glb` model loading, multi-octave procedural terrain, a gradient skybox, a directional-light shader |
-| **Physics** | Jolt rigid bodies — static/kinematic/dynamic, a heightfield terrain surface, contact events delivered to scripts, continuous collision for projectiles |
-| **Flight model** | JSBSim — a real aerodynamic solver flying a stock F-16, with stalls, fuel burn, landing gear and ground reactions |
-| **Effects** | pooled billboard particles — explosions, sparks, muzzle flashes |
+| **Physics** | Jolt rigid bodies - static/kinematic/dynamic, a heightfield terrain surface, contact events delivered to scripts, continuous collision for projectiles |
+| **Flight model** | JSBSim - a real aerodynamic solver flying a stock F-16, with stalls, fuel burn, landing gear and ground reactions |
+| **Effects** | pooled billboard particles - explosions, sparks, muzzle flashes |
 | **Audio** | pooled voices for overlapping one-shots, per-play pitch variation, looping streams, positional playback |
 | **Scripting** | Lua per component via sol2, each with its own sandboxed interpreter |
 | **Serialization** | scenes and node graphs as human-readable JSON |
@@ -133,7 +133,7 @@ A complete **data-flow node language** that generates Lua. Typed pins
 loops.
 
 Nodes cover values and maths, entity reads and writes, spawning, tag queries,
-AI helpers, and the presentation layer — an effect or sound is picked from a
+AI helpers, and the presentation layer - an effect or sound is picked from a
 dropdown of whatever the data files define, so adding one needs no C++ and no
 guessing at names. The graph is the source of truth; the generated `.lua` is an
 artifact.
@@ -149,18 +149,18 @@ burner in, and can be landed on its gear or flown into a hillside.
 
 Two fronts. Enemy aircraft chase, spread out to avoid crowding, climb over
 terrain and lead their shots. On the ground, fortified camps defended by
-anti-aircraft vehicles that track the player and lead the shot — a shell crosses
+anti-aircraft vehicles that track the player and lead the shot - a shell crosses
 two kilometres in a little over two seconds, in which time a jet moves a
 kilometre, so firing at where it *is* misses by more than an airfield.
 
 Score on kills, watch the radar for contacts and targets, restart with **R**.
 
-Everything is at **real-world scale** — one world unit is one metre, and the
+Everything is at **real-world scale** - one world unit is one metre, and the
 tunables are derived from the real aircraft rather than dialled in by feel.
 
 ## Building
 
-Everything is fetched and pinned by CMake — nothing to install by hand.
+Everything is fetched and pinned by CMake - nothing to install by hand.
 
 ```bash
 cmake -B build
@@ -172,7 +172,7 @@ downloads and compiles the dependencies and takes several minutes**; later build
 are fast.
 
 **Use a Release build to play.** Debug carries checked iterators through every
-per-entity loop and drops frames; Release holds 58–60 fps.
+per-entity loop and drops frames; Release holds 58-60 fps.
 
 Three targets:
 
@@ -197,8 +197,8 @@ src/engine/       the engine, as a static library
   Scene.*           entities, scene graph, serialization
   components/       one file per component
   bindings/         one file per Lua API subject, each carrying its own docs
-  Physics.*         Jolt rigid bodies — the ONLY file that includes Jolt
-  FlightModel.*     JSBSim — the ONLY file that includes JSBSim
+  Physics.*         Jolt rigid bodies - the ONLY file that includes Jolt
+  FlightModel.*     JSBSim - the ONLY file that includes JSBSim
   Lighting.*        the directional light and its shader
   Particles.*       the effect pool
   Audio.*           sound loading, voice pooling, loops
@@ -226,14 +226,14 @@ common type names into a project that already fights raylib's globals.
 
 | | |
 |---|---|
-| Flight — quaternion orientation, chase camera | ✅ |
+| Flight - quaternion orientation, chase camera | ✅ |
 | Weapons, health and hit detection | ✅ |
-| Enemy aircraft — chase, separation, lead prediction, terrain avoidance | ✅ |
-| Presentation — models, terrain, HUD, skybox, lighting, particles | ✅ |
-| Audio — gunfire, explosions, a throttle-driven engine loop | ✅ |
-| Game loop — score, waves, game over, restart | ✅ |
+| Enemy aircraft - chase, separation, lead prediction, terrain avoidance | ✅ |
+| Presentation - models, terrain, HUD, skybox, lighting, particles | ✅ |
+| Audio - gunfire, explosions, a throttle-driven engine loop | ✅ |
+| Game loop - score, waves, game over, restart | ✅ |
 | Rigid-body physics (Jolt) | ✅ |
-| Ground war — camps, AA emplacements, radar marks | ✅ |
+| Ground war - camps, AA emplacements, radar marks | ✅ |
 | Aerodynamic flight model (JSBSim) | ✅ |
 | Standalone game build and packaging | ✅ |
 | Main menu | ⬜ |
@@ -243,7 +243,7 @@ The full feature plan lives in `jetgame_plan.xlsx`.
 Releases before a main menu exists are marked **pre-release**: the game drops you
 straight into the air.
 
-A missing asset degrades rather than crashes — a missing model falls back to a
+A missing asset degrades rather than crashes - a missing model falls back to a
 primitive shape, and a missing sound is silent and flagged in the toolbar.
 
 ## Built with

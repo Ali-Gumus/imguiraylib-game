@@ -69,21 +69,21 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(rlimgui)
 
 # ---- Lua (the scripting language runtime) ----------------------------
-# Fetched as a plain tarball from lua.org (the official source — the
+# Fetched as a plain tarball from lua.org (the official source - the
 # GitHub repo is just a mirror). No CMakeLists, and it's pure C.
 FetchContent_Declare(
     lua
     URL https://www.lua.org/ftp/lua-5.4.8.tar.gz
-    # NOTE: 5.5.0 exists, but sol2 v3.5.0 predates it — we pair versions
+    # NOTE: 5.5.0 exists, but sol2 v3.5.0 predates it - we pair versions
     # that are tested together (the rlImGui/ImGui lesson).
 )
 FetchContent_MakeAvailable(lua)
 
 # GLOB: collect every .c file instead of listing ~30 by hand. Caveat you
-# should know: CMake won't notice NEW files appearing until reconfigure —
+# should know: CMake won't notice NEW files appearing until reconfigure -
 # fine for a frozen third-party lib, avoid for your own code.
 file(GLOB LUA_SOURCES ${lua_SOURCE_DIR}/src/*.c)
-# lua.c/luac.c are the standalone interpreter/compiler main()s — we embed
+# lua.c/luac.c are the standalone interpreter/compiler main()s - we embed
 # the library, so they'd clash with our own main().
 list(REMOVE_ITEM LUA_SOURCES ${lua_SOURCE_DIR}/src/lua.c
                              ${lua_SOURCE_DIR}/src/luac.c)
@@ -124,7 +124,7 @@ FetchContent_MakeAvailable(json)
 
 # ---- sol2 (C++ <-> Lua binding layer) --------------------------------
 # Header-only and ships real CMake support: MakeAvailable gives us a
-# ready "sol2" INTERFACE target (no compiling — just include paths).
+# ready "sol2" INTERFACE target (no compiling - just include paths).
 FetchContent_Declare(
     sol2
     GIT_REPOSITORY https://github.com/ThePhD/sol2.git
@@ -152,7 +152,7 @@ FetchContent_MakeAvailable(sol2)
 #        RuntimeLibrary"), so force it to agree with us.
 #      - OVERRIDE_CXX_FLAGS: stops Jolt replacing CMAKE_CXX_FLAGS_* for
 #        the WHOLE project (it disables buffer-security checks and edits
-#        optimisation flags — fine for its own code, not ours to change).
+#        optimisation flags - fine for its own code, not ours to change).
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 set(OVERRIDE_CXX_FLAGS              OFF CACHE BOOL "" FORCE)
 
@@ -281,7 +281,7 @@ target_link_libraries(editor PRIVATE engine imgui_node_editor)
 
 # Bake the project root into the EDITOR (dev tool -> works directly on
 # the source assets/, like Unity does). The shipped game will instead use
-# assets copied next to its exe — that's what the post-build copy is for.
+# assets copied next to its exe - that's what the post-build copy is for.
 target_compile_definitions(editor PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 
 # The Build panel shells out to CMake to build the game, and needs to know two
