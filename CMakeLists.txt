@@ -273,6 +273,7 @@ target_compile_definitions(engine PUBLIC SOL_ALL_SAFETIES_ON=1)
 add_executable(editor
     src/editor/main.cpp
     src/editor/ScriptGraph.cpp
+    src/editor/BuildRunner.cpp
 )
 # Node editor is EDITOR-only: the shipped game runs generated .lua and
 # never shows a node canvas, so the engine must not depend on it.
@@ -282,6 +283,25 @@ target_link_libraries(editor PRIVATE engine imgui_node_editor)
 # the source assets/, like Unity does). The shipped game will instead use
 # assets copied next to its exe — that's what the post-build copy is for.
 target_compile_definitions(editor PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+# The Build panel shells out to CMake to build the game, and needs to know two
+# things it cannot work out for itself:
+#
+#   CMAKE_EXE_PATH  There is no `cmake` on a normal Windows PATH. The copy this
+#                   project uses is the one bundled inside Visual Studio, many
+#                   folders deep, and its location differs per install. CMake
+#                   knows where CMake is, so it writes its own path in.
+#
+#   BUILD_TREE_DIR  Which tree to build in. Baking THIS one means the editor
+#                   always rebuilds the tree that produced it - Visual Studio's
+#                   out/build/x64-Debug when VS built it, a command-line build/
+#                   when that did - instead of guessing and quietly updating a
+#                   different exe from the one being run.
+#
+# Both are quoted string literals in C++, hence the escaped quotes.
+target_compile_definitions(editor PRIVATE
+    CMAKE_EXE_PATH="${CMAKE_COMMAND}"
+    BUILD_TREE_DIR="${CMAKE_BINARY_DIR}")
 
 # After every build, mirror assets/ next to the exe so relative paths
 # like "assets/scripts/spin.lua" work when VS launches it. copy_directory

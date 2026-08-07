@@ -20,6 +20,7 @@
 #include "rlgl.h"       // low-level matrix stack, for the selection outline
 
 #include "ScriptGraph.h"           // the visual scripting graph
+#include "BuildRunner.h"           // runs CMake in the background for the Build panel
 
 #include <imgui_node_editor.h>
 namespace ed = ax::NodeEditor;     // a shorter alias for the node-editor namespace
@@ -30,6 +31,27 @@ namespace ed = ax::NodeEditor;     // a shorter alias for the node-editor namesp
 #include <cstring>      // strncpy for text-edit buffers
 #include <deque>        // the Play/Stop snapshot mirrors Scene's entity store
 #include <filesystem>   // set the working directory at startup
+#include <cstdlib>      // std::system, for opening the build output folder
+#include <string>
+#include <vector>
+
+// Where CMake is, and which build tree produced this editor. Both are written
+// in by CMake itself at configure time (see the editor target in
+// CMakeLists.txt) for the reason spelled out over DrawBuildPanel: there is no
+// cmake on a normal Windows PATH, and the copy this project uses lives deep
+// inside Visual Studio.
+//
+// The fallbacks exist so the file still compiles if someone builds it without
+// those definitions - an empty path makes the Build panel fail visibly with a
+// readable message rather than making the whole editor fail to compile.
+#ifndef CMAKE_EXE_PATH
+#define CMAKE_EXE_PATH ""
+#endif
+#ifndef BUILD_TREE_DIR
+#define BUILD_TREE_DIR ""
+#endif
+static constexpr const char* kCMakeExePath = CMAKE_EXE_PATH;
+static constexpr const char* kBuildTreeDir = BUILD_TREE_DIR;
 
 // EditorApp is our program. It inherits Application (which owns the window and
 // loop) and overrides the three per-frame hooks to add the editor's behavior.
@@ -747,6 +769,135 @@ public:
         DrawInspectorPanel();
         DrawNodeEditorPanel();
         DrawScriptApiPanel();
+        DrawBuildPanel();
+    }
+
+    // Build the standalone game and show the compiler's output as it arrives.
+    //
+    // This is the editor's equivalent of Unity's Build button. It does not
+    // compile anything itself: it asks CMake to build the `package_game`
+    // target, which builds the game executable and then copies it and the
+    // assets into dist/<config>/ ready to be zipped and sent to someone.
+    //
+    // WHY THE PATHS ARE BAKED IN RATHER THAN SEARCHED FOR. There is no cmake on
+    // the PATH on a normal Windows machine - the one this project uses is the
+    // copy bundled inside Visual Studio, several folders deep. Guessing where it
+    // lives would work on exactly one machine. CMake, however, knows perfectly
+    // well where CMake is, so it writes its own location and the build tree's
+    // location into the editor at configure time. The build therefore always
+    // happens in the tree that produced the running editor, whether that is
+    // Visual Studio's out/build/x64-Debug or a command-line build/.
+    void DrawBuildPanel() {
+        ImGui::Begin("Build");
+
+        // Built without the paths CMake normally supplies. Say so plainly:
+        // a Build button that silently does nothing is worse than no button.
+        if (kCMakeExePath[0] == '\0' || kBuildTreeDir[0] == '\0') {
+            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f},
+                               "This editor was built without CMAKE_EXE_PATH / "
+                               "BUILD_TREE_DIR.");
+            ImGui::TextWrapped("Re-run CMake configure so the editor knows where "
+                               "cmake.exe and its build tree are. Until then, "
+                               "build from a terminal with:  cmake --build <tree> "
+                               "--config Release --target package_game");
+            ImGui::End();
+            return;
+        }
+
+        const bool running = m_build.Running();
+
+        // The config is the one real choice here. Debug builds of this project
+        // drop frames badly, so a build meant for someone else must be Release;
+        // Debug is offered anyway because a crash in the shipped runtime is far
+        // easier to look at with symbols.
+        const char* configs[] = {"Release", "Debug"};
+        ImGui::SetNextItemWidth(120.0f);
+        // Disabled mid-build: the config is baked into the command line when it
+        // starts, so changing it while one runs would only mislabel the result.
+        ImGui::BeginDisabled(running);
+        ImGui::Combo("Configuration", &m_buildConfig, configs, IM_ARRAYSIZE(configs));
+
+        if (ImGui::Button(running ? "Building..." : "Build Game")) {
+            m_build.Start(kCMakeExePath, kBuildTreeDir,
+                          configs[m_buildConfig], "package_game");
+        }
+        ImGui::EndDisabled();
+
+        // Opening the output folder is only offered once there is one.
+        if (m_build.Finished() && m_build.Succeeded() && !running) {
+            ImGui::SameLine();
+            if (ImGui::Button("Open Folder")) {
+                // Explorer is asked through the shell rather than through
+                // windows.h, keeping this file free of it (see BuildRunner.h).
+                std::string cmd = std::string("explorer \"") + PROJECT_ROOT_DIR +
+                                  "\\dist\\" + configs[m_buildConfig] + "\"";
+                // Explorer's exit code is famously unreliable - it returns
+                // non-zero on success often enough that testing it is worse
+                // than useless - so the result is deliberately ignored.
+                std::system(cmd.c_str());
+            }
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Log")) m_build.Clear();
+
+        // --- status ---------------------------------------------------------
+        ImGui::Separator();
+        if (running) {
+            ImGui::TextColored({1.0f, 0.85f, 0.3f, 1.0f},
+                               "Building... (%zu lines)", m_build.LineCount());
+            ImGui::TextDisabled("The editor keeps running; this can take a minute or two.");
+        } else if (m_build.Finished()) {
+            if (m_build.Succeeded()) {
+                ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f},
+                                   "Build succeeded -> dist/%s/",
+                                   configs[m_buildConfig]);
+            } else {
+                // The exit code is shown because it is the only trustworthy
+                // signal: compilers print the word "error" in lines that are
+                // not fatal, and occasionally fail while printing none.
+                ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f},
+                                   "Build FAILED (exit code %d)", m_build.ExitCode());
+            }
+        } else {
+            ImGui::TextDisabled("Builds the game exe and copies it, with the assets, "
+                                "into dist/<configuration>/.");
+        }
+
+        // --- the log --------------------------------------------------------
+        ImGui::Separator();
+        ImGui::Checkbox("Follow output", &m_buildFollow);
+
+        ImGui::BeginChild("buildlog", ImVec2(0, 0), ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+
+        // The command, so it can be read and re-run in a terminal. The first
+        // question when a build behaves differently inside a tool than outside
+        // one is "what did it actually run", and this answers it.
+        const std::string cmd = m_build.CommandLine();
+        if (!cmd.empty()) {
+            ImGui::TextDisabled("%s", cmd.c_str());
+            ImGui::Separator();
+        }
+
+        // A COPY of the lines, because the build thread may append at any
+        // moment and handing ImGui a container that can reallocate underneath
+        // it is a crash that would only ever happen during a long build.
+        const std::vector<std::string> lines = m_build.Lines();
+        for (const std::string& line : lines) {
+            // TextUnformatted, not Text: a compiler message can contain a
+            // percent sign (in a path, or in an error about a format string),
+            // and passing it as a format string is undefined behaviour.
+            ImGui::TextUnformatted(line.c_str());
+        }
+
+        // Keep the newest output in view while it streams, unless the user has
+        // scrolled up to read something - which is what turning the checkbox
+        // off is for.
+        if (m_buildFollow && running) ImGui::SetScrollHereY(1.0f);
+
+        ImGui::EndChild();
+        ImGui::End();
     }
 
     // A searchable reference for everything a script can call.
@@ -1482,6 +1633,14 @@ private:
     Model  m_sky{};            // the unit cube it draws on
     bool   m_skyReady = false; // false if the shader failed to compile
     int    m_skyScaleLoc = -1; // cached location of the shader's skyScale uniform
+
+    // --- the Build panel ----------------------------------------------------
+    // Runs CMake on a background thread; see BuildRunner.h.
+    edtr::BuildRunner m_build;
+    // Index into the config list in DrawBuildPanel. 0 = Release, because a
+    // build made from this button is one meant to be given to somebody.
+    int  m_buildConfig = 0;
+    bool m_buildFollow = true;   // keep the newest log line in view
 
     // Clipping planes for the EDITOR's own fly camera. The scene camera carries
     // its own pair on its CameraComponent, because a game view's view distance
