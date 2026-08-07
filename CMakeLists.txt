@@ -441,6 +441,43 @@ add_custom_command(TARGET game POST_BUILD
 # `package_game` DEPENDS on `game`, so asking for a package always builds first and a
 # stale exe cannot be shipped by accident.
 # -----------------------------------------------------------------------------
+# --- The C++ runtime DLLs, shipped beside the exe ---------------------------
+#
+# THE GAME DOES NOT LINK THE C++ RUNTIME STATICALLY, so a machine without the
+# Visual C++ Redistributable cannot start it. The exe imports VCRUNTIME140.dll,
+# VCRUNTIME140_1.dll and MSVCP140.dll, and when they are absent Windows refuses
+# to launch it with a dialog naming a DLL - which tells a player nothing at all
+# and looks like a broken download.
+#
+# Static linking (/MT) would avoid the question, but it is not available here:
+# Jolt is forced to the DYNAMIC runtime further up this file because mixing the
+# two is a link error, and every dependency would have to agree.
+#
+# So the DLLs travel with the game instead. Microsoft permits this app-local
+# deployment explicitly, and it is what most games do.
+#
+# SKIP_INSTALL_RULES is set because this module's usual job is to add install()
+# rules, which this project does not use - all that is wanted from it is the
+# LIST of files, which it puts in CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS.
+#
+# Note it deliberately reports the RELEASE runtime. The debug CRT
+# (VCRUNTIME140D.dll and friends) is NOT redistributable and must never be put
+# in a package, which is a second reason a Debug package is for local use only.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+include(InstallRequiredSystemLibraries)
+
+# Guarded: with an empty list the copy command would collapse to
+# "copy_if_different <destination>" and fail with an unhelpful message.
+set(RUNTIME_DLL_COPY_CMD ${CMAKE_COMMAND} -E true)   # a harmless no-op
+if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+    set(RUNTIME_DLL_COPY_CMD ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>/)
+    message(STATUS "Game package will bundle: ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}")
+else()
+    message(WARNING "No MSVC runtime DLLs found to bundle - the packaged game "
+                    "will need the Visual C++ Redistributable installed.")
+endif()
+
 add_custom_target(package_game
     DEPENDS game
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>
@@ -449,5 +486,6 @@ add_custom_target(package_game
             $<TARGET_FILE:game> ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>/
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/assets ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>/assets
+    COMMAND ${RUNTIME_DLL_COPY_CMD}
     COMMENT "Packaging the game into dist/$<CONFIG>/"
     VERBATIM)
