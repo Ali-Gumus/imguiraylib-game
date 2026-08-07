@@ -289,3 +289,71 @@ target_compile_definitions(editor PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}"
 add_custom_command(TARGET editor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:editor>/assets)
+
+# =============================================================================
+# THE GAME -- the standalone runtime a player runs.
+#
+# A second executable over the SAME engine library. It shares every subsystem
+# with the editor and duplicates none of them; what it leaves out is the editor
+# itself. Note what is deliberately absent below:
+#
+#   * imgui_node_editor       - a player never opens a node canvas
+#   * PROJECT_ROOT_DIR        - the game must NOT reach back into the source
+#                               tree. It uses the assets copied beside its exe,
+#                               which is what makes the build folder movable to
+#                               a machine that has never seen this project.
+# =============================================================================
+add_executable(game src/game/main.cpp)
+target_link_libraries(game PRIVATE engine)
+
+# NO CONSOLE WINDOW BEHIND THE GAME. A console-subsystem exe opens a black
+# terminal alongside itself, which is right for a developer tool and wrong for a
+# shipped product - the editor keeps its console on purpose, and this is exactly
+# the difference between the two.
+#
+# The obvious way to do this, CMake's WIN32_EXECUTABLE, is NOT used, because it
+# also demands a `WinMain` entry point: the Windows subsystem has its own
+# signature, and a plain `main` no longer satisfies the linker (the error is an
+# unresolved WinMain, which reads as a missing library rather than as a
+# subsystem setting). Writing a WinMain would mean a second entry point that
+# only exists on one platform.
+#
+# Instead the subsystem is set to WINDOWS while the entry point is pointed back
+# at the ordinary C runtime startup, which is what calls `main`. The result is
+# one portable entry point and no console.
+if(MSVC)
+    target_link_options(game PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+endif()
+
+# The same asset mirror the editor gets, and for a stronger reason: this exe has
+# no other way to find its files.
+add_custom_command(TARGET game POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:game>/assets)
+
+# -----------------------------------------------------------------------------
+# `package_game` -- collect a distributable build into dist/<config>/.
+#
+# Building the `game` target already produces a working exe with its assets
+# beside it, but it sits in a build tree full of object files, the editor, and
+# every dependency's intermediate output. This copies just the two things a
+# player needs into a clean folder that can be zipped and sent.
+#
+# It is NOT part of the default build (EXCLUDE_FROM_ALL via being a custom
+# target nothing depends on), because copying the whole asset tree on every
+# compile is a cost only worth paying when actually shipping something. Build it
+# by name:  cmake --build build --config Release --target package_game
+#
+# `package_game` DEPENDS on `game`, so asking for a package always builds first and a
+# stale exe cannot be shipped by accident.
+# -----------------------------------------------------------------------------
+add_custom_target(package_game
+    DEPENDS game
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:game> ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets ${CMAKE_SOURCE_DIR}/dist/$<CONFIG>/assets
+    COMMENT "Packaging the game into dist/$<CONFIG>/"
+    VERBATIM)

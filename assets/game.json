@@ -1,0 +1,8 @@
+{
+  "scene": "assets/scenes/JSBFlight.json",
+  "title": "Jet Combat",
+  "width": 1280,
+  "height": 720,
+  "fullscreen": false,
+  "targetFps": 60
+}
