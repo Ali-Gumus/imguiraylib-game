@@ -303,6 +303,80 @@ target_compile_definitions(editor PRIVATE
     CMAKE_EXE_PATH="${CMAKE_COMMAND}"
     BUILD_TREE_DIR="${CMAKE_BINARY_DIR}")
 
+# --- The developer environment, and why the Build panel has to load it -------
+#
+# NINJA CANNOT COMPILE WITHOUT IT, AND THE FAILURE LOOKS LIKE A BROKEN PROJECT.
+# MSBuild finds the toolchain by itself, so a Visual Studio generator builds
+# from any environment. Ninja does not: it runs `cl.exe` directly and relies on
+# INCLUDE, LIB and PATH being set the way a Developer Command Prompt sets them.
+# Visual Studio sets them before invoking Ninja on its own builds, so this is
+# invisible until something OUTSIDE Visual Studio starts a build - which is
+# exactly what the editor's Build panel does.
+#
+# The symptom is badly misleading: `fatal error C1083: Cannot open include file:
+# 'algorithm'`. A missing STANDARD LIBRARY header reads as a corrupted compiler
+# install or a broken project, when the real cause is an unset variable.
+#
+# So for the generators that need it, the path to vcvars64.bat is baked in and
+# the Build panel runs it before CMake. Left EMPTY for Visual Studio generators,
+# where calling it would be pointless risk.
+set(EDITOR_VCVARS "")
+set(EDITOR_VS_INSTALLER "")
+if(MSVC AND NOT CMAKE_GENERATOR MATCHES "Visual Studio")
+    # cl.exe lives at  <VS>/VC/Tools/MSVC/<version>/bin/Host<arch>/<arch>/cl.exe
+    # so six levels up from its folder is the VC directory that holds vcvars.
+    get_filename_component(_cl_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_vc_dir "${_cl_dir}/../../../../../.." ABSOLUTE)
+    if(EXISTS "${_vc_dir}/Auxiliary/Build/vcvars64.bat")
+        set(EDITOR_VCVARS "${_vc_dir}/Auxiliary/Build/vcvars64.bat")
+    endif()
+
+    # vcvars64.bat SHELLS OUT TO vswhere.exe and expects it on the PATH. In a
+    # Developer Command Prompt it is; in a process launched from Explorer or a
+    # debugger it is not, and vcvars then fails with "'vswhere.exe' is not
+    # recognized" and sets nothing - leaving the same missing-header error as
+    # before, one step further along. vswhere ships at a fixed location beside
+    # the VS installer, so the folder is found here and put on the PATH.
+    foreach(_cand "$ENV{ProgramFiles\(x86\)}/Microsoft Visual Studio/Installer"
+                  "C:/Program Files (x86)/Microsoft Visual Studio/Installer"
+                  "$ENV{ProgramFiles}/Microsoft Visual Studio/Installer")
+        if(EDITOR_VS_INSTALLER STREQUAL "" AND EXISTS "${_cand}/vswhere.exe")
+            set(EDITOR_VS_INSTALLER "${_cand}")
+        endif()
+    endforeach()
+
+    # THESE PATHS BECOME C STRING LITERALS, SO THEY MUST USE FORWARD SLASHES.
+    # Windows environment variables hand back backslashes ("C:\Program Files
+    # (x86)\..."), and a backslash in a C literal starts an escape sequence:
+    # "\P" is not one, so the compiler warns and silently drops the backslash,
+    # leaving a path that no longer exists. Every Windows API and cmd.exe accept
+    # forward slashes perfectly well, so normalising is the whole fix.
+    file(TO_CMAKE_PATH "${EDITOR_VCVARS}"       EDITOR_VCVARS)
+    file(TO_CMAKE_PATH "${EDITOR_VS_INSTALLER}" EDITOR_VS_INSTALLER)
+endif()
+
+# --- Single-config vs multi-config, which changes what the panel may offer ---
+#
+# `--config Release` is SILENTLY IGNORED by single-config generators. Ninja
+# trees carry one CMAKE_BUILD_TYPE fixed at configure time, so a panel offering
+# a Debug/Release choice against one would cheerfully produce a Debug build,
+# copy it to dist/Debug, and report Release. The panel therefore asks which kind
+# of tree it is building in and only offers the choice where the choice exists.
+get_property(_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_multi_config)
+    set(_multi 1)
+else()
+    set(_multi 0)
+endif()
+
+target_compile_definitions(editor PRIVATE
+    EDITOR_VCVARS_PATH="${EDITOR_VCVARS}"
+    EDITOR_VS_INSTALLER_DIR="${EDITOR_VS_INSTALLER}"
+    BUILD_MULTI_CONFIG=${_multi}
+    # Meaningful only for a single-config tree: the one configuration it can
+    # ever produce. Empty for multi-config, where the panel picks.
+    BUILD_TREE_CONFIG="${CMAKE_BUILD_TYPE}")
+
 # After every build, mirror assets/ next to the exe so relative paths
 # like "assets/scripts/spin.lua" work when VS launches it. copy_directory
 # only copies changed files, so this is cheap.

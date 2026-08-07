@@ -35,15 +35,31 @@ std::string Quoted(const std::string& s) { return "\"" + s + "\""; }
 // `2>&1` folds the error stream into the output stream. Compiler errors and
 // MSBuild's own diagnostics go to stderr, so without it a failing build shows
 // an empty log - which reads as "nothing happened" rather than "it failed".
-std::string MakeCommand(const std::string& cmakeExe,
-                        const std::string& buildDir,
-                        const std::string& config,
-                        const std::string& target) {
-    return "\"" + Quoted(cmakeExe) +
-           " --build " + Quoted(buildDir) +
-           " --config " + config +
-           " --target " + target +
-           " 2>&1\"";
+// THE DEVELOPER ENVIRONMENT IS LOADED FIRST WHEN THE TOOLCHAIN NEEDS IT.
+// Ninja runs cl.exe directly and relies on INCLUDE, LIB and PATH being set the
+// way a Developer Command Prompt sets them. A GUI process has none of that, and
+// the resulting error - a missing STANDARD header such as 'algorithm' - reads
+// like a broken compiler install rather than an unset variable. vcvars64.bat
+// sets them, and it in turn needs vswhere.exe on the PATH, which is why the
+// installer folder is prepended before it is called.
+//
+// `>nul 2>&1` on the vcvars call keeps its banner out of the build log; it
+// prints a dozen lines that say nothing about the build.
+std::string MakeCommand(const BuildRunner::Request& req) {
+    std::string inner;
+
+    if (!req.vcvars.empty()) {
+        if (!req.vsInstaller.empty())
+            inner += "set \"PATH=%PATH%;" + req.vsInstaller + "\" && ";
+        inner += "call " + Quoted(req.vcvars) + " >nul 2>&1 && ";
+    }
+
+    inner += Quoted(req.cmakeExe) + " --build " + Quoted(req.buildDir);
+    // Omitted entirely for a single-config tree - see Request::config.
+    if (!req.config.empty()) inner += " --config " + req.config;
+    inner += " --target " + req.target + " 2>&1";
+
+    return "\"" + inner + "\"";
 }
 
 } // namespace
@@ -78,13 +94,10 @@ void BuildRunner::Clear() {
     m_state->lines.clear();
 }
 
-bool BuildRunner::Start(const std::string& cmakeExe,
-                        const std::string& buildDir,
-                        const std::string& config,
-                        const std::string& target) {
+bool BuildRunner::Start(const Request& req) {
     if (m_state->running.load()) return false;
 
-    const std::string command = MakeCommand(cmakeExe, buildDir, config, target);
+    const std::string command = MakeCommand(req);
 
     {
         std::lock_guard<std::mutex> lock(m_state->mutex);

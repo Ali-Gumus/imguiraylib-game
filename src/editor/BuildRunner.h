@@ -43,16 +43,31 @@ class BuildRunner {
 public:
     BuildRunner();
 
-    // Start a build. `cmakeExe` is the full path to cmake.exe, `buildDir` the
-    // build tree to build in, and `config`/`target` the usual CMake arguments.
+    // Everything needed to launch one build.
     //
+    // `config` may be EMPTY, and that is meaningful rather than a mistake:
+    // single-config generators (Ninja, Makefiles) fix their configuration when
+    // the tree is created and silently IGNORE --config, so passing one there
+    // would produce a build of the wrong kind under the right name. Empty means
+    // "do not pass --config at all".
+    //
+    // `vcvars` may also be empty, meaning the toolchain needs no environment
+    // set up - true of Visual Studio generators, where MSBuild finds it itself.
+    // When it is given, it is run before CMake, with `vsInstaller` added to the
+    // PATH first because vcvars needs vswhere.exe from there.
+    struct Request {
+        std::string cmakeExe;
+        std::string buildDir;
+        std::string config;        // "" = single-config tree, omit --config
+        std::string target;
+        std::string vcvars;        // "" = no environment needed
+        std::string vsInstaller;   // folder holding vswhere.exe
+    };
+
     // Returns false and changes nothing if a build is already running - two
     // compilers writing the same object files is not something to find out
     // about later.
-    bool Start(const std::string& cmakeExe,
-               const std::string& buildDir,
-               const std::string& config,
-               const std::string& target);
+    bool Start(const Request& req);
 
     // True from Start() until the process has exited AND its output has been
     // completely read. The two are not the same moment, and reporting success

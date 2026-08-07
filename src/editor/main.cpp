@@ -50,8 +50,28 @@ namespace ed = ax::NodeEditor;     // a shorter alias for the node-editor namesp
 #ifndef BUILD_TREE_DIR
 #define BUILD_TREE_DIR ""
 #endif
-static constexpr const char* kCMakeExePath = CMAKE_EXE_PATH;
-static constexpr const char* kBuildTreeDir = BUILD_TREE_DIR;
+// The Developer Command Prompt script, and the folder holding the vswhere.exe
+// it depends on. Empty when the toolchain needs no environment (Visual Studio
+// generators, where MSBuild finds it itself). See the block in CMakeLists.txt.
+#ifndef EDITOR_VCVARS_PATH
+#define EDITOR_VCVARS_PATH ""
+#endif
+#ifndef EDITOR_VS_INSTALLER_DIR
+#define EDITOR_VS_INSTALLER_DIR ""
+#endif
+// 1 when the build tree holds every configuration and is told which to build,
+// 0 when it was fixed to one at configure time and ignores --config.
+#ifndef BUILD_MULTI_CONFIG
+#define BUILD_MULTI_CONFIG 0
+#endif
+#ifndef BUILD_TREE_CONFIG
+#define BUILD_TREE_CONFIG ""
+#endif
+static constexpr const char* kCMakeExePath    = CMAKE_EXE_PATH;
+static constexpr const char* kBuildTreeDir    = BUILD_TREE_DIR;
+static constexpr const char* kVcvarsPath      = EDITOR_VCVARS_PATH;
+static constexpr const char* kVsInstallerDir  = EDITOR_VS_INSTALLER_DIR;
+static constexpr const char* kBuildTreeConfig = BUILD_TREE_CONFIG;
 
 // EditorApp is our program. It inherits Application (which owns the window and
 // loop) and overrides the three per-frame hooks to add the editor's behavior.
@@ -806,22 +826,55 @@ public:
 
         const bool running = m_build.Running();
 
-        // The config is the one real choice here. Debug builds of this project
-        // drop frames badly, so a build meant for someone else must be Release;
-        // Debug is offered anyway because a crash in the shipped runtime is far
-        // easier to look at with symbols.
+        // WHICH CONFIGURATION, AND WHY THIS IS NOT ALWAYS A CHOICE.
+        //
+        // Multi-config trees (the Visual Studio generator) hold every
+        // configuration at once and are told which to build with --config.
+        // Single-config trees (Ninja, which is what Visual Studio's Open Folder
+        // mode uses) fix theirs when the tree is created and IGNORE --config
+        // entirely - silently, so asking a Debug tree for Release yields a
+        // Debug build reported as Release. The only honest thing a panel can do
+        // there is say what it is going to produce.
         const char* configs[] = {"Release", "Debug"};
+        std::string chosen;      // what to pass as --config; empty = do not pass
+
+        ImGui::BeginDisabled(running);
+#if BUILD_MULTI_CONFIG
         ImGui::SetNextItemWidth(120.0f);
         // Disabled mid-build: the config is baked into the command line when it
         // starts, so changing it while one runs would only mislabel the result.
-        ImGui::BeginDisabled(running);
         ImGui::Combo("Configuration", &m_buildConfig, configs, IM_ARRAYSIZE(configs));
+        chosen = configs[m_buildConfig];
+#else
+        // Nothing to choose. Say which configuration this tree produces, and how
+        // to get the other one, because "build a Release copy to send someone"
+        // is the whole point of the button and a Debug build of this project
+        // drops frames badly.
+        ImGui::Text("Configuration: %s", kBuildTreeConfig[0] ? kBuildTreeConfig
+                                                             : "(unspecified)");
+        ImGui::TextDisabled("This build tree produces one configuration only. "
+                            "For a Release build, switch the configuration and "
+                            "rebuild the editor from that tree.");
+        chosen.clear();
+#endif
 
         if (ImGui::Button(running ? "Building..." : "Build Game")) {
-            m_build.Start(kCMakeExePath, kBuildTreeDir,
-                          configs[m_buildConfig], "package_game");
+            edtr::BuildRunner::Request req;
+            req.cmakeExe    = kCMakeExePath;
+            req.buildDir    = kBuildTreeDir;
+            req.config      = chosen;
+            req.target      = "package_game";
+            req.vcvars      = kVcvarsPath;
+            req.vsInstaller = kVsInstallerDir;
+            m_build.Start(req);
         }
         ImGui::EndDisabled();
+
+        // Which folder package_game will have written to. For a multi-config
+        // tree that is the chosen configuration; for a single-config one it is
+        // the tree's own, whatever the panel would have preferred.
+        const char* outConfig =
+            BUILD_MULTI_CONFIG ? configs[m_buildConfig] : kBuildTreeConfig;
 
         // Opening the output folder is only offered once there is one.
         if (m_build.Finished() && m_build.Succeeded() && !running) {
@@ -830,7 +883,7 @@ public:
                 // Explorer is asked through the shell rather than through
                 // windows.h, keeping this file free of it (see BuildRunner.h).
                 std::string cmd = std::string("explorer \"") + PROJECT_ROOT_DIR +
-                                  "\\dist\\" + configs[m_buildConfig] + "\"";
+                                  "\\dist\\" + outConfig + "\"";
                 // Explorer's exit code is famously unreliable - it returns
                 // non-zero on success often enough that testing it is worse
                 // than useless - so the result is deliberately ignored.
@@ -850,8 +903,7 @@ public:
         } else if (m_build.Finished()) {
             if (m_build.Succeeded()) {
                 ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f},
-                                   "Build succeeded -> dist/%s/",
-                                   configs[m_buildConfig]);
+                                   "Build succeeded -> dist/%s/", outConfig);
             } else {
                 // The exit code is shown because it is the only trustworthy
                 // signal: compilers print the word "error" in lines that are
