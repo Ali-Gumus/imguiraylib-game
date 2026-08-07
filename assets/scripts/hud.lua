@@ -78,7 +78,24 @@
 -- =============================================================================
 
 properties = {
-    show_crosshair = 1,   -- 1 or 0; a switch, since the graph language has no bools
+    -- THE FIXED CENTRE CROSS, OFF BY DEFAULT, AND THE REASON MATTERS.
+    --
+    -- On a real aircraft the gun cross is painted at a fixed spot on the glass
+    -- and that is honest, because the pilot's eye is behind the glass and the
+    -- gun is bolted to the aeroplane: straight ahead on the HUD really is
+    -- straight ahead down the barrel.
+    --
+    -- Here the view is a CHASE CAMERA sitting behind and above the aircraft, so
+    -- the centre of the screen is not down the barrel and never was. The cross
+    -- sat on the jet's own back while the rounds went somewhere else entirely -
+    -- an aiming mark that points at nothing, which is worse than no mark at all.
+    -- The bullet-path pipper below replaces it and is placed by projecting the
+    -- real impact point through the real camera.
+    --
+    -- Kept as a switch rather than deleted: it is still a valid centre-of-screen
+    -- reference for anyone who wants one. 1 or 0, since the graph language has
+    -- no bools.
+    show_crosshair = 0,
 
     -- Height in pixels of the LIVE READOUTS - the airspeed and altitude boxes
     -- and the score. The small labels on the tapes and the pitch ladder are not
@@ -708,32 +725,32 @@ function onDrawHud(entity, w, h)
             local wy = my + by * ft - 0.5 * 9.81 * P.gun_gravity * ft * ft
             local wz = mz + bz * ft
 
-            -- The direction from the aircraft to that point, as a unit vector,
-            -- then the same two angles the flight path marker is placed with.
-            local dx, dy, dz = wx - p.x, wy - p.y, wz - p.z
-            local d = math.sqrt(dx * dx + dy * dy + dz * dz)
-            if d > 0.001 then
-                dx, dy, dz = dx / d, dy / d, dz / d
+            -- PROJECTED THROUGH THE CAMERA, NOT PLACED IN THE AIRCRAFT'S FRAME.
+            -- This is the one symbol on the display that must agree with what
+            -- can be SEEN, because it is used by putting it on top of a target.
+            -- Everything else here - the ladder, the flight path marker - is an
+            -- instrument and is deliberately drawn relative to the aircraft.
+            --
+            -- The difference is not small. The world is drawn from a chase
+            -- camera set behind and above the aircraft which takes only part of
+            -- its roll, so a mark placed at "two degrees below the nose" in the
+            -- aircraft's frame lands nowhere near where a target two degrees
+            -- below the nose actually appears on screen.
+            --
+            -- nil means the point is behind the camera, which happens when the
+            -- aircraft is pointing back towards it. Nothing sensible can be
+            -- drawn then, so nothing is.
+            local sx, sy = Draw.worldToScreen(wx, wy, wz)
+            if sx ~= nil then
+                -- Put this on a target and the rounds arrive there. A ring
+                -- rather than a blob, so what is being shot at stays visible
+                -- inside the very mark meant to aim at it.
+                Draw.circleLines(sx, sy, 9, col)
+                Draw.circle(sx, sy, 1.5, col)
 
-                local f_dot = dot(dx, dy, dz, fwd.x, fwd.y, fwd.z)
-                -- Behind the aircraft there is nothing sensible to draw, and the
-                -- angles below would fold back onto the display.
-                if f_dot > 0.01 then
-                    local r_dot = dot(dx, dy, dz, rgt.x, rgt.y, rgt.z)
-                    local u_dot = dot(dx, dy, dz, up.x, up.y, up.z)
-
-                    local ax = math.deg(math.atan(r_dot, f_dot))
-                    local ay = math.deg(math.atan(-u_dot, f_dot))
-
-                    local sx = cx + clamp(ax * ppd, -w * 0.45, w * 0.45)
-                    local sy = cy + clamp(ay * ppd, -h * 0.45, h * 0.45)
-
-                    -- Put this on a target at `gun_range` and the rounds arrive
-                    -- there. A ring rather than a blob, so what is being shot at
-                    -- stays visible inside the very mark meant to aim at it.
-                    Draw.circleLines(sx, sy, 9, col)
-                    Draw.circle(sx, sy, 1.5, col)
-                end
+                -- A short tick above it, so the ring can still be picked out
+                -- against a busy landscape where a thin circle disappears.
+                Draw.line(sx, sy - 14, sx, sy - 9, col)
             end
         end
     end

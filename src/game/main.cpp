@@ -481,6 +481,10 @@ private:
         // every overlay would silently draw nothing.
         if (m_started) {
             eng::ActiveScene active(m_scene);
+            // Tell the HUD which camera the world was just drawn through, so a
+            // script can place a mark ON something it can see. Set every frame
+            // because the chase camera moves constantly.
+            eng::SetHudCamera(cam, GetScreenWidth(), GetScreenHeight());
             // Opens the window in which the scripting draw calls work. Outside
             // it they do nothing, so a script drawing from the wrong hook fails
             // quietly instead of scribbling into the middle of the 3D pass.

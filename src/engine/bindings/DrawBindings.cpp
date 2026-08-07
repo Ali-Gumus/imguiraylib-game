@@ -56,6 +56,38 @@ void RegisterDrawBindings(sol::state& lua) {
         if (!HudDrawAllowed()) return;
         DrawCircleLines((int)x, (int)y, r, HudColor(col.value_or(std::string())));
     };
+
+    // Draw.worldToScreen(x, y, z) -> sx, sy   (or nil when it cannot be seen)
+    //
+    // Turns a place IN THE WORLD into a place ON THE GLASS, using the camera the
+    // world was just drawn through. This is what a marker needs in order to sit
+    // on top of the thing it refers to - an aiming mark, a target box, a label
+    // over a building.
+    //
+    // It is NOT how the pitch ladder or the flight path marker should be placed.
+    // Those are instruments: they answer "where is this relative to my
+    // aircraft", which is a question about the aircraft and not about where a
+    // camera happens to be standing.
+    //
+    // Returns TWO values, or nil. Returning nil rather than an off-screen
+    // coordinate forces the caller to decide what to do about a point that
+    // cannot be seen, instead of silently drawing it in the wrong place - which
+    // for anything behind the camera would be mirrored to the opposite side of
+    // the display.
+    dr["worldToScreen"] = [](float x, float y, float z,
+                             sol::this_state s) -> sol::variadic_results {
+        sol::variadic_results out;
+        Vector2 p{};
+        if (!WorldToHudScreen(Vector3{x, y, z}, p)) {
+            out.push_back({s, sol::in_place, sol::lua_nil});
+            return out;
+        }
+        // Two numbers, matching how the rest of this API talks about positions -
+        // loose components rather than a table the caller has to unpack.
+        out.push_back({s, sol::in_place, p.x});
+        out.push_back({s, sol::in_place, p.y});
+        return out;
+    };
     dr["line"] = [](float x1, float y1, float x2, float y2,
                     sol::optional<std::string> col) {
         if (!HudDrawAllowed()) return;
@@ -95,6 +127,11 @@ void DescribeDrawBindings(LuaApiRegistry& api) {
     d.Fn("circle(x, y, r [, color])",         "A filled circle");
     d.Fn("circleLines(x, y, r [, color])",   "A circle outline");
     d.Fn("line(x1, y1, x2, y2 [, color])",    "A straight line");
+    d.Fn("worldToScreen(x, y, z) -> sx, sy",
+         "Where a world point appears on screen, through the camera the world was "
+         "drawn with. nil when it is behind the camera. Use it to put a mark ON "
+         "something you can see - an aiming pipper, a target box. NOT for "
+         "instruments like a pitch ladder, which are relative to the aircraft");
     d.Fn("triangle(x1, y1, x2, y2, x3, y3 [, color])",
          "A filled triangle. Winding is corrected for you");
     d.Fn("defineColor(name, r, g, b [, a])",

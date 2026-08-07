@@ -58,6 +58,26 @@ bool HudDrawAllowed();
 void BeginHudPass();
 void EndHudPass();
 
+// WHICH CAMERA THE HUD IS BEING DRAWN OVER, and how big the surface is.
+//
+// Most HUD symbology is placed in the AIRCRAFT'S frame - the pitch ladder and
+// the flight path marker are instruments, and an instrument answers "where is
+// this relative to my aircraft", which needs no camera at all.
+//
+// A GUNSIGHT is the exception, and it is a big one. Its whole job is to sit on
+// top of the thing you are about to shoot, so it has to be placed where that
+// thing actually APPEARS - which depends entirely on the camera. This game is
+// drawn from a chase camera set behind and above the aircraft that takes only
+// part of its roll, so an aiming mark placed in the aircraft's frame lands
+// nowhere near the target on screen. Whoever dispatches OnDrawHud therefore
+// says which camera the world was just drawn through.
+void SetHudCamera(const Camera3D& cam, int width, int height);
+
+// Project a world point onto the HUD surface. Returns false when the point is
+// BEHIND the camera, where a projection produces a mirrored position that looks
+// plausible and is completely wrong.
+bool WorldToHudScreen(Vector3 world, Vector2& outScreen);
+
 void  SetHudValue(const std::string& key, float value);
 float GetHudValue(const std::string& key, float fallback = 0.0f);
 // Forget every published HUD value. Called when play starts so each run begins

@@ -9,6 +9,8 @@
 
 #include "engine/Components.h"
 
+#include "raymath.h"   // Vector3Normalize/Subtract/DotProduct, for the HUD projection
+
 #include <string>
 #include <unordered_map>
 
@@ -57,6 +59,43 @@ static bool s_hudPass = false;
 bool HudDrawAllowed() { return s_hudPass; }
 void BeginHudPass()   { s_hudPass = true; }
 void EndHudPass()     { s_hudPass = false; }
+
+// The camera the world was last drawn through, and the size of the surface it
+// was drawn onto. Set once per frame by whoever dispatches the HUD pass.
+static Camera3D s_hudCam{};
+static int      s_hudW = 0;
+static int      s_hudH = 0;
+static bool     s_hudCamSet = false;
+
+void SetHudCamera(const Camera3D& cam, int width, int height) {
+    s_hudCam    = cam;
+    s_hudW      = width;
+    s_hudH      = height;
+    s_hudCamSet = true;
+}
+
+bool WorldToHudScreen(Vector3 world, Vector2& outScreen) {
+    if (!s_hudCamSet || s_hudW <= 0 || s_hudH <= 0) return false;
+
+    // BEHIND THE CAMERA IS THE CASE THAT MATTERS. A perspective projection
+    // divides by depth, and for a point behind the eye that depth is negative -
+    // the result is a position mirrored through the centre of the screen, which
+    // looks like a perfectly ordinary coordinate and is completely wrong. An
+    // aiming mark that jumps to the opposite side of the display whenever the
+    // target passes behind is worse than one that disappears, so the sign is
+    // tested first and the caller is told to draw nothing.
+    const Vector3 fwd = Vector3Normalize(Vector3Subtract(s_hudCam.target,
+                                                         s_hudCam.position));
+    const Vector3 rel = Vector3Subtract(world, s_hudCam.position);
+    if (Vector3DotProduct(rel, fwd) <= 0.0f) return false;
+
+    // GetWorldToScreenEx rather than GetWorldToScreen, because the surface is
+    // not necessarily the window: the editor draws the game into a panel-sized
+    // render texture, and using the window's size there puts every projected
+    // point in the wrong place by the difference.
+    outScreen = GetWorldToScreenEx(world, s_hudCam, s_hudW, s_hudH);
+    return true;
+}
 
 void SetHudValue(const std::string& key, float value) { HudValues()[key] = value; }
 float GetHudValue(const std::string& key, float fallback) {

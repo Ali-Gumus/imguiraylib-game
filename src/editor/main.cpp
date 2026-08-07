@@ -480,6 +480,12 @@ public:
             // rule on ActiveScene in Scene.h.
             {
                 eng::ActiveScene active(m_scene);
+                // The camera the Game view was just drawn through, and the size
+                // of the TEXTURE rather than the window - the panel is whatever
+                // size it has been dragged to, and projecting against the
+                // window's size would put every mark in the wrong place.
+                eng::SetHudCamera(cam, m_gameRT.texture.width,
+                                  m_gameRT.texture.height);
                 // Opens the window in which the scripting `draw.*` calls work.
                 // Outside it they do nothing, so a script drawing from the wrong
                 // hook fails quietly instead of scribbling pixel-space shapes
