@@ -21,6 +21,9 @@ Builds are on the [Releases](https://github.com/Ali-Gumus/imguiraylib-game/relea
 page - unzip and run `game.exe`. Nothing to install; the C++ runtime ships with
 it.
 
+The keys are listed in the game's own Controls screen too, so this table is a
+convenience rather than the only copy.
+
 | | |
 |---|---|
 | **W / S** | pitch (W raises the nose) |
@@ -30,7 +33,7 @@ it.
 | **G** | landing gear |
 | **Space** | guns |
 | **R** | restart after a game over |
-| **Escape** | quit |
+| **Escape** | pause, and the way back to the menu |
 
 The controls **ramp rather than snap**. A keyboard has two positions and a stick
 has a continuum, so mapping a key straight to a control surface makes tapping W a
@@ -236,12 +239,9 @@ common type names into a project that already fights raylib's globals.
 | Ground war - camps, AA emplacements, radar marks | ✅ |
 | Aerodynamic flight model (JSBSim) | ✅ |
 | Standalone game build and packaging | ✅ |
-| Main menu | ⬜ |
+| Main menu, pause and a controls screen | ✅ |
 
 The full feature plan lives in `jetgame_plan.xlsx`.
-
-Releases before a main menu exists are marked **pre-release**: the game drops you
-straight into the air.
 
 A missing asset degrades rather than crashes - a missing model falls back to a
 primitive shape, and a missing sound is silent and flagged in the toolbar.
