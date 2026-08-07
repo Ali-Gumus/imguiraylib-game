@@ -1012,5 +1012,13 @@ function onDrawHud(entity, w, h)
 
         local t3 = "Press R to restart"
         text_c(t3, cx, cy + 52, 20, "white")
+
+        -- The standalone game offers a way back to its title screen from here.
+        -- Named on the same screen as the restart key because a frozen world
+        -- with only one documented way out reads as having only one way out.
+        -- In the editor Escape does nothing at this point, which is harmless:
+        -- the Stop button is the way out of a run there.
+        local t4 = "Press ESC for the menu"
+        text_c(t4, cx, cy + 80, 20, "white")
     end
 end

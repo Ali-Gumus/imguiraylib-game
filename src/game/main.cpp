@@ -98,6 +98,28 @@ static GameConfig LoadConfig(const char* path) {
 }
 
 // -----------------------------------------------------------------------------
+// WHAT THE PROGRAM IS DOING RIGHT NOW.
+//
+// The menu is a state of the RUNTIME rather than something inside the scene, and
+// that is the whole reason it works simply. A menu drawn by a script would need
+// the world to be running in order to draw it - so the aircraft would already be
+// flying, burning fuel and being shot at behind the title. Keeping the state out
+// here means the scene is loaded but untouched until Start is chosen, and the
+// menu can show it as a still backdrop without it being a game in progress.
+//
+// GameOver is deliberately NOT a state. Whether the run has ended is a fact the
+// gameplay owns - gamemanager.lua sets the `game_over` HUD value and hud.lua
+// draws the screen for it - so asking that value is the single source of truth.
+// A second copy of it out here could disagree with the one on screen.
+// -----------------------------------------------------------------------------
+enum class State {
+    Menu,        // the title screen, nothing running
+    Controls,    // the key list, reachable from the menu and from a pause
+    Playing,     // the world is advancing (this covers the game-over freeze too)
+    Paused,      // mid-run, world frozen, menu over the top
+};
+
+// -----------------------------------------------------------------------------
 // The runtime itself.
 // -----------------------------------------------------------------------------
 class GameApp {
@@ -115,6 +137,13 @@ public:
         // window to switch has nothing to measure.
         if (m_cfg.fullscreen) ToggleFullscreen();
         SetTargetFPS(m_cfg.targetFps);
+
+        // ESCAPE MUST STOP CLOSING THE WINDOW. raylib treats it as the exit key
+        // by default, which was right when the game had no menu and wrong the
+        // moment it has one: Escape now pauses, and quitting is a decision made
+        // in the menu. Without this the first press of Escape ends the program
+        // instead of opening the pause screen.
+        SetExitKey(KEY_NULL);
 
         // These three are GPU objects and need the window's OpenGL context, so
         // none of them can be created before InitWindow above.
@@ -142,7 +171,16 @@ public:
         // editor has to keep opening and closing this; here it is opened once.
         eng::SetScriptInputEnabled(true);
 
-        StartRun();
+        // Read the data files and pull every model off disk BEFORE the menu
+        // appears. Two reasons, and the second is the one that matters: the menu
+        // shows the scene as a backdrop, and a model that has not loaded yet
+        // draws as a fallback primitive - so without this the title screen is a
+        // field of grey boxes that turn into aircraft the moment you press
+        // Start. It also puts the several megabytes of loading in the one place
+        // where waiting is expected.
+        PrepareAssets();
+
+        m_state = State::Menu;
         return true;
     }
 
@@ -158,11 +196,12 @@ public:
         CloseWindow();
     }
 
-    // The main loop. WindowShouldClose() becomes true on the window's close
-    // button or on Escape, which raylib treats as the exit key by default -- and
-    // which is the only way out of a fullscreen game, so it is left alone.
+    // The main loop. WindowShouldClose() covers the window's close button; Escape
+    // no longer ends the program (see SetExitKey above), so quitting from the
+    // menu sets its own flag - which is also the only way out of a fullscreen
+    // game, where there is no close button to click.
     void Run() {
-        while (!WindowShouldClose()) {
+        while (!WindowShouldClose() && !m_quit) {
             Update(GetFrameTime());
             Render();
         }
@@ -175,6 +214,37 @@ private:
     // reason: scripts change the live scene as they run -- spawning enemies,
     // destroying camps, moving the aircraft -- so the only way to begin again is
     // to have kept what it looked like before any of that happened.
+    // Re-read the data files and pull every model off disk. Called once before
+    // the menu appears and again on each run, so retuning an effect is a matter
+    // of editing its file and starting a new run. Loading a model is cached, so
+    // every call after the first is nearly free.
+    void PrepareAssets() {
+        eng::ReloadEffectPresets();
+        eng::ReloadSoundDefs();
+        eng::ReloadModelDefs();
+        eng::PreloadModelDefs();
+    }
+
+    // Put the authored scene back and drop everything the run built up, so the
+    // menu's backdrop is the world as it was designed rather than the wreckage
+    // the last run left, and so the next Start begins from the same place the
+    // first one did.
+    void ReturnToMenu() {
+        if (!m_backup.empty()) {
+            m_scene.Entities().clear();
+            for (const eng::Entity& e : m_backup)
+                m_scene.Entities().push_back(e.Clone());
+        }
+        eng::ClearHudValues();
+        eng::ClearParticles();
+        eng::StopAllAudio();
+        eng::ResetPhysics();
+
+        m_started = false;
+        m_state   = State::Menu;
+        m_sel     = 0;
+    }
+
     void StartRun() {
         if (m_backup.empty()) {
             for (const eng::Entity& e : m_scene.Entities())
@@ -195,20 +265,13 @@ private:
         eng::StopAllAudio();
         eng::ResetPhysics();
 
-        // Re-read the data files. In the editor this exists so retuning an
-        // effect is a matter of editing a file and pressing Play; here it costs
-        // nothing and keeps the two paths identical.
-        eng::ReloadEffectPresets();
-        eng::ReloadSoundDefs();
-        eng::ReloadModelDefs();
-
-        // Read every model file up front. Loading one costs several megabytes
-        // off disk, and paying it here -- where a pause is expected -- stops a
-        // wave of enemies stalling the game the moment it appears.
-        eng::PreloadModelDefs();
+        PrepareAssets();
 
         m_scene.Start();
         ReportScriptErrors();
+
+        m_started = true;
+        m_state   = State::Playing;
     }
 
     // Say out loud which scripts are broken.
@@ -256,12 +319,34 @@ private:
         // they must be topped up every frame or they stutter and stop.
         eng::UpdateAudio();
 
-        // Once a script sets "game_over" the world freezes on the game-over
-        // screen -- scripts stop advancing, so the wreck stays where it fell --
-        // and R begins again. This is the editor's behaviour, and the HUD script
-        // already draws the prompt that goes with it.
+        // SCRIPTS ONLY GET THE KEYBOARD WHILE THE WORLD IS RUNNING. Without
+        // this the aircraft is being flown behind the pause screen: the scripts
+        // are not updating, but the moment play resumes the controls have
+        // whatever was pressed while navigating the menu, and the throttle in
+        // particular ramps the whole time Shift is held.
+        eng::SetScriptInputEnabled(m_state == State::Playing);
+
+        switch (m_state) {
+            case State::Menu:     UpdateMenu();     return;
+            case State::Controls: UpdateControls(); return;
+            case State::Paused:   UpdatePaused();   return;
+            case State::Playing:  break;
+        }
+
+        // Once a script sets "game_over" the world freezes -- scripts stop
+        // advancing, so the wreck stays where it fell. hud.lua draws the screen
+        // and its prompts; the two keys it names are handled here.
         if (eng::GetHudValue("game_over", 0.0f) > 0.0f) {
-            if (IsKeyPressed(KEY_R)) StartRun();
+            if (IsKeyPressed(KEY_R))      StartRun();
+            if (IsKeyPressed(KEY_ESCAPE)) ReturnToMenu();
+            return;
+        }
+
+        // Escape pauses. Checked before the world advances so the frame the key
+        // is pressed is not also a frame of flying.
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            m_state = State::Paused;
+            m_sel   = 0;
             return;
         }
 
@@ -273,6 +358,75 @@ private:
         // Stepping first would act on last frame's decisions and leave the
         // controls feeling a frame late.
         eng::UpdatePhysics(m_scene, dt);
+    }
+
+    // -- the menus -------------------------------------------------------------
+
+    // Move the highlight and report whether this frame's key was "choose".
+    //
+    // `count` is passed rather than read from a member because each screen has a
+    // different number of items, and wrapping at the wrong count either skips an
+    // entry or selects one that is not drawn.
+    // W AND S MOVE THE HIGHLIGHT AS WELL AS THE ARROWS, and that is not padding:
+    // W and S are the pitch axis in the air, so a player's hand is already there
+    // and reaching for the arrows to choose a menu item is a context switch for
+    // no reason. Accepting both also means the menu still works for anyone whose
+    // arrow keys arrive as numpad keys, which is what happens when the extended-
+    // key flag is missing from synthesised input.
+    bool MenuInput(int count) {
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S))
+            m_sel = (m_sel + 1) % count;
+        // Adding count before the modulo keeps the result positive: in C++ the
+        // remainder of a negative number is negative, so moving up from the top
+        // item would otherwise land on index -1.
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W))
+            m_sel = (m_sel + count - 1) % count;
+        return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) ||
+               IsKeyPressed(KEY_SPACE);
+    }
+
+    void UpdateMenu() {
+        const bool chose = MenuInput(3);
+        if (!chose) return;
+        switch (m_sel) {
+            case 0: StartRun();                break;   // Start
+            case 1: OpenControls(State::Menu); break;
+            case 2: m_quit = true;             break;
+        }
+    }
+
+    void UpdatePaused() {
+        // Escape backs out of a pause, which is what pressing it again should
+        // obviously do.
+        if (IsKeyPressed(KEY_ESCAPE)) { m_state = State::Playing; return; }
+
+        const bool chose = MenuInput(4);
+        if (!chose) return;
+        switch (m_sel) {
+            case 0: m_state = State::Playing;    break;   // Resume
+            case 1: OpenControls(State::Paused); break;
+            case 2: ReturnToMenu();              break;
+            case 3: m_quit = true;               break;
+        }
+    }
+
+    void UpdateControls() {
+        // Any of the "back" keys leaves, because a screen with nothing to choose
+        // should not be a puzzle to escape from.
+        if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_ENTER) ||
+            IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE)) {
+            m_state = m_controlsReturn;
+            // Land the highlight back on the entry that opened this screen, so
+            // returning does not silently move the selection somewhere else.
+            m_sel = 1;
+        }
+    }
+
+    // Remembering where to go back to is what lets one Controls screen serve
+    // both the title menu and a pause.
+    void OpenControls(State from) {
+        m_controlsReturn = from;
+        m_state          = State::Controls;
     }
 
     // -- one frame of drawing -------------------------------------------------
@@ -316,11 +470,16 @@ private:
         // "screen space" means: the 3D pass is over, so there is no camera or
         // matrix left to fight.
         //
+        // ONLY ONCE A RUN HAS STARTED. These come from scripts, and before
+        // Scene::Start has run none of them have had their onStart - a HUD drawn
+        // from uninitialised state is at best empty and at worst an error on
+        // every frame of the title screen.
+        //
         // THE SCENE MUST BE MARKED ACTIVE HERE. An overlay looks other entities
         // up through Scene::Current() -- a radar has to find its contacts -- and
         // outside Update nothing has marked one, so it would return null and
         // every overlay would silently draw nothing.
-        {
+        if (m_started) {
             eng::ActiveScene active(m_scene);
             // Opens the window in which the scripting draw calls work. Outside
             // it they do nothing, so a script drawing from the wrong hook fails
@@ -332,7 +491,123 @@ private:
             eng::EndHudPass();
         }
 
+        switch (m_state) {
+            case State::Menu:     DrawMenuScreen();     break;
+            case State::Controls: DrawControlsScreen(); break;
+            case State::Paused:   DrawPauseScreen();    break;
+            case State::Playing:  break;
+        }
+
         EndDrawing();
+    }
+
+    // -- menu drawing ----------------------------------------------------------
+
+    // Text centred on x. MeasureText is asked for the width rather than the
+    // string length being guessed at, because the font is not monospaced and a
+    // title centred by character count is visibly off.
+    static void TextCentred(const char* s, int cx, int y, int size, Color c) {
+        DrawText(s, cx - MeasureText(s, size) / 2, y, size, c);
+    }
+
+    // Dim the world behind a menu. The backdrop is there to be recognisable, not
+    // to be read, and text over an undimmed landscape is illegible wherever it
+    // happens to cross a bright hillside.
+    static void DimBackdrop() {
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                      Color{0, 0, 0, 170});
+    }
+
+    // One column of choices, the selected one picked out. Returns nothing: the
+    // selection itself lives in m_sel and was decided during the update, so that
+    // drawing never changes state.
+    void DrawItems(const char* const* items, int count, int cx, int top) {
+        const int size = 30;
+        const int step = 46;
+        for (int i = 0; i < count; ++i) {
+            const bool on = (i == m_sel);
+            // The highlight is a colour change AND a marker, not colour alone:
+            // a difference in brightness is easy to miss on a bright backdrop,
+            // and colour alone excludes anyone who cannot separate the two.
+            Color c = on ? Color{255, 220, 120, 255} : Color{200, 205, 210, 255};
+            TextCentred(items[i], cx, top + i * step, size, c);
+            if (on) {
+                const int half = MeasureText(items[i], size) / 2;
+                TextCentred(">", cx - half - 26, top + i * step, size, c);
+                TextCentred("<", cx + half + 26, top + i * step, size, c);
+            }
+        }
+    }
+
+    void DrawMenuScreen() {
+        DimBackdrop();
+        const int cx = GetScreenWidth() / 2;
+        const int cy = GetScreenHeight() / 2;
+
+        TextCentred("WINCHESTER", cx, cy - 170, 72, Color{240, 240, 245, 255});
+        TextCentred("out of ammunition", cx, cy - 92, 20, Color{150, 160, 170, 255});
+
+        static const char* items[] = {"START", "CONTROLS", "QUIT"};
+        DrawItems(items, 3, cx, cy - 20);
+
+        TextCentred("W / S or UP / DOWN to move, ENTER to choose", cx,
+                    GetScreenHeight() - 44, 18, Color{120, 130, 140, 255});
+    }
+
+    void DrawPauseScreen() {
+        DimBackdrop();
+        const int cx = GetScreenWidth() / 2;
+        const int cy = GetScreenHeight() / 2;
+
+        TextCentred("PAUSED", cx, cy - 150, 56, Color{240, 240, 245, 255});
+
+        static const char* items[] = {"RESUME", "CONTROLS", "BACK TO MENU", "QUIT"};
+        const int top = cy - 50;
+        DrawItems(items, 4, cx, top);
+
+        // Placed under the items rather than at the bottom of the window. The
+        // HUD is still drawn underneath a pause, and the window's bottom edge is
+        // where its damage bar lives - a hint pinned there lands on top of it.
+        TextCentred("W / S or UP / DOWN to move, ENTER to choose, ESC to resume",
+                    cx, top + 4 * 46 + 24, 18, Color{120, 130, 140, 255});
+    }
+
+    void DrawControlsScreen() {
+        DimBackdrop();
+        const int cx = GetScreenWidth() / 2;
+        int y = GetScreenHeight() / 2 - 190;
+
+        TextCentred("CONTROLS", cx, y, 48, Color{240, 240, 245, 255});
+        y += 90;
+
+        // Laid out as two columns around the centre line: keys right-aligned
+        // against it, descriptions left-aligned after it, so the gap between
+        // them is straight all the way down whatever the text lengths are.
+        struct Row { const char* key; const char* what; };
+        static const Row rows[] = {
+            {"W / S",        "Pitch - W raises the nose"},
+            {"A / D",        "Roll"},
+            {"Q / E",        "Rudder"},
+            {"SHIFT / CTRL", "Throttle - the top lights the afterburner"},
+            {"G",            "Landing gear"},
+            {"SPACE",        "Guns"},
+            {"R",            "Restart, after a game over"},
+            {"ESC",          "Pause"},
+        };
+
+        const int size = 20;
+        const int step = 30;
+        const int gap  = 24;      // half the space between the two columns
+        for (const Row& r : rows) {
+            DrawText(r.key, cx - gap - MeasureText(r.key, size), y, size,
+                     Color{255, 220, 120, 255});
+            DrawText(r.what, cx + gap, y, size, Color{200, 205, 210, 255});
+            y += step;
+        }
+
+        // Under the table for the same reason as the pause hint: this screen can
+        // be opened mid-run, with the HUD still drawn behind it.
+        TextCentred("ESC to go back", cx, y + 24, 18, Color{120, 130, 140, 255});
     }
 
     // -- the pieces the editor also has ---------------------------------------
@@ -427,6 +702,17 @@ private:
     Model  m_sky{};
     bool   m_skyReady    = false;
     int    m_skyScaleLoc = -1;
+
+    // --- menu state ---------------------------------------------------------
+    State m_state = State::Menu;
+    // Where the Controls screen returns to, so one screen serves both the title
+    // menu and a pause.
+    State m_controlsReturn = State::Menu;
+    int   m_sel     = 0;       // highlighted item on whichever menu is showing
+    bool  m_quit    = false;   // set by the Quit item; ends the main loop
+    // Whether Scene::Start has run. Guards the HUD pass, which is drawn by
+    // scripts that have not been started yet on the title screen.
+    bool  m_started = false;
 };
 
 int main(int argc, char** argv) {
